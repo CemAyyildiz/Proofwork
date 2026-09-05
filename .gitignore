@@ -1,0 +1,40 @@
+# AI tooling and planning artifacts — never committed
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+_bmad/
+_bmad-output/
+AGENTS.md
+
+# secrets and environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.secret
+
+# dependencies and build
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.turbo/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# logs and temp
+*.log
+npm-debug.log*
+pnpm-debug.log*
+tmp/
+.cache/

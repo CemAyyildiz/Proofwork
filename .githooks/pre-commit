@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Block secrets, forbidden files and stray Markdown from being committed.
+set -euo pipefail
+fail=0
+files="$(git diff --cached --name-only --diff-filter=ACMR)"
+[ -z "$files" ] && exit 0
+
+while IFS= read -r f; do
+  case "$f" in
+    CLAUDE.md|CLAUDE.local.md|AGENTS.md|.claude/*|_bmad/*|_bmad-output/*|*.docx)
+      echo "pre-commit: '$f' must not be committed." >&2; fail=1 ;;
+    .env|.env.*)
+      [ "$f" != ".env.example" ] && { echo "pre-commit: env file '$f' must not be committed." >&2; fail=1; } ;;
+    *.md)
+      case "$f" in
+        README.md|docs/*) ;;
+        *) echo "pre-commit: Markdown outside README.md and docs/ is not allowed: '$f'." >&2; fail=1 ;;
+      esac ;;
+  esac
+done <<< "$files"
+
+# Secret patterns in staged content (Stellar secret seeds, private keys, common API tokens).
+if git diff --cached -U0 | grep -E '^\+' | grep -Ev '^\+\+\+' | grep -Eq \
+   -e 'S[A-Z2-7]{55}' \
+   -e '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' \
+   -e '(api[_-]?key|secret|token|password)["'"'"']?\s*[:=]\s*["'"'"'][A-Za-z0-9_\-]{16,}' \
+   -e 'sk_(live|test)_[A-Za-z0-9]{16,}' \
+   -e 'ghp_[A-Za-z0-9]{36}'; then
+  echo "pre-commit: possible secret in staged changes. Remove it before committing." >&2
+  fail=1
+fi
+
+# Personal email must not land in the repo.
+if git diff --cached -U0 | grep -E '^\+' | grep -Eiq 'REDACTED|REDACTED'; then
+  echo "pre-commit: personal email address in staged changes." >&2
+  fail=1
+fi
+
+exit $fail

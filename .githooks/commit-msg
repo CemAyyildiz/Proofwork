@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Reject commit messages carrying AI attribution.
+set -euo pipefail
+msg_file="$1"
+if grep -Eiq '^(co-authored-by|signed-off-by).*(claude|anthropic|gpt|openai|copilot|ai)' "$msg_file" \
+   || grep -Eiq 'generated with .*(claude|ai)|🤖|noreply@anthropic\.com' "$msg_file"; then
+  echo "commit-msg: AI attribution is not allowed in commit messages." >&2
+  exit 1
+fi
+subject="$(sed -n '1p' "$msg_file")"
+if [ "${#subject}" -gt 72 ]; then
+  echo "commit-msg: subject line exceeds 72 characters." >&2
+  exit 1
+fi
+if ! printf '%s' "$subject" | grep -Eq '^(feat|fix|chore|docs|test|refactor|perf|ci|build|revert)(\([a-z0-9/-]+\))?!?: [^ ]'; then
+  echo "commit-msg: subject must follow conventional commits, e.g. 'feat: add review queue'." >&2
+  exit 1
+fi

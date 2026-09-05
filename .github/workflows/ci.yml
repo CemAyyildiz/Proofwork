@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm audit --audit-level=high
+      - name: repo hygiene (same rules as .githooks/pre-commit)
+        run: |
+          set -e
+          bad=$(git ls-files | grep -E '^(CLAUDE\.md|AGENTS\.md|\.claude/|_bmad/|_bmad-output/|\.env$|\.env\.[^e])' || true)
+          [ -z "$bad" ] || { echo "forbidden files tracked: $bad"; exit 1; }
+          md=$(git ls-files '*.md' | grep -Ev '^(README\.md|docs/)' || true)
+          [ -z "$md" ] || { echo "markdown outside README.md/docs: $md"; exit 1; }
+          ! git ls-files | xargs grep -lE 'S[A-Z2-7]{55}' -- 2>/dev/null | grep -v '^tests/' || { echo "possible secret seed committed"; exit 1; }
+      - run: pnpm build
