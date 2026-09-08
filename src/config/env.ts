@@ -27,7 +27,7 @@ const schema = z.object({
   HORIZON_URL: z.string().url().default("https://horizon-testnet.stellar.org"),
   USDC_ISSUER: publicKey.default("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
 
-  TW_BASE_URL: z.string().url().default("https://beta.api.trustlesswork.com"),
+  TW_BASE_URL: z.string().url().default("https://dev.api.trustlesswork.com"),
   TW_API_KEY: z.string().min(16),
 
   PLATFORM_ADMIN_SECRET: secretSeed,

@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const TESTNET_HOSTS = [
   "https://horizon-testnet.stellar.org",
   "https://soroban-testnet.stellar.org",
-  "https://beta.api.trustlesswork.com",
+  "https://dev.api.trustlesswork.com",
   "https://friendbot.stellar.org",
 ];
 

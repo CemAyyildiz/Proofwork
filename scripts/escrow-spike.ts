@@ -1,19 +1,10 @@
-import { writeFile, mkdir } from "node:fs/promises";
-import {
-  Asset,
-  BASE_FEE,
-  Horizon,
-  Keypair,
-  Networks,
-  Operation,
-  StrKey,
-  TransactionBuilder,
-} from "@stellar/stellar-sdk";
+import { mkdir, writeFile } from "node:fs/promises";
+import { Asset, BASE_FEE, Horizon, Keypair, Networks, Operation, StrKey, TransactionBuilder } from "@stellar/stellar-sdk";
 import { z } from "zod";
 import { TrustlessWorkAdapter } from "../src/escrow/trustless-work/adapter";
 import { TrustlessWorkClient } from "../src/escrow/trustless-work/client";
-import { HorizonDecisionLedger } from "../src/ledger/decision-ledger";
 import type { DecisionRecord } from "../src/ledger/canonical";
+import { HorizonDecisionLedger } from "../src/ledger/decision-ledger";
 
 /**
  * Week 1 spike (architecture §9). Proves, on testnet, every on-chain step the
@@ -22,14 +13,14 @@ import type { DecisionRecord } from "../src/ledger/canonical";
  *   pnpm spike
  *
  * Requires in .env: TW_API_KEY, PLATFORM_ADMIN_SECRET, PLATFORM_OPS_SECRET,
- * DECISION_LEDGER_SECRET, FUNDER_SECRET, DISPUTE_RESOLVER_SECRET.
- * The funder account must hold testnet USDC (faucet.circle.com → Stellar testnet).
+ * DECISION_LEDGER_SECRET, FUNDER_SECRET, DISPUTE_RESOLVER_SECRET, and the
+ * funder account holding testnet USDC. Run `pnpm accounts:prepare` first.
  */
 
 const seed = z.string().refine((v) => StrKey.isValidEd25519SecretSeed(v), "invalid secret seed");
 const env = z
   .object({
-    TW_BASE_URL: z.string().url().default("https://beta.api.trustlesswork.com"),
+    TW_BASE_URL: z.string().url().default("https://dev.api.trustlesswork.com"),
     TW_API_KEY: z.string().min(16),
     HORIZON_URL: z.string().url().default("https://horizon-testnet.stellar.org"),
     USDC_ISSUER: z.string().default("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
@@ -43,8 +34,9 @@ const env = z
 
 const horizon = new Horizon.Server(env.HORIZON_URL);
 const USDC = new Asset("USDC", env.USDC_ISSUER);
-const FUND = "10";
-const REWARD = "2";
+const FUND = "5";
+const REWARD = "1";
+const CLOSE_AMOUNT = "0.0000001";
 
 const admin = Keypair.fromSecret(env.PLATFORM_ADMIN_SECRET);
 const ops = Keypair.fromSecret(env.PLATFORM_OPS_SECRET);
@@ -81,6 +73,12 @@ async function ensureTrustline(kp: Keypair): Promise<void> {
   record(`trustline ${kp.publicKey().slice(0, 6)}`, res.hash);
 }
 
+async function usdcBalance(pub: string): Promise<string> {
+  const acct = await horizon.loadAccount(pub);
+  const b = acct.balances.find((x) => "asset_code" in x && x.asset_code === "USDC" && x.asset_issuer === env.USDC_ISSUER);
+  return b ? b.balance : "0";
+}
+
 function signWith(kp: Keypair, unsignedXdr: string): string {
   const tx = TransactionBuilder.fromXDR(unsignedXdr, Networks.TESTNET);
   tx.sign(kp);
@@ -88,73 +86,72 @@ function signWith(kp: Keypair, unsignedXdr: string): string {
 }
 
 async function main(): Promise<void> {
-  process.stdout.write("Proofwork escrow spike — Trustless Work v2 multi-release on testnet\n");
+  process.stdout.write("Proofwork escrow spike — Trustless Work v1 multi-release on testnet\n");
   for (const kp of [admin, ops, funder, resolver, contributor, Keypair.fromSecret(env.DECISION_LEDGER_SECRET)]) {
     await ensureFunded(kp);
   }
   await ensureTrustline(funder);
+  await ensureTrustline(admin);
   await ensureTrustline(contributor);
+  process.stdout.write(`  funder USDC before: ${await usdcBalance(funder.publicKey())}\n`);
 
   const client = new TrustlessWorkClient(env.TW_BASE_URL, env.TW_API_KEY);
   const escrow = new TrustlessWorkAdapter({ client, usdcIssuer: env.USDC_ISSUER, platformAdmin: admin, platformOps: ops });
+  const roles = {
+    funder: funder.publicKey(),
+    platformAdmin: admin.publicKey(),
+    platformOps: ops.publicKey(),
+    disputeResolver: resolver.publicKey(),
+  };
 
-  // 1. deploy with zero milestones
+  // 1. deploy with the close milestone only
   const deploy = await escrow.buildDeploy({
     engagementId: `spike-${Date.now()}`,
     title: "Proofwork spike",
     description: "Week 1 escrow cycle verification",
     signer: funder.publicKey(),
-    roles: {
-      funder: funder.publicKey(),
-      platformAdmin: admin.publicKey(),
-      platformOps: ops.publicKey(),
-      disputeResolver: resolver.publicKey(),
-      platformFeeAddress: admin.publicKey(),
-    },
+    roles,
+    closeMilestone: { description: "campaign close", amount: CLOSE_AMOUNT },
   });
   const deployed = await escrow.submit(signWith(funder, deploy.unsignedXdr));
-  const contractId = deployed.contractId ?? deploy.contractId;
+  const contractId = deployed.contractId;
   if (!contractId) throw new Error("deploy returned no contractId");
   record("1 deploy", deployed.txHash, contractId);
 
   // 2. fund
   const fund = await escrow.buildFund(contractId, funder.publicKey(), FUND);
   record("2 fund", (await escrow.submit(signWith(funder, fund.unsignedXdr))).txHash, `${FUND} USDC`);
-  const afterFund = await escrow.getEscrow(contractId);
-  process.stdout.write(`  balance after fund: ${afterFund.balance}\n`);
+  process.stdout.write(`  escrow balance after fund: ${(await escrow.getEscrow(contractId)).balance}\n`);
 
   // 3. append a milestone AFTER funding — the assumption AD-2 rests on
   const appended = await escrow.appendMilestones(contractId, [
     { description: "spike submission https://x.com/example/status/1", amount: REWARD, receiver: contributor.publicKey() },
   ]);
   record("3 append milestone post-funding", appended.txHash, "AD-2 confirmed");
+  const afterAppend = await escrow.getEscrow(contractId);
+  process.stdout.write(`  milestones: ${afterAppend.milestones.length}\n`);
+  const idx = afterAppend.milestones.length - 1;
 
   // 4. deliver → approve → release
-  record("4a mark delivered", (await escrow.markDelivered(contractId, [{ index: 0, evidence: "https://x.com/example/status/1" }])).txHash);
-  const approve = await escrow.buildApprove(contractId, funder.publicKey(), [0]);
-  record("4b approve", (await escrow.submit(signWith(funder, approve.unsignedXdr))).txHash);
-  const release = await escrow.buildRelease(contractId, funder.publicKey(), [0]);
-  record("4c release", (await escrow.submit(signWith(funder, release.unsignedXdr))).txHash, `${REWARD} USDC → contributor`);
-
-  // 5. remainder back to funder — primary path: withdraw-remaining (all milestones terminal)
-  const state = await escrow.getEscrow(contractId);
-  process.stdout.write(`  balance before sweep: ${state.balance}\n`);
-  try {
-    const sweep = await escrow.buildWithdrawRemaining(contractId, resolver.publicKey(), [
-      { address: funder.publicKey(), amount: state.balance },
-    ]);
-    record("5 withdraw remaining → funder", (await escrow.submit(signWith(resolver, sweep.unsignedXdr))).txHash, "AD-4 primary path");
-  } catch (e) {
-    process.stdout.write(`  withdraw-remaining failed (${e instanceof Error ? e.message : e}); trying dispute→resolve fallback\n`);
-    const placeholder = await escrow.appendMilestones(contractId, [
-      { description: "remainder", amount: state.balance, receiver: contributor.publicKey() },
-    ]);
-    record("5a append remainder milestone", placeholder.txHash);
-    const dispute = await escrow.buildDispute(contractId, funder.publicKey(), [1], "campaign closed; return remainder");
-    record("5b dispute", (await escrow.submit(signWith(funder, dispute.unsignedXdr))).txHash);
-    const resolve = await escrow.buildResolve(contractId, resolver.publicKey(), [1], [{ address: funder.publicKey(), amount: state.balance }]);
-    record("5c resolve → funder", (await escrow.submit(signWith(resolver, resolve.unsignedXdr))).txHash, "AD-4 fallback path");
+  const delivered = await escrow.markDelivered(contractId, [{ index: idx, evidence: "https://x.com/example/status/1" }]);
+  record("4a mark delivered", delivered[0]?.txHash ?? "");
+  for (const u of await escrow.buildApprove(contractId, funder.publicKey(), [idx])) {
+    record("4b approve", (await escrow.submit(signWith(funder, u.unsignedXdr))).txHash);
   }
+  for (const u of await escrow.buildRelease(contractId, funder.publicKey(), [idx])) {
+    record("4c release", (await escrow.submit(signWith(funder, u.unsignedXdr))).txHash, `${REWARD} USDC → contributor`);
+  }
+  process.stdout.write(`  contributor USDC: ${await usdcBalance(contributor.publicKey())}\n`);
+
+  // 5. remainder back to funder: dispute the close milestone, then sweep
+  for (const u of await escrow.buildDispute(contractId, funder.publicKey(), [0])) {
+    record("5a dispute close milestone", (await escrow.submit(signWith(funder, u.unsignedXdr))).txHash);
+  }
+  const state = await escrow.getEscrow(contractId);
+  process.stdout.write(`  escrow balance before sweep: ${state.balance}\n`);
+  const sweep = await escrow.buildWithdrawRemaining(contractId, resolver.publicKey(), [{ address: funder.publicKey(), amount: state.balance }]);
+  record("5b withdraw remaining → funder", (await escrow.submit(signWith(resolver, sweep.unsignedXdr))).txHash, "AD-4 confirmed");
+  process.stdout.write(`  funder USDC after: ${await usdcBalance(funder.publicKey())}\n`);
 
   // 6. decision ledger commit
   const ledger = new HorizonDecisionLedger({ horizonUrl: env.HORIZON_URL, ledgerSecret: env.DECISION_LEDGER_SECRET });
@@ -176,7 +173,7 @@ async function main(): Promise<void> {
   const md = [
     "# Escrow cycle evidence (Week 1 spike)",
     "",
-    `Run: ${new Date().toISOString()}  ·  Network: Stellar testnet  ·  Escrow: Trustless Work v2 multi-release`,
+    `Run: ${new Date().toISOString()}  ·  Network: Stellar testnet  ·  Escrow: Trustless Work v1 multi-release`,
     `Contract: \`${contractId}\``,
     "",
     "| Step | Tx hash | Note |",
@@ -194,6 +191,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((e) => {
-  process.stderr.write(`spike failed: ${e instanceof Error ? e.stack ?? e.message : String(e)}\n`);
+  const details = typeof e === "object" && e && "details" in e ? JSON.stringify((e as { details: unknown }).details) : "";
+  process.stderr.write(`spike failed: ${e instanceof Error ? e.message : String(e)} ${details}\n`);
   process.exit(1);
 });

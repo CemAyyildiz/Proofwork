@@ -11,9 +11,6 @@ importers:
       '@creit.tech/stellar-wallets-kit':
         specifier: ^2.6.0
         version: 2.6.0(@types/react@19.3.0)(@upstash/redis@1.39.0)(bufferutil@4.1.0)(near-api-js@5.1.1)(react@19.2.8)(tslib@2.8.1)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@4.6.5)
-      '@neondatabase/serverless':
-        specifier: ^1.1.0
-        version: 1.1.0
       '@stellar/stellar-sdk':
         specifier: ^14.6.1
         version: 14.6.1
@@ -25,10 +22,13 @@ importers:
         version: 1.39.0
       drizzle-orm:
         specifier: ^0.45.3
-        version: 0.45.3(@neondatabase/serverless@1.1.0)(@upstash/redis@1.39.0)
+        version: 0.45.3(@neondatabase/serverless@1.1.0)(@upstash/redis@1.39.0)(postgres@3.4.9)
       next:
         specifier: 16.3.6
         version: 16.3.6(@babel/core@7.29.7)(@types/node@22.20.4)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -3887,6 +3887,10 @@ packages:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
     engines: {node: ^10 || ^12 || >=14}
 
+  postgres@3.4.9:
+    resolution: {integrity: sha512-GD3qdB0x1z9xgFI6cdRD6xu2Sp2WCOEoe3mtnyB5Ee0XrrL5Pe+e4CCnJrRMnL1zYtRDZmQQVbvOttLnKDLnaw==}
+    engines: {node: '>=12'}
+
   preact@10.24.2:
     resolution: {integrity: sha512-1cSoF0aCC8uaARATfrlz4VCBqE8LwZwRfLgkxJOQwAlQt6ayTmi0D9OF7nXid1POI5SZidFuG9CnlXbDfLqY/Q==}
 
@@ -5563,7 +5567,8 @@ snapshots:
       near-api-js: 5.1.1
       rxjs: 7.8.1
 
-  '@neondatabase/serverless@1.1.0': {}
+  '@neondatabase/serverless@1.1.0':
+    optional: true
 
   '@next/env@16.3.6': {}
 
@@ -7925,10 +7930,11 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.3(@neondatabase/serverless@1.1.0)(@upstash/redis@1.39.0):
+  drizzle-orm@0.45.3(@neondatabase/serverless@1.1.0)(@upstash/redis@1.39.0)(postgres@3.4.9):
     optionalDependencies:
       '@neondatabase/serverless': 1.1.0
       '@upstash/redis': 1.39.0
+      postgres: 3.4.9
 
   dunder-proto@1.0.1:
     dependencies:
@@ -9367,6 +9373,8 @@ snapshots:
       nanoid: 3.3.19
       picocolors: 1.1.1
       source-map-js: 1.2.1
+
+  postgres@3.4.9: {}
 
   preact@10.24.2:
     optional: true
