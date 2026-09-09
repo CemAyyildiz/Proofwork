@@ -36,4 +36,9 @@ if git diff --cached -U0 | grep -E '^\+' | grep -Eiq 'REDACTED|REDACTED'; then
   fail=1
 fi
 
+
+# Type safety gate: never commit code that does not compile.
+if [ "$fail" -eq 0 ] && git diff --cached --name-only | grep -qE '\.(ts|tsx)$'; then
+  pnpm -s typecheck || { echo "pre-commit: typecheck failed." >&2; fail=1; }
+fi
 exit $fail
