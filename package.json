@@ -17,7 +17,8 @@
     "keys:gen": "tsx scripts/gen-testnet-keys.ts",
     "spike": "node --env-file=.env --import tsx scripts/escrow-spike.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
-    "accounts:prepare": "node --env-file=.env --import tsx scripts/prepare-testnet-accounts.ts"
+    "accounts:prepare": "node --env-file=.env --import tsx scripts/prepare-testnet-accounts.ts",
+    "escrow:close": "node --env-file=.env --import tsx scripts/close-escrow.ts"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.6.0",
