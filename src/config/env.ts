@@ -18,6 +18,10 @@ const publicKey = z
   .string()
   .refine((v) => StrKey.isValidEd25519PublicKey(v), "must be a Stellar public key (G...)");
 
+/** `.env` templates leave optional values as empty strings; treat those as unset. */
+const optional = <T extends z.ZodTypeAny>(inner: T) =>
+  z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), inner.optional());
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
@@ -36,8 +40,8 @@ const schema = z.object({
 
   SESSION_SECRET: z.string().min(43, "at least 32 random bytes, base64-encoded"),
 
-  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
-  UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+  UPSTASH_REDIS_REST_URL: optional(z.string().url()),
+  UPSTASH_REDIS_REST_TOKEN: optional(z.string().min(1)),
 });
 
 export type Env = z.infer<typeof schema>;

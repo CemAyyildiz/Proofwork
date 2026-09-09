@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
-import { authNonces, roleGrants } from "@/db/schema";
+import { authNonces, roleGrants, sessionRevocations } from "@/db/schema";
 import { challengeMessage, pubkeySchema, verifySignedMessage } from "@/domain/wallet-auth";
 import { AppError } from "@/lib/errors";
 
@@ -55,4 +55,20 @@ export async function rolesFor(pubkey: string, campaignId: string | null, conn: 
 export async function requireRole(pubkey: string, role: Role, campaignId: string | null, conn: Db = db): Promise<void> {
   const roles = await rolesFor(pubkey, campaignId, conn);
   if (!roles.has(role)) throw AppError.forbidden(`requires ${role} role`);
+}
+
+/** Invalidate every session token issued for this key up to now. */
+export async function revokeSessions(pubkey: string, conn: Db = db): Promise<void> {
+  const now = new Date();
+  await conn
+    .insert(sessionRevocations)
+    .values({ pubkey, revokedBefore: now })
+    .onConflictDoUpdate({ target: sessionRevocations.pubkey, set: { revokedBefore: now } });
+}
+
+/** True when a token issued at `issuedAt` has been revoked by a later logout. */
+export async function isRevoked(pubkey: string, issuedAt: Date, conn: Db = db): Promise<boolean> {
+  const rows = await conn.select().from(sessionRevocations).where(eq(sessionRevocations.pubkey, pubkey)).limit(1);
+  const r = rows[0];
+  return r !== undefined && issuedAt.getTime() < r.revokedBefore.getTime();
 }

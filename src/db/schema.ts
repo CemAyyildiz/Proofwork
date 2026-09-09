@@ -171,6 +171,12 @@ export const authNonces = pgTable("auth_nonce", {
   usedAt: timestamp("used_at", { withTimezone: true }),
 });
 
+/** Logout invalidates every session token issued before `revokedBefore` (tokens are stateless HMAC). */
+export const sessionRevocations = pgTable("session_revocation", {
+  pubkey: text("pubkey").primaryKey(),
+  revokedBefore: timestamp("revoked_before", { withTimezone: true }).notNull(),
+});
+
 export const roleGrants = pgTable(
   "role_grant",
   {
