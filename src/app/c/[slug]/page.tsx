@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AppealButton } from "@/components/appeal-button";
 import { SubmitForm } from "@/components/submit-form";
 import { publicEnv } from "@/config/public-env";
 import { escrow } from "@/escrow";
@@ -85,6 +86,11 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
             ) : (
               <p className="text-neutral-500">Awaiting review.</p>
             )}
+            {latest ? <p className="text-neutral-700">{latest.note}</p> : null}
+            {mine.submission.status === "rejected" && mine.decisions.length < 2 && c.open ? (
+              <AppealButton submissionId={mine.submission.id} />
+            ) : null}
+            {mine.submission.status === "appealed" ? <p className="text-neutral-500">Re-review requested.</p> : null}
           </div>
         ) : c.open ? (
           <SubmitForm campaignSlug={c.slug} />
