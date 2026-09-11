@@ -1,4 +1,4 @@
-import { escrow, platformKeys } from "@/escrow";
+import { getEscrow, getPlatformKeys } from "@/escrow";
 import { requireUserRole } from "@/lib/current-user";
 import { jsonRoute } from "@/lib/http";
 import { createCampaign, createCampaignSchema, listCampaignsForFunder } from "@/services/campaign";
@@ -8,8 +8,9 @@ export const runtime = "nodejs";
 
 export const POST = jsonRoute(createCampaignSchema, async (input) => {
   const user = await requireUserRole("funder");
-  const c = await createCampaign(input, { pubkey: user.pubkey, platformAdmin: platformKeys.admin, platformOps: platformKeys.ops });
-  void escrow; // composition root is imported so misconfiguration fails here, not at first signing
+  getEscrow(); // fail here on misconfiguration, not at first signing
+  const keys = getPlatformKeys();
+  const c = await createCampaign(input, { pubkey: user.pubkey, platformAdmin: keys.admin, platformOps: keys.ops });
   return { id: c.id, slug: c.slug };
 });
 

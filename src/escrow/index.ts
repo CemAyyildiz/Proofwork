@@ -7,27 +7,40 @@ import { TrustlessWorkAdapter } from "./trustless-work/adapter";
 import { TrustlessWorkClient } from "./trustless-work/client";
 
 /**
- * Composition root for the on-chain side. Server keys are instantiated once
- * here and handed to adapters as Keypair objects; the secret strings are never
- * passed around.
+ * Composition root for the on-chain side. Everything is created on first use
+ * so importing this module never reads the environment (build safety).
+ * Server keys are held as Keypair objects; the secret strings never travel.
  */
-const platformAdmin = Keypair.fromSecret(env.PLATFORM_ADMIN_SECRET);
-const platformOps = Keypair.fromSecret(env.PLATFORM_OPS_SECRET);
+interface Wiring {
+  escrow: EscrowPort;
+  ledger: HorizonDecisionLedger;
+  platformKeys: { admin: string; ops: string; ledger: string };
+}
 
-export const escrow: EscrowPort = new TrustlessWorkAdapter({
-  client: new TrustlessWorkClient(env.TW_BASE_URL, env.TW_API_KEY),
-  usdcIssuer: env.USDC_ISSUER,
-  platformAdmin,
-  platformOps,
-});
+let wiring: Wiring | undefined;
 
-export const ledger = new HorizonDecisionLedger({
-  horizonUrl: env.HORIZON_URL,
-  ledgerSecret: env.DECISION_LEDGER_SECRET,
-});
+function wire(): Wiring {
+  const platformAdmin = Keypair.fromSecret(env.PLATFORM_ADMIN_SECRET);
+  const platformOps = Keypair.fromSecret(env.PLATFORM_OPS_SECRET);
+  const ledger = new HorizonDecisionLedger({ horizonUrl: env.HORIZON_URL, ledgerSecret: env.DECISION_LEDGER_SECRET });
+  return {
+    escrow: new TrustlessWorkAdapter({
+      client: new TrustlessWorkClient(env.TW_BASE_URL, env.TW_API_KEY),
+      usdcIssuer: env.USDC_ISSUER,
+      platformAdmin,
+      platformOps,
+    }),
+    ledger,
+    platformKeys: { admin: platformAdmin.publicKey(), ops: platformOps.publicKey(), ledger: ledger.publicKey },
+  };
+}
 
-export const platformKeys = {
-  admin: platformAdmin.publicKey(),
-  ops: platformOps.publicKey(),
-  ledger: ledger.publicKey,
-} as const;
+export function getEscrow(): EscrowPort {
+  return (wiring ??= wire()).escrow;
+}
+export function getLedger(): HorizonDecisionLedger {
+  return (wiring ??= wire()).ledger;
+}
+export function getPlatformKeys(): Wiring["platformKeys"] {
+  return (wiring ??= wire()).platformKeys;
+}

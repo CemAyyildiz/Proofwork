@@ -11,7 +11,10 @@ function makeLimiter(requests: number, windowSeconds: number): Limiter {
     const redis = new Redis({ url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN });
     return new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(requests, `${windowSeconds} s`), prefix: "pw" });
   }
-  // Development fallback only; production boot refuses to start without Upstash (see config/env.ts).
+  if (env.NODE_ENV === "production") {
+    throw new Error("Upstash rate limiting is required in production (UPSTASH_REDIS_REST_URL / _TOKEN)");
+  }
+  // Development fallback only.
   const hits = new Map<string, number[]>();
   return {
     async limit(key) {
@@ -25,10 +28,18 @@ function makeLimiter(requests: number, windowSeconds: number): Limiter {
   };
 }
 
+const cache: Partial<Record<"auth" | "submit" | "appeal", Limiter>> = {};
+/** Limiters are created on first use so importing this module never touches the environment. */
 export const limiters = {
-  auth: makeLimiter(10, 600),
-  submit: makeLimiter(5, 600),
-  appeal: makeLimiter(3, 3600),
+  get auth(): Limiter {
+    return (cache.auth ??= makeLimiter(10, 600));
+  },
+  get submit(): Limiter {
+    return (cache.submit ??= makeLimiter(5, 600));
+  },
+  get appeal(): Limiter {
+    return (cache.appeal ??= makeLimiter(3, 3600));
+  },
 };
 
 export async function enforce(limiter: Limiter, key: string): Promise<void> {

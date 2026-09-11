@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { escrow } from "@/escrow";
+import { getEscrow } from "@/escrow";
 import { requireUserRole } from "@/lib/current-user";
 import { jsonRoute } from "@/lib/http";
 import { approveForPayout, confirmClose, confirmPayoutOp, prepareClose, preparePayoutOps } from "@/services/payout";
@@ -16,6 +16,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   return jsonRoute(schema, async (input) => {
     const user = await requireUserRole("funder", id);
+    const escrow = getEscrow();
     switch (input.action) {
       case "approve":
         return approveForPayout(id, input.submissionIds, user, escrow);

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { AppealButton } from "@/components/appeal-button";
 import { SubmitForm } from "@/components/submit-form";
 import { publicEnv } from "@/config/public-env";
-import { escrow } from "@/escrow";
+import { getEscrow } from "@/escrow";
 import { currentUser } from "@/lib/current-user";
 import { log } from "@/lib/logger";
 import { mySubmission, publicCampaign } from "@/services/submission";
@@ -19,7 +19,7 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
   let balance: string | null = null;
   if (c.escrowContractId) {
     try {
-      balance = (await escrow.getEscrow(c.escrowContractId)).balance;
+      balance = (await getEscrow().getEscrow(c.escrowContractId)).balance;
     } catch (e) {
       log.warn("escrow balance read failed", { slug, err: e instanceof Error ? e.message : String(e) });
     }

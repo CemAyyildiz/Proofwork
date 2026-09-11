@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { escrow, platformKeys } from "@/escrow";
+import { getEscrow, getPlatformKeys } from "@/escrow";
 import { requireUserRole } from "@/lib/current-user";
 import { jsonRoute } from "@/lib/http";
 import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/services/campaign";
@@ -21,7 +21,9 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
   const { id } = await ctx.params;
   return jsonRoute(schema, async (input) => {
     const user = await requireUserRole("funder", id);
-    const actor = { pubkey: user.pubkey, platformAdmin: platformKeys.admin, platformOps: platformKeys.ops };
+    const keys = getPlatformKeys();
+    const escrow = getEscrow();
+    const actor = { pubkey: user.pubkey, platformAdmin: keys.admin, platformOps: keys.ops };
     if (input.action === "prepare") {
       return input.kind === "deploy" ? prepareDeploy(id, actor, escrow) : prepareFund(id, actor, escrow);
     }

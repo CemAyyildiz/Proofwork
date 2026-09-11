@@ -53,9 +53,6 @@ function load(): Env {
     throw new Error(`Invalid environment:\n${issues}`);
   }
   const env = parsed.data;
-  if (env.NODE_ENV === "production" && (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN)) {
-    throw new Error("Invalid environment: Upstash rate limiting is required in production");
-  }
   const seeds = [env.PLATFORM_ADMIN_SECRET, env.PLATFORM_OPS_SECRET, env.DECISION_LEDGER_SECRET];
   if (new Set(seeds).size !== seeds.length) {
     throw new Error("Invalid environment: server signing keys must be distinct");
