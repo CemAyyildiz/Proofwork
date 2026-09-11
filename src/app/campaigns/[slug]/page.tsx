@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import { EscrowActions } from "@/components/escrow-actions";
+import { PayoutActions } from "@/components/payout-actions";
 import { publicEnv } from "@/config/public-env";
 import { currentUser } from "@/lib/current-user";
 import { getCampaignBySlug } from "@/services/campaign";
 import { listOps } from "@/services/escrow-ops";
+import { submissionsForFunder } from "@/services/payout";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,24 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
   const isFunder = user?.pubkey === c.funderPubkey && user.roles.has("funder");
   if (!isFunder) notFound();
   const ops = await listOps(c.id);
+  const subs = await submissionsForFunder(c.id);
+  const rows = subs.map((r) => ({
+    submissionId: r.submission.id,
+    shortId: r.submission.shortId,
+    workUrl: r.submission.workUrl,
+    contributor: r.submission.contributorPubkey,
+    status: r.submission.status,
+    outcome: r.latest?.outcome ?? null,
+    reasonCode: r.latest?.reasonCode ?? null,
+    note: r.latest?.note ?? null,
+    decisionId: r.latest?.id ?? null,
+    payoutStatus: r.payout?.status ?? null,
+    releaseTxHash: r.payout?.releaseTxHash ?? null,
+  }));
+  const counts = {
+    toApprove: subs.filter((r) => r.payout?.status === "delivered").length,
+    toRelease: subs.filter((r) => r.payout?.status === "approved").length,
+  };
 
   const stage = c.closedAt ? "closed" : c.fundedAt ? "funded" : c.escrowContractId ? "deployed" : "draft";
 
@@ -44,6 +64,25 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
         <code className="block rounded bg-neutral-100 px-3 py-2 text-xs">/c/{c.slug}</code>
         <p className="text-xs text-neutral-500">Share after funding. Submissions open only while the escrow holds the budget.</p>
       </section>
+
+      {c.fundedAt ? (
+        <section className="space-y-2">
+          <h2 className="font-medium">Submissions and payouts</h2>
+          {rows.length === 0 ? (
+            <p className="text-sm text-neutral-600">No submissions yet.</p>
+          ) : (
+            <PayoutActions campaignId={c.id} funderPubkey={c.funderPubkey} rows={rows} counts={counts} closed={c.closedAt !== null} />
+          )}
+          {c.remainderTxHash ? (
+            <p className="text-sm text-green-700">
+              Remainder returned:{" "}
+              <a className="underline" href={publicEnv.explorerTxUrl(c.remainderTxHash)} target="_blank" rel="noreferrer">
+                {c.remainderTxHash.slice(0, 12)}…
+              </a>
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="space-y-2">
         <h2 className="font-medium">Brief</h2>

@@ -43,6 +43,20 @@ const escrow = new TrustlessWorkAdapter({
   platformOps: Keypair.fromSecret(env.PLATFORM_OPS_SECRET),
 });
 
+/** If the app database is reachable, store the remainder tx on the campaign row. */
+async function recordInDb(contract: string, txHash: string): Promise<void> {
+  const url = process.env["DATABASE_URL"];
+  if (!url) return;
+  const { default: postgres } = await import("postgres");
+  const sql = postgres(url, { max: 1 });
+  try {
+    const rows = await sql`update campaign set remainder_tx_hash = ${txHash} where escrow_contract_id = ${contract} returning slug`;
+    if (rows.length > 0) process.stdout.write(`recorded remainder on campaign ${rows[0]?.["slug"]}\n`);
+  } finally {
+    await sql.end();
+  }
+}
+
 function signWith(kp: Keypair, unsignedXdr: string): string {
   const tx = TransactionBuilder.fromXDR(unsignedXdr, Networks.TESTNET);
   tx.sign(kp);
@@ -74,7 +88,9 @@ async function main(): Promise<void> {
   const sweep = await escrow.buildWithdrawRemaining(contractId, resolver.publicKey(), [
     { address: funder.publicKey(), amount: now.balance },
   ]);
-  process.stdout.write(`withdraw remaining → funder: ${(await escrow.submit(signWith(resolver, sweep.unsignedXdr))).txHash}\n`);
+  const swept = await escrow.submit(signWith(resolver, sweep.unsignedXdr));
+  process.stdout.write(`withdraw remaining → funder: ${swept.txHash}\n`);
+  await recordInDb(contractId, swept.txHash);
   process.stdout.write(`balance after: ${(await escrow.getEscrow(contractId)).balance} USDC\n`);
 }
 

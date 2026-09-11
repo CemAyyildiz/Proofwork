@@ -1,0 +1,256 @@
+import "server-only";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { db, type Db } from "@/db/client";
+import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type Payout, type Submission } from "@/db/schema";
+import { addAmounts, toStroops } from "@/escrow/amount";
+import type { EscrowPort } from "@/escrow/port";
+import { AppError } from "@/lib/errors";
+import { newId } from "@/lib/ids";
+import { log } from "@/lib/logger";
+import { campaignOwnedBy, prepareOp, recordServerOp, submitOp, type PreparedOp } from "./escrow-ops";
+
+/**
+ * Payout pipeline (architecture §3.1), per approved submission:
+ *
+ *   funder approves in UI  →  platform appends milestone (server key)
+ *                          →  platform marks delivered (server key)
+ *                          →  funder signs approve-milestone
+ *                          →  funder signs release-milestone-funds
+ *
+ * Money only moves on the funder's signature. The DB mirrors chain state
+ * and is corrected from chain by `reconcile`.
+ */
+export interface FunderSubmissionRow {
+  submission: Submission;
+  latest: Decision | null;
+  payout: Payout | null;
+}
+
+export async function submissionsForFunder(campaignId: string, conn: Db = db): Promise<FunderSubmissionRow[]> {
+  const subs = await conn.select().from(submissions).where(eq(submissions.campaignId, campaignId)).orderBy(asc(submissions.submittedAt));
+  if (subs.length === 0) return [];
+  const ids = subs.map((s) => s.id);
+  const ds = await conn.select().from(decisions).where(inArray(decisions.submissionId, ids)).orderBy(desc(decisions.decidedAt));
+  const ps = await conn.select().from(payouts).where(inArray(payouts.submissionId, ids));
+  const latest = new Map<string, Decision>();
+  for (const d of ds) if (!latest.has(d.submissionId)) latest.set(d.submissionId, d);
+  const payoutBySub = new Map(ps.map((p) => [p.submissionId, p]));
+  return subs.map((s) => ({ submission: s, latest: latest.get(s.id) ?? null, payout: payoutBySub.get(s.id) ?? null }));
+}
+
+/**
+ * Funder's final approval for a set of rubric-passed submissions. Appends
+ * one milestone per submission in a single update-escrow call, then marks
+ * each delivered. Both are platform-signed and move no money.
+ */
+export async function approveForPayout(
+  campaignId: string,
+  submissionIds: string[],
+  actor: { pubkey: string },
+  escrow: EscrowPort,
+  conn: Db = db,
+): Promise<{ appended: number; txHash: string }> {
+  const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
+  if (!c.escrowContractId || !c.fundedAt) throw AppError.conflict("campaign is not funded");
+  if (c.closedAt) throw AppError.conflict("campaign is closed");
+  const unique = [...new Set(submissionIds)];
+  if (unique.length === 0) throw AppError.validation("no submissions selected");
+
+  const rows = await submissionsForFunder(campaignId, conn);
+  const chosen = rows.filter((r) => unique.includes(r.submission.id));
+  if (chosen.length !== unique.length) throw AppError.notFound("submission");
+  for (const r of chosen) {
+    if (r.submission.status !== "decided" || r.latest?.outcome !== "PASS") {
+      throw AppError.conflict(`${r.submission.shortId} has not passed the rubric`);
+    }
+    if (r.payout) throw AppError.conflict(`${r.submission.shortId} already queued for payout`);
+  }
+
+  // Budget check against what is actually still in escrow.
+  const state = await escrow.getEscrow(c.escrowContractId);
+  const committed = state.milestones.filter((m) => !m.released && !m.resolved).reduce((acc, m) => addAmounts(acc, m.amount), "0");
+  const needed = chosen.reduce((acc) => addAmounts(acc, c.rewardAmount), "0");
+  if (toStroops(committed) + toStroops(needed) > toStroops(state.balance)) {
+    throw AppError.conflict(`escrow balance ${state.balance} cannot cover ${needed} more in rewards`);
+  }
+
+  const startIndex = state.milestones.length;
+  const contractId = c.escrowContractId;
+  const res = await recordServerOp(
+    {
+      campaignId,
+      kind: "append_milestones",
+      keyParts: ["append", campaignId, ...chosen.map((r) => r.submission.id).sort()],
+      run: () =>
+        escrow.appendMilestones(
+          contractId,
+          chosen.map((r) => ({
+            description: `${r.submission.shortId} ${r.submission.workUrl}`,
+            amount: c.rewardAmount,
+            receiver: r.submission.contributorPubkey,
+          })),
+        ),
+    },
+    conn,
+  );
+
+  for (const [i, r] of chosen.entries()) {
+    await conn.insert(payouts).values({
+      id: newId("pay"),
+      submissionId: r.submission.id,
+      milestoneIndex: startIndex + i,
+      amount: c.rewardAmount,
+      status: "milestone_added",
+    });
+  }
+
+  const delivered = await recordServerOp(
+    {
+      campaignId,
+      kind: "mark_delivered",
+      keyParts: ["deliver", campaignId, ...chosen.map((r) => r.submission.id).sort()],
+      run: async () => {
+        const subs = await escrow.markDelivered(
+          contractId,
+          chosen.map((r, i) => ({ index: startIndex + i, evidence: r.submission.workUrl })),
+        );
+        return { txHash: subs.at(-1)?.txHash ?? "" };
+      },
+    },
+    conn,
+  );
+  await conn
+    .update(payouts)
+    .set({ status: "delivered" })
+    .where(inArray(payouts.submissionId, chosen.map((r) => r.submission.id)));
+  log.info("payouts queued", { campaignId, count: chosen.length, appendTx: res.txHash, deliverTx: delivered.txHash });
+  return { appended: chosen.length, txHash: res.txHash };
+}
+
+/**
+ * Build the funder's next approve or release transaction. One at a time on
+ * purpose: every envelope carries the funder account's sequence number, so
+ * two prepared together cannot both be submitted. The client loops
+ * prepare → sign → submit until nothing is returned.
+ */
+export async function preparePayoutOps(
+  campaignId: string,
+  kind: "approve" | "release",
+  actor: { pubkey: string },
+  escrow: EscrowPort,
+  conn: Db = db,
+): Promise<PreparedOp[]> {
+  const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
+  if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
+  const wanted: Payout["status"] = kind === "approve" ? "delivered" : "approved";
+  const rows = await conn
+    .select({ p: payouts })
+    .from(payouts)
+    .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
+    .where(and(eq(submissions.campaignId, campaignId), eq(payouts.status, wanted)))
+    .orderBy(asc(payouts.milestoneIndex))
+    .limit(1);
+  const contractId = c.escrowContractId;
+  const out: PreparedOp[] = [];
+  for (const { p } of rows) {
+    if (p.milestoneIndex === null) continue;
+    const idx = p.milestoneIndex;
+    out.push(
+      await prepareOp(
+        {
+          campaignId,
+          kind,
+          keyParts: [kind, campaignId, idx],
+          build: async () => {
+            const built = kind === "approve" ? await escrow.buildApprove(contractId, c.funderPubkey, [idx]) : await escrow.buildRelease(contractId, c.funderPubkey, [idx]);
+            const u = built[0];
+            if (!u) throw new AppError("ESCROW", "provider returned no transaction");
+            return { unsignedXdr: u.unsignedXdr, milestoneIndex: idx };
+          },
+        },
+        conn,
+      ),
+    );
+  }
+  return out;
+}
+
+export async function confirmPayoutOp(
+  input: { campaignId: string; kind: "approve" | "release"; opId: string; signedXdr: string },
+  actor: { pubkey: string },
+  escrow: EscrowPort,
+  conn: Db = db,
+): Promise<{ txHash: string; milestoneIndex: number }> {
+  await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
+  const res = await submitOp(input, escrow, conn);
+  const idx = (res.op.payload as { milestoneIndex?: number | null }).milestoneIndex;
+  if (idx === null || idx === undefined) throw new AppError("INTERNAL", "operation has no milestone index");
+
+  const row = (
+    await conn
+      .select({ p: payouts })
+      .from(payouts)
+      .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
+      .where(and(eq(submissions.campaignId, input.campaignId), eq(payouts.milestoneIndex, idx)))
+      .limit(1)
+  )[0];
+  if (!row) throw AppError.notFound("payout");
+
+  if (input.kind === "approve") {
+    await conn.update(payouts).set({ status: "approved" }).where(eq(payouts.id, row.p.id));
+  } else {
+    await conn.update(payouts).set({ status: "released", releaseTxHash: res.txHash, releasedAt: new Date() }).where(eq(payouts.id, row.p.id));
+    await conn.update(submissions).set({ status: "paid" }).where(eq(submissions.id, row.p.submissionId));
+  }
+  return { txHash: res.txHash, milestoneIndex: idx };
+}
+
+/** Funder closes the campaign: disputes the close milestone so the resolver can sweep the remainder. */
+export async function prepareClose(campaignId: string, actor: { pubkey: string }, escrow: EscrowPort, conn: Db = db): Promise<PreparedOp> {
+  const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
+  if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
+  if (c.closedAt) throw AppError.conflict("campaign already closed");
+  const open = await conn
+    .select({ id: payouts.id })
+    .from(payouts)
+    .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
+    .where(and(eq(submissions.campaignId, campaignId), inArray(payouts.status, ["milestone_added", "delivered", "approved"])));
+  if (open.length > 0) throw AppError.conflict(`${open.length} payout(s) still unreleased; release or resolve them first`);
+  const contractId = c.escrowContractId;
+  return prepareOp(
+    {
+      campaignId,
+      kind: "dispute",
+      keyParts: ["dispute-close", campaignId],
+      build: async () => {
+        const u = (await escrow.buildDispute(contractId, c.funderPubkey, [0]))[0];
+        if (!u) throw new AppError("ESCROW", "provider returned no transaction");
+        return { unsignedXdr: u.unsignedXdr, milestoneIndex: 0 };
+      },
+    },
+    conn,
+  );
+}
+
+export async function confirmClose(
+  input: { campaignId: string; opId: string; signedXdr: string },
+  actor: { pubkey: string },
+  escrow: EscrowPort,
+  conn: Db = db,
+): Promise<{ txHash: string }> {
+  await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
+  const res = await submitOp(input, escrow, conn);
+  await conn.update(campaigns).set({ closedAt: new Date() }).where(eq(campaigns.id, input.campaignId));
+  await conn
+    .update(submissions)
+    .set({ status: "rejected" })
+    .where(and(eq(submissions.campaignId, input.campaignId), inArray(submissions.status, ["pending", "appealed"])));
+  return { txHash: res.txHash };
+}
+
+/** Record the resolver's remainder sweep (done outside the app with the resolver key). */
+export async function recordRemainder(campaignId: string, txHash: string, conn: Db = db): Promise<Campaign> {
+  const [row] = await conn.update(campaigns).set({ remainderTxHash: txHash }).where(eq(campaigns.id, campaignId)).returning();
+  if (!row) throw AppError.notFound("campaign");
+  return row;
+}
