@@ -5,6 +5,7 @@ import { SubmitForm } from "@/components/submit-form";
 import { publicEnv } from "@/config/public-env";
 import { getEscrow } from "@/escrow";
 import { currentUser } from "@/lib/current-user";
+import { formatDate, formatUsdc } from "@/lib/format";
 import { log } from "@/lib/logger";
 import { mySubmission, publicCampaign } from "@/services/submission";
 
@@ -34,7 +35,7 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
       <div>
         <h1 className="text-2xl font-semibold">{c.title}</h1>
         <p className="text-sm text-neutral-500">
-          {c.rewardAmount} USDC per approved submission (net of 0.3% protocol fee) · deadline {c.deadlineAt.toISOString().slice(0, 16).replace("T", " ")} UTC
+          {formatUsdc(c.rewardAmount)} per approved submission (net of 0.3% protocol fee) · closes {formatDate(c.deadlineAt)}
         </p>
       </div>
 
@@ -43,7 +44,7 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
         {c.escrowContractId ? (
           <p>
             Escrow <code className="text-xs">{c.escrowContractId.slice(0, 8)}…</code> holds{" "}
-            <strong>{balance ?? "?"} USDC</strong>.{" "}
+            <strong>{balance !== null ? formatUsdc(balance) : "an unknown amount"}</strong>.{" "}
             <a className="underline" href={publicEnv.explorerAccountUrl(c.escrowContractId)} target="_blank" rel="noreferrer">
               Check on-chain
             </a>

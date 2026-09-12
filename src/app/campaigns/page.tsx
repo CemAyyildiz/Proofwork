@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { currentUser } from "@/lib/current-user";
+import { formatDate, formatUsdc } from "@/lib/format";
 import { listCampaignsForFunder } from "@/services/campaign";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export default async function CampaignsPage() {
               <div>
                 <Link href={`/campaigns/${c.slug}`} className="font-medium hover:underline">{c.title}</Link>
                 <p className="text-xs text-neutral-500">
-                  {c.budget} USDC budget · {c.rewardAmount} USDC per approved submission · deadline {c.deadlineAt.toISOString().slice(0, 10)}
+                  {formatUsdc(c.budget)} budget · {formatUsdc(c.rewardAmount)} per approved submission · closes {formatDate(c.deadlineAt)}
                 </p>
               </div>
               <span className="text-xs text-neutral-500">

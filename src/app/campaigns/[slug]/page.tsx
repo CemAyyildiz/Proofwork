@@ -1,8 +1,10 @@
 import { notFound } from "next/navigation";
 import { EscrowActions } from "@/components/escrow-actions";
+import { CopyLink } from "@/components/copy-link";
 import { PayoutActions } from "@/components/payout-actions";
 import { publicEnv } from "@/config/public-env";
 import { currentUser } from "@/lib/current-user";
+import { formatDate, formatUsdc } from "@/lib/format";
 import { getCampaignBySlug } from "@/services/campaign";
 import { listOps } from "@/services/escrow-ops";
 import { submissionsForFunder } from "@/services/payout";
@@ -43,7 +45,8 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
       <div>
         <h1 className="text-2xl font-semibold">{c.title}</h1>
         <p className="text-sm text-neutral-500">
-          {stage} · {c.budget} USDC budget · {c.rewardAmount} USDC per approved submission · deadline {c.deadlineAt.toISOString().slice(0, 16).replace("T", " ")} UTC
+          <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs uppercase tracking-wide">{stage}</span>{" "}
+          {formatUsdc(c.budget)} budget · {formatUsdc(c.rewardAmount)} per approved submission · closes {formatDate(c.deadlineAt)}
         </p>
       </div>
 
@@ -51,7 +54,10 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
         <h2 className="font-medium">Escrow</h2>
         {c.escrowContractId ? (
           <p className="text-sm">
-            Contract <code className="text-xs">{c.escrowContractId}</code>
+            Contract{" "}
+            <a className="underline" href={publicEnv.explorerAccountUrl(c.escrowContractId)} target="_blank" rel="noreferrer">
+              <code className="text-xs">{c.escrowContractId.slice(0, 10)}…{c.escrowContractId.slice(-6)}</code>
+            </a>
           </p>
         ) : (
           <p className="text-sm text-neutral-600">Not deployed yet.</p>
@@ -61,7 +67,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
 
       <section className="space-y-2">
         <h2 className="font-medium">Contributor link</h2>
-        <code className="block rounded bg-neutral-100 px-3 py-2 text-xs">/c/{c.slug}</code>
+        <CopyLink path={`/c/${c.slug}`} />
         <p className="text-xs text-neutral-500">Share after funding. Submissions open only while the escrow holds the budget.</p>
       </section>
 
