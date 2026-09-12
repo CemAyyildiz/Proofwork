@@ -42,7 +42,7 @@ describe("FakeEscrow models the v1 campaign lifecycle", () => {
     const early = await e.buildRelease(contractId, roles.funder, [1]);
     await expect(e.submit(early[0]!.unsignedXdr)).rejects.toThrow(/not releasable/);
 
-    for (const u of await e.buildApprove(contractId, roles.funder, [1, 2])) await e.submit(u.unsignedXdr);
+    await e.approveMilestones(contractId, [1, 2]);
     for (const u of await e.buildRelease(contractId, roles.funder, [1, 2])) await e.submit(u.unsignedXdr);
     expect((await e.getEscrow(contractId)).balance).toBe("80");
 

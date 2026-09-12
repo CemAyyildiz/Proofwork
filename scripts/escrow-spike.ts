@@ -135,9 +135,7 @@ async function main(): Promise<void> {
   // 4. deliver → approve → release
   const delivered = await escrow.markDelivered(contractId, [{ index: idx, evidence: "https://x.com/example/status/1" }]);
   record("4a mark delivered", delivered[0]?.txHash ?? "");
-  for (const u of await escrow.buildApprove(contractId, funder.publicKey(), [idx])) {
-    record("4b approve", (await escrow.submit(signWith(funder, u.unsignedXdr))).txHash);
-  }
+  for (const a of await escrow.approveMilestones(contractId, [idx])) record("4b approve (platform)", a.txHash);
   for (const u of await escrow.buildRelease(contractId, funder.publicKey(), [idx])) {
     record("4c release", (await escrow.submit(signWith(funder, u.unsignedXdr))).txHash, `${REWARD} USDC → contributor`);
   }

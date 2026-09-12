@@ -12,9 +12,9 @@
  */
 
 export interface EscrowRoles {
-  funder: string; // approver + releaseSigner
+  funder: string; // releaseSigner: the only key that moves money
   platformAdmin: string; // platformAddress: appends milestones, receives (zero) fee
-  platformOps: string; // serviceProvider: marks delivered
+  platformOps: string; // serviceProvider + approver: marks delivered and records rubric approval
   disputeResolver: string;
 }
 
@@ -73,7 +73,6 @@ export interface Submitted {
 export interface EscrowPort {
   buildDeploy(input: DeployInput): Promise<Unsigned>;
   buildFund(contractId: string, signer: string, amount: string): Promise<Unsigned>;
-  buildApprove(contractId: string, approver: string, milestoneIndexes: number[]): Promise<Unsigned[]>;
   buildRelease(contractId: string, releaseSigner: string, milestoneIndexes: number[]): Promise<Unsigned[]>;
   buildDispute(contractId: string, signer: string, milestoneIndexes: number[]): Promise<Unsigned[]>;
   buildResolve(
@@ -92,6 +91,8 @@ export interface EscrowPort {
   appendMilestones(contractId: string, milestones: MilestoneInput[]): Promise<Submitted>;
   /** platform-signed: mark milestones delivered with the submission URL as evidence */
   markDelivered(contractId: string, updates: Array<{ index: number; evidence: string }>): Promise<Submitted[]>;
+  /** platform-signed: approve milestones (rubric PASS + funder selection); moves no money */
+  approveMilestones(contractId: string, milestoneIndexes: number[]): Promise<Submitted[]>;
 
   submit(signedXdr: string): Promise<Submitted>;
   getEscrow(contractId: string): Promise<EscrowState>;

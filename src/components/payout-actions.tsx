@@ -20,8 +20,7 @@ export interface PayoutRow {
 }
 
 interface Counts {
-  toApprove: number; // payouts in "delivered"
-  toRelease: number; // payouts in "approved"
+  toRelease: number; // payouts in "approved", waiting for the funder's release signature
 }
 
 export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }: { campaignId: string; funderPubkey: string; rows: PayoutRow[]; counts: Counts; closed: boolean }) {
@@ -59,10 +58,10 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
     run("approve", async () => {
       const r = await api<{ appended: number }>({ action: "approve", submissionIds: [...selected] });
       setSelected(new Set());
-      return `${r.appended} milestone(s) added to escrow and marked delivered.`;
+      return `${r.appended} milestone(s) added to escrow, delivered and approved. Sign the release to pay.`;
     });
 
-  const signAll = (kind: "approve" | "release" | "close") =>
+  const signAll = (kind: "release" | "close") =>
     run(kind, async () => {
       // One transaction at a time: each carries the wallet's sequence number.
       let n = 0;
@@ -148,15 +147,12 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
           <button type="button" disabled={busy !== null || selected.size === 0} onClick={approveSelected} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
             {busy === "approve" ? "Adding milestones…" : `Approve ${selected.size} for payout`}
           </button>
-          <button type="button" disabled={busy !== null || counts.toApprove === 0} onClick={() => signAll("approve")} className="rounded border border-neutral-300 px-3 py-1.5 text-sm disabled:opacity-50">
-            {busy === "approve" ? "Signing…" : `Sign ${counts.toApprove} approval(s)`}
-          </button>
           <button type="button" disabled={busy !== null || counts.toRelease === 0} onClick={() => signAll("release")} className="rounded border border-neutral-300 px-3 py-1.5 text-sm disabled:opacity-50">
             {busy === "release" ? "Signing…" : `Release ${counts.toRelease} payout(s)`}
           </button>
           <button
             type="button"
-            disabled={busy !== null || counts.toApprove + counts.toRelease > 0 || awaiting > 0}
+            disabled={busy !== null || counts.toRelease > 0 || awaiting > 0}
             title={awaiting > 0 ? `${awaiting} submission(s) still awaiting review` : undefined}
             onClick={() => signAll("close")}
             className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"

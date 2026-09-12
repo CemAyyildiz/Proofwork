@@ -78,14 +78,6 @@ export class TrustlessWorkAdapter implements EscrowPort {
     return { unsignedXdr: res.unsignedTransaction };
   }
 
-  async buildApprove(contractId: string, approver: string, milestoneIndexes: number[]): Promise<Unsigned[]> {
-    const out: Unsigned[] = [];
-    for (const i of milestoneIndexes) {
-      const res = await this.client.approveMilestone({ contractId, approver, milestoneIndex: String(i) });
-      out.push({ unsignedXdr: res.unsignedTransaction, milestoneIndex: i });
-    }
-    return out;
-  }
 
   async buildRelease(contractId: string, releaseSigner: string, milestoneIndexes: number[]): Promise<Unsigned[]> {
     const out: Unsigned[] = [];
@@ -190,6 +182,16 @@ export class TrustlessWorkAdapter implements EscrowPort {
     return out;
   }
 
+  async approveMilestones(contractId: string, milestoneIndexes: number[]): Promise<Submitted[]> {
+    if (milestoneIndexes.length === 0) throw new AppError("VALIDATION", "no milestones to approve");
+    const out: Submitted[] = [];
+    for (const i of milestoneIndexes) {
+      const res = await this.client.approveMilestone({ contractId, approver: this.ops.publicKey(), milestoneIndex: String(i) });
+      out.push(await this.signAndSubmit(res.unsignedTransaction, this.ops));
+    }
+    return out;
+  }
+
   async submit(signedXdr: string): Promise<Submitted> {
     const tx = TransactionBuilder.fromXDR(signedXdr, this.passphrase);
     const txHash = tx.hash().toString("hex");
@@ -210,7 +212,7 @@ export class TrustlessWorkAdapter implements EscrowPort {
 
 function toTwRoles(r: EscrowState["roles"]): TwRoles {
   return {
-    approver: r.funder,
+    approver: r.platformOps,
     releaseSigner: r.funder,
     serviceProvider: r.platformOps,
     platformAddress: r.platformAdmin,
@@ -218,11 +220,18 @@ function toTwRoles(r: EscrowState["roles"]): TwRoles {
   };
 }
 
-/** The contract rejects a disputeResolver that also holds another role. */
+/**
+ * The contract rejects a disputeResolver that also holds another role. We
+ * additionally refuse a releaseSigner that is a platform key: money must
+ * only move on the funder's signature.
+ */
 function assertRoleSeparation(r: TwRoles): void {
   const others = [r.approver, r.releaseSigner, r.serviceProvider, r.platformAddress];
   if (others.includes(r.disputeResolver)) {
     throw new AppError("VALIDATION", "disputeResolver must not hold any other role");
+  }
+  if (r.releaseSigner === r.serviceProvider || r.releaseSigner === r.platformAddress) {
+    throw new AppError("VALIDATION", "releaseSigner must not be a platform key");
   }
 }
 
@@ -251,7 +260,7 @@ function toState(e: TwEscrowRead): EscrowState {
     engagementId: e.engagementId,
     balance: fromApiAmount(Number(e.balance ?? 0)),
     roles: {
-      funder: e.roles.approver,
+      funder: e.roles.releaseSigner,
       platformAdmin: e.roles.platformAddress,
       platformOps: e.roles.serviceProvider,
       disputeResolver: e.roles.disputeResolver,

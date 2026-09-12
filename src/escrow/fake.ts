@@ -61,18 +61,6 @@ export class FakeEscrow implements EscrowPort {
     });
   }
 
-  async buildApprove(contractId: string, approver: string, idx: number[]): Promise<Unsigned[]> {
-    return idx.map((i) =>
-      this.defer(() => {
-        const s = this.state(contractId);
-        if (approver !== s.roles.funder) throw new Error("not an approver");
-        const m = this.milestone(s, i);
-        if (m.approved) throw new Error(`milestone ${i} already approved`);
-        m.approved = true;
-        return undefined;
-      }, i),
-    );
-  }
 
   async buildRelease(contractId: string, releaseSigner: string, idx: number[]): Promise<Unsigned[]> {
     return idx.map((i) =>
@@ -145,6 +133,16 @@ export class FakeEscrow implements EscrowPort {
       s.milestones.push(blank(s.milestones.length, m.description, m.amount, m.receiver));
     }
     return { txHash: this.next("tx") };
+  }
+
+  async approveMilestones(contractId: string, idx: number[]): Promise<Submitted[]> {
+    const s = this.state(contractId);
+    return idx.map((i) => {
+      const m = this.milestone(s, i);
+      if (m.approved) throw new Error(`milestone ${i} already approved`);
+      m.approved = true;
+      return { txHash: this.next("tx") };
+    });
   }
 
   async markDelivered(contractId: string, updates: Array<{ index: number; evidence: string }>): Promise<Submitted[]> {

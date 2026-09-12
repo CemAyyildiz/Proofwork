@@ -19,11 +19,13 @@ Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet only.** One hand-
 | Submit work | Contributor wallet (login only) | Nothing; the URL is stored |
 | Review | Reviewer wallet (login only) | One `manage_data` + `memo_hash` transaction per decision from the decision ledger account |
 | Re-review (once) | Contributor requests, reviewer decides | Second decision, ledger key `pw:<id>:a1`, linked to the first by hash |
-| Approve for payout | Platform keys | Milestone appended per approved submission, marked delivered |
-| Approve + release | Funder wallet | One transaction per milestone; USDC goes to the contributor |
+| Approve for payout | Platform keys | Milestone appended per approved submission, marked delivered and approved |
+| Release | Funder wallet | One transaction per milestone; USDC goes to the contributor |
 | Close | Funder wallet, then dispute resolver | Close milestone disputed; resolver sweeps the remainder back to the funder |
 
-Roles on the escrow: funder = approver + release signer; platform keys = platform address (append milestones) and service provider (mark delivered); a neutral key = dispute resolver. The platform keys can never move money.
+Roles on the escrow: funder = release signer; platform keys = platform address (append milestones) and service provider + approver (mark delivered, approve); a neutral key = dispute resolver. The platform keys can never move money; the funder's release signature is the final approval.
+
+Known limit: Trustless Work v1 builds one transaction per milestone, so a campaign with N payouts needs N release signatures. v2 offers batch approve-and-release in one transaction and is the planned Month 2 upgrade.
 
 ## Stack
 

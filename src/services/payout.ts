@@ -12,13 +12,13 @@ import { campaignOwnedBy, prepareOp, recordServerOp, submitOp, type PreparedOp }
 /**
  * Payout pipeline (architecture §3.1), per approved submission:
  *
- *   funder approves in UI  →  platform appends milestone (server key)
- *                          →  platform marks delivered (server key)
- *                          →  funder signs approve-milestone
- *                          →  funder signs release-milestone-funds
+ *   funder selects in UI  →  platform appends milestone   (server key)
+ *                         →  platform marks delivered     (server key)
+ *                         →  platform approves milestone  (server key)
+ *                         →  funder signs release-milestone-funds  (one wallet signature)
  *
- * Money only moves on the funder's signature. The DB mirrors chain state
- * and is corrected from chain by `reconcile`.
+ * Money only moves on the funder's signature; the release is the funder's
+ * final approval. The DB mirrors chain state.
  */
 export interface FunderSubmissionRow {
   submission: Submission;
@@ -123,26 +123,43 @@ export async function approveForPayout(
     .update(payouts)
     .set({ status: "delivered" })
     .where(inArray(payouts.submissionId, chosen.map((r) => r.submission.id)));
-  log.info("payouts queued", { campaignId, count: chosen.length, appendTx: res.txHash, deliverTx: delivered.txHash });
+
+  const approved = await recordServerOp(
+    {
+      campaignId,
+      kind: "approve",
+      keyParts: ["approve", campaignId, ...chosen.map((r) => r.submission.id).sort()],
+      run: async () => {
+        const subs = await escrow.approveMilestones(contractId, chosen.map((_r, i) => startIndex + i));
+        return { txHash: subs.at(-1)?.txHash ?? "" };
+      },
+    },
+    conn,
+  );
+  await conn
+    .update(payouts)
+    .set({ status: "approved" })
+    .where(inArray(payouts.submissionId, chosen.map((r) => r.submission.id)));
+  log.info("payouts queued", { campaignId, count: chosen.length, appendTx: res.txHash, deliverTx: delivered.txHash, approveTx: approved.txHash });
   return { appended: chosen.length, txHash: res.txHash };
 }
 
 /**
- * Build the funder's next approve or release transaction. One at a time on
- * purpose: every envelope carries the funder account's sequence number, so
- * two prepared together cannot both be submitted. The client loops
+ * Build the funder's next release transaction. One at a time on purpose:
+ * every envelope carries the funder account's sequence number, so two
+ * prepared together cannot both be submitted. The client loops
  * prepare → sign → submit until nothing is returned.
  */
-export async function preparePayoutOps(
+export async function prepareReleaseOp(
   campaignId: string,
-  kind: "approve" | "release",
   actor: { pubkey: string },
   escrow: EscrowPort,
   conn: Db = db,
 ): Promise<PreparedOp[]> {
   const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
-  const wanted: Payout["status"] = kind === "approve" ? "delivered" : "approved";
+  const kind = "release" as const;
+  const wanted: Payout["status"] = "approved";
   const rows = await conn
     .select({ p: payouts })
     .from(payouts)
@@ -162,7 +179,7 @@ export async function preparePayoutOps(
           kind,
           keyParts: [kind, campaignId, idx],
           build: async () => {
-            const built = kind === "approve" ? await escrow.buildApprove(contractId, c.funderPubkey, [idx]) : await escrow.buildRelease(contractId, c.funderPubkey, [idx]);
+            const built = await escrow.buildRelease(contractId, c.funderPubkey, [idx]);
             const u = built[0];
             if (!u) throw new AppError("ESCROW", "provider returned no transaction");
             return { unsignedXdr: u.unsignedXdr, milestoneIndex: idx };
@@ -175,8 +192,8 @@ export async function preparePayoutOps(
   return out;
 }
 
-export async function confirmPayoutOp(
-  input: { campaignId: string; kind: "approve" | "release"; opId: string; signedXdr: string },
+export async function confirmReleaseOp(
+  input: { campaignId: string; opId: string; signedXdr: string },
   actor: { pubkey: string },
   escrow: EscrowPort,
   conn: Db = db,
@@ -196,12 +213,8 @@ export async function confirmPayoutOp(
   )[0];
   if (!row) throw AppError.notFound("payout");
 
-  if (input.kind === "approve") {
-    await conn.update(payouts).set({ status: "approved" }).where(eq(payouts.id, row.p.id));
-  } else {
-    await conn.update(payouts).set({ status: "released", releaseTxHash: res.txHash, releasedAt: new Date() }).where(eq(payouts.id, row.p.id));
-    await conn.update(submissions).set({ status: "paid" }).where(eq(submissions.id, row.p.submissionId));
-  }
+  await conn.update(payouts).set({ status: "released", releaseTxHash: res.txHash, releasedAt: new Date() }).where(eq(payouts.id, row.p.id));
+  await conn.update(submissions).set({ status: "paid" }).where(eq(submissions.id, row.p.submissionId));
   return { txHash: res.txHash, milestoneIndex: idx };
 }
 

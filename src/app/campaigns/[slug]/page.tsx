@@ -33,10 +33,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
     payoutStatus: r.payout?.status ?? null,
     releaseTxHash: r.payout?.releaseTxHash ?? null,
   }));
-  const counts = {
-    toApprove: subs.filter((r) => r.payout?.status === "delivered").length,
-    toRelease: subs.filter((r) => r.payout?.status === "approved").length,
-  };
+  const counts = { toRelease: subs.filter((r) => r.payout?.status === "approved").length };
 
   const stage = c.closedAt ? "closed" : c.fundedAt ? "funded" : c.escrowContractId ? "deployed" : "draft";
 
