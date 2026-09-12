@@ -32,6 +32,7 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
   const [error, setError] = useState<string | null>(null);
 
   const eligible = rows.filter((r) => r.status === "decided" && r.outcome === "PASS" && !r.payoutStatus);
+  const awaiting = rows.filter((r) => r.status === "pending" || r.status === "appealed").length;
 
   async function api<T>(body: unknown): Promise<T> {
     const res = await fetch(`/api/campaigns/${campaignId}/payouts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -153,10 +154,21 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
           <button type="button" disabled={busy !== null || counts.toRelease === 0} onClick={() => signAll("release")} className="rounded border border-neutral-300 px-3 py-1.5 text-sm disabled:opacity-50">
             {busy === "release" ? "Signing…" : `Release ${counts.toRelease} payout(s)`}
           </button>
-          <button type="button" disabled={busy !== null || counts.toApprove + counts.toRelease > 0} onClick={() => signAll("close")} className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50">
+          <button
+            type="button"
+            disabled={busy !== null || counts.toApprove + counts.toRelease > 0 || awaiting > 0}
+            title={awaiting > 0 ? `${awaiting} submission(s) still awaiting review` : undefined}
+            onClick={() => signAll("close")}
+            className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
+          >
             {busy === "close" ? "Signing…" : "Close campaign"}
           </button>
         </div>
+      ) : null}
+      {awaiting > 0 && !closed ? (
+        <p className="text-sm text-neutral-600">
+          {awaiting} submission(s) awaiting review. Score them on the <Link className="underline" href="/review">review page</Link>, then approve the passes here.
+        </p>
       ) : null}
       {msg ? <p className="text-sm text-green-700">{msg}</p> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}

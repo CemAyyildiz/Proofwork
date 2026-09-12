@@ -18,8 +18,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
             <nav className="flex items-center gap-4 text-sm">
               <Link href="/" className="font-semibold">Proofwork</Link>
-              {user?.roles.has("funder") ? <Link href="/campaigns">Campaigns</Link> : null}
-              {user?.roles.has("reviewer") ? <Link href="/review">Review</Link> : null}
+              {user ? <Link href="/campaigns">Campaigns</Link> : null}
+              {user ? <Link href="/review">Review</Link> : null}
               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">testnet</span>
             </nav>
             <WalletButton pubkey={user?.pubkey ?? null} />
