@@ -4,10 +4,11 @@ import { TrustlessWorkAdapter } from "../src/escrow/trustless-work/adapter";
 import { TrustlessWorkClient } from "../src/escrow/trustless-work/client";
 
 /**
- * Operator tool: close a campaign escrow and return the remainder to the
- * funder (AD-4). Disputes the close milestone (index 0) if not already
- * disputed, then sweeps the whole balance with the dispute resolver key.
- * Refuses if any other milestone is still open.
+ * Operator tool: return a campaign escrow's remainder to its funder (AD-4).
+ * If the configured FUNDER_SECRET is the escrow's funder, it disputes the
+ * close milestone first; otherwise the funder must already have closed the
+ * campaign in the app. Then sweeps the whole balance to the escrow's funder
+ * with the dispute resolver key. Refuses if any other milestone is open.
  *
  *   pnpm escrow:close <contractId>
  */
@@ -65,9 +66,10 @@ function signWith(kp: Keypair, unsignedXdr: string): string {
 
 async function main(): Promise<void> {
   const before = await escrow.getEscrow(contractId);
-  if (before.roles.funder !== funder.publicKey() || before.roles.disputeResolver !== resolver.publicKey()) {
-    throw new Error("escrow roles do not match the configured funder / dispute resolver keys");
+  if (before.roles.disputeResolver !== resolver.publicKey()) {
+    throw new Error("escrow disputeResolver is not the configured DISPUTE_RESOLVER_SECRET key");
   }
+  const weAreFunder = before.roles.funder === funder.publicKey();
   const open = before.milestones.filter((m, i) => i !== 0 && !(m.released || m.resolved || m.disputed));
   if (open.length > 0) {
     throw new Error(`milestones still open: ${open.map((m) => m.index).join(", ")} — release or dispute them first`);
@@ -76,6 +78,7 @@ async function main(): Promise<void> {
 
   const close = before.milestones[0];
   if (close && !close.disputed && !close.released && !close.resolved) {
+    if (!weAreFunder) throw new Error("close milestone not disputed yet: the funder must close the campaign in the app first");
     for (const u of await escrow.buildDispute(contractId, funder.publicKey(), [0])) {
       process.stdout.write(`dispute close milestone: ${(await escrow.submit(signWith(funder, u.unsignedXdr))).txHash}\n`);
     }
@@ -86,7 +89,7 @@ async function main(): Promise<void> {
     return;
   }
   const sweep = await escrow.buildWithdrawRemaining(contractId, resolver.publicKey(), [
-    { address: funder.publicKey(), amount: now.balance },
+    { address: before.roles.funder, amount: now.balance },
   ]);
   const swept = await escrow.submit(signWith(resolver, sweep.unsignedXdr));
   process.stdout.write(`withdraw remaining → funder: ${swept.txHash}\n`);
