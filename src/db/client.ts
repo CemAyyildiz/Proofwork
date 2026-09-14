@@ -1,4 +1,5 @@
 import "server-only";
+import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { env } from "@/config/env";
@@ -29,4 +30,8 @@ export const db: Client = new Proxy({} as Client, {
     return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(instance) : value;
   },
 });
-export type Db = Client;
+/**
+ * What services accept as `conn`: the pool above, a transaction, or the
+ * in-process PGlite database the unit tests use.
+ */
+export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
