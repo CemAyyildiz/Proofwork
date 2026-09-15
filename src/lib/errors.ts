@@ -66,3 +66,17 @@ export function httpStatus(code: ErrorCode): number {
       return 500;
   }
 }
+
+/**
+ * True when a Postgres unique constraint rejected the write (SQLSTATE 23505).
+ * Drizzle wraps driver errors, so the `cause` chain is walked; postgres-js and
+ * PGlite both expose the SQLSTATE as `code`.
+ */
+export function isUniqueViolation(e: unknown): boolean {
+  let cur: unknown = e;
+  for (let depth = 0; depth < 5 && cur && typeof cur === "object"; depth++) {
+    if ((cur as { code?: unknown }).code === "23505") return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
