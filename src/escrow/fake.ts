@@ -1,3 +1,4 @@
+import { Account, Keypair, Networks, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
 import { addAmounts, subAmounts, toStroops } from "./amount";
 import type {
   DeployInput,
@@ -18,17 +19,39 @@ import type {
 export class FakeEscrow implements EscrowPort {
   readonly escrows = new Map<string, EscrowState>();
   private seq = 0;
+  /** keyed by tx hash, so a signed copy of an envelope finds its action */
   private pending = new Map<string, () => string | undefined>();
+  private readonly source = Keypair.random().publicKey();
+  private nextSubmit: "normal" | "landed-then-throw" | "throw" | "accept-without-effect" = "normal";
+  /** number of `submit` calls that reached the "network" */
+  submits = 0;
 
   private next(prefix: string): string {
     this.seq += 1;
     return `${prefix}_${this.seq.toString().padStart(4, "0")}`;
   }
 
+  /**
+   * Real, unique testnet envelopes so services can hash them like provider
+   * XDRs. The payload is a manage_data op carrying a sequence number.
+   */
   private defer(action: () => string | undefined, milestoneIndex?: number): Unsigned {
-    const xdr = this.next("xdr");
-    this.pending.set(xdr, action);
+    const tx = new TransactionBuilder(new Account(this.source, "0"), { fee: "100", networkPassphrase: Networks.TESTNET })
+      .addOperation(Operation.manageData({ name: "fake", value: this.next("xdr") }))
+      .setTimeout(0)
+      .build();
+    this.pending.set(tx.hash().toString("hex"), action);
+    const xdr = tx.toXDR();
     return milestoneIndex === undefined ? { unsignedXdr: xdr } : { unsignedXdr: xdr, milestoneIndex };
+  }
+
+  /**
+   * Shape the next `submit`: `landed-then-throw` applies the tx then rejects
+   * (a timeout after landing), `throw` rejects without applying,
+   * `accept-without-effect` resolves without applying (PENDING / indexer lag).
+   */
+  failNextSubmit(mode: "landed-then-throw" | "throw" | "accept-without-effect"): void {
+    this.nextSubmit = mode;
   }
 
   private state(contractId: string): EscrowState {
@@ -156,11 +179,18 @@ export class FakeEscrow implements EscrowPort {
   }
 
   async submit(signedXdr: string): Promise<Submitted> {
-    const action = this.pending.get(signedXdr);
+    this.submits += 1;
+    const txHash = TransactionBuilder.fromXDR(signedXdr, Networks.TESTNET).hash().toString("hex");
+    const action = this.pending.get(txHash);
     if (!action) throw new Error("unknown xdr");
-    this.pending.delete(signedXdr);
+    const mode = this.nextSubmit;
+    this.nextSubmit = "normal";
+    if (mode === "throw") throw new Error("send-transaction timed out");
+    if (mode === "accept-without-effect") return { txHash };
+    this.pending.delete(txHash);
     const contractId = action();
-    return contractId ? { txHash: this.next("tx"), contractId } : { txHash: this.next("tx") };
+    if (mode === "landed-then-throw") throw new Error("send-transaction timed out");
+    return contractId ? { txHash, contractId } : { txHash };
   }
 
   async getEscrow(contractId: string): Promise<EscrowState> {

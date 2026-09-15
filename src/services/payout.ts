@@ -7,7 +7,7 @@ import type { EscrowPort } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
-import { campaignOwnedBy, prepareOp, recordServerOp, submitOp, type PreparedOp } from "./escrow-ops";
+import { campaignOwnedBy, findOp, prepareOp, recordServerOp, submitOp, type PreparedOp, type Verify } from "./escrow-ops";
 
 /**
  * Payout pipeline (architecture §3.1), per approved submission:
@@ -144,6 +144,16 @@ export async function approveForPayout(
   return { appended: chosen.length, txHash: res.txHash };
 }
 
+/** A release is visible once the milestone reads back as released. */
+function releaseVisible(escrow: EscrowPort, contractId: string, idx: number): Verify {
+  return async () => (await escrow.getEscrow(contractId)).milestones[idx]?.released === true;
+}
+
+/** A close is visible once the close milestone (index 0) reads back as disputed. */
+function closeVisible(escrow: EscrowPort, contractId: string): Verify {
+  return async () => (await escrow.getEscrow(contractId)).milestones[0]?.disputed === true;
+}
+
 /**
  * Build the funder's next release transaction. One at a time on purpose:
  * every envelope carries the funder account's sequence number, so two
@@ -184,6 +194,7 @@ export async function prepareReleaseOp(
             if (!u) throw new AppError("ESCROW", "provider returned no transaction");
             return { unsignedXdr: u.unsignedXdr, milestoneIndex: idx };
           },
+          verify: releaseVisible(escrow, contractId, idx),
         },
         conn,
       ),
@@ -198,10 +209,13 @@ export async function confirmReleaseOp(
   escrow: EscrowPort,
   conn: Db = db,
 ): Promise<{ txHash: string; milestoneIndex: number }> {
-  await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
-  const res = await submitOp(input, escrow, conn);
-  const idx = (res.op.payload as { milestoneIndex?: number | null }).milestoneIndex;
+  const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
+  if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
+  const op = await findOp(input.opId, input.campaignId, conn);
+  if (op.kind !== "release") throw AppError.validation(`operation is a ${op.kind}, not a release`);
+  const idx = (op.payload as { milestoneIndex?: number | null }).milestoneIndex;
   if (idx === null || idx === undefined) throw new AppError("INTERNAL", "operation has no milestone index");
+  const res = await submitOp({ ...input, expectedKind: "release", verify: releaseVisible(escrow, c.escrowContractId, idx) }, escrow, conn);
 
   const row = (
     await conn
@@ -240,6 +254,7 @@ export async function prepareClose(campaignId: string, actor: { pubkey: string }
         if (!u) throw new AppError("ESCROW", "provider returned no transaction");
         return { unsignedXdr: u.unsignedXdr, milestoneIndex: 0 };
       },
+      verify: closeVisible(escrow, contractId),
     },
     conn,
   );
@@ -251,8 +266,9 @@ export async function confirmClose(
   escrow: EscrowPort,
   conn: Db = db,
 ): Promise<{ txHash: string }> {
-  await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
-  const res = await submitOp(input, escrow, conn);
+  const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
+  if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
+  const res = await submitOp({ ...input, expectedKind: "dispute", verify: closeVisible(escrow, c.escrowContractId) }, escrow, conn);
   await conn.update(campaigns).set({ closedAt: new Date() }).where(eq(campaigns.id, input.campaignId));
   await conn
     .update(submissions)
