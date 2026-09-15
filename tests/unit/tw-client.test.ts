@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TrustlessWorkClient } from "@/escrow/trustless-work/client";
-
-function fakeFetch(handler: (url: string, init: RequestInit) => { status: number; body: unknown }): typeof fetch {
-  return (async (input: string | URL | Request, init?: RequestInit) => {
-    const { status, body } = handler(String(input), init ?? {});
-    return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
-  }) as typeof fetch;
-}
+import { fakeFetch } from "./fake-fetch";
 
 const KEY = "k".repeat(20);
 

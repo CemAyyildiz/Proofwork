@@ -196,6 +196,11 @@ export class TrustlessWorkAdapter implements EscrowPort {
     const tx = TransactionBuilder.fromXDR(signedXdr, this.passphrase);
     const txHash = tx.hash().toString("hex");
     const r = await this.client.sendTransaction(signedXdr);
+    // The body's status is never proof of success (callers verify on chain),
+    // but an explicit FAILED is the provider rejecting the tx: surface it.
+    if (r.status === "FAILED") {
+      throw new AppError("ESCROW", `transaction failed: ${r.message ?? "no reason given"}`, { txHash });
+    }
     return r.contractId ? { txHash, contractId: r.contractId } : { txHash };
   }
 
