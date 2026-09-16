@@ -1,13 +1,13 @@
 import "server-only";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
-import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type Payout, type Submission } from "@/db/schema";
+import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type EscrowOp, type Payout, type Submission } from "@/db/schema";
 import { addAmounts, toStroops } from "@/escrow/amount";
 import type { EscrowPort } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
-import { campaignOwnedBy, findOp, prepareOp, recordServerOp, submitOp, type PreparedOp, type Verify } from "./escrow-ops";
+import { campaignOwnedBy, findOp, prepareOp, recordServerOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
 
 /**
  * Payout pipeline (architecture §3.1), per approved submission:
@@ -154,6 +154,39 @@ function closeVisible(escrow: EscrowPort, contractId: string): Verify {
   return async () => (await escrow.getEscrow(contractId)).milestones[0]?.disputed === true;
 }
 
+/** Mark the released milestone's payout (still `approved`) released with the op's tx hash. */
+function releaseConfirmed(campaignId: string, conn: Db): OnConfirmed {
+  return async (op: EscrowOp) => {
+    const idx = (op.payload as { milestoneIndex?: number | null }).milestoneIndex;
+    if (idx === null || idx === undefined) throw new AppError("INTERNAL", "operation has no milestone index");
+    const row = (
+      await conn
+        .select({ p: payouts })
+        .from(payouts)
+        .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
+        .where(and(eq(submissions.campaignId, campaignId), eq(payouts.milestoneIndex, idx)))
+        .limit(1)
+    )[0];
+    if (!row) throw AppError.notFound("payout");
+    await conn
+      .update(payouts)
+      .set({ status: "released", releaseTxHash: op.txHash, releasedAt: new Date() })
+      .where(and(eq(payouts.id, row.p.id), eq(payouts.status, "approved")));
+    await conn.update(submissions).set({ status: "paid" }).where(eq(submissions.id, row.p.submissionId));
+  };
+}
+
+/** Close the campaign and reject whatever is still open. */
+function closeConfirmed(campaignId: string, conn: Db): OnConfirmed {
+  return async () => {
+    await conn.update(campaigns).set({ closedAt: new Date() }).where(and(eq(campaigns.id, campaignId), isNull(campaigns.closedAt)));
+    await conn
+      .update(submissions)
+      .set({ status: "rejected" })
+      .where(and(eq(submissions.campaignId, campaignId), inArray(submissions.status, ["pending", "appealed"])));
+  };
+}
+
 /**
  * Build the funder's next release transaction. One at a time on purpose:
  * every envelope carries the funder account's sequence number, so two
@@ -195,6 +228,7 @@ export async function prepareReleaseOp(
             return { unsignedXdr: u.unsignedXdr, milestoneIndex: idx };
           },
           verify: releaseVisible(escrow, contractId, idx),
+          onConfirmed: releaseConfirmed(campaignId, conn),
         },
         conn,
       ),
@@ -216,19 +250,7 @@ export async function confirmReleaseOp(
   const idx = (op.payload as { milestoneIndex?: number | null }).milestoneIndex;
   if (idx === null || idx === undefined) throw new AppError("INTERNAL", "operation has no milestone index");
   const res = await submitOp({ ...input, expectedKind: "release", verify: releaseVisible(escrow, c.escrowContractId, idx) }, escrow, conn);
-
-  const row = (
-    await conn
-      .select({ p: payouts })
-      .from(payouts)
-      .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
-      .where(and(eq(submissions.campaignId, input.campaignId), eq(payouts.milestoneIndex, idx)))
-      .limit(1)
-  )[0];
-  if (!row) throw AppError.notFound("payout");
-
-  await conn.update(payouts).set({ status: "released", releaseTxHash: res.txHash, releasedAt: new Date() }).where(eq(payouts.id, row.p.id));
-  await conn.update(submissions).set({ status: "paid" }).where(eq(submissions.id, row.p.submissionId));
+  await releaseConfirmed(input.campaignId, conn)(res.op);
   return { txHash: res.txHash, milestoneIndex: idx };
 }
 
@@ -255,6 +277,7 @@ export async function prepareClose(campaignId: string, actor: { pubkey: string }
         return { unsignedXdr: u.unsignedXdr, milestoneIndex: 0 };
       },
       verify: closeVisible(escrow, contractId),
+      onConfirmed: closeConfirmed(campaignId, conn),
     },
     conn,
   );
@@ -269,11 +292,7 @@ export async function confirmClose(
   const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
   const res = await submitOp({ ...input, expectedKind: "dispute", verify: closeVisible(escrow, c.escrowContractId) }, escrow, conn);
-  await conn.update(campaigns).set({ closedAt: new Date() }).where(eq(campaigns.id, input.campaignId));
-  await conn
-    .update(submissions)
-    .set({ status: "rejected" })
-    .where(and(eq(submissions.campaignId, input.campaignId), inArray(submissions.status, ["pending", "appealed"])));
+  await closeConfirmed(input.campaignId, conn)(res.op);
   return { txHash: res.txHash };
 }
 

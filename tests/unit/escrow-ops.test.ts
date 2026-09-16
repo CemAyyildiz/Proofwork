@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
 import { campaigns, escrowOps, payouts, submissions } from "@/db/schema";
 import { FakeEscrow } from "@/escrow/fake";
@@ -67,6 +67,17 @@ async function prepareRelease() {
   const [op] = await prepareReleaseOp(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
   if (!op) throw new Error("no release prepared");
   return op;
+}
+
+async function campaign() {
+  const c = (await conn.select().from(campaigns).where(eq(campaigns.id, CAMPAIGN)))[0];
+  if (!c) throw new Error("campaign missing");
+  return c;
+}
+
+/** Stage a row as `status` with `updated_at` pushed `ms` into the past. */
+async function age(opId: string, status: "submitted" | "failed", ms: number) {
+  await conn.update(escrowOps).set({ status, updatedAt: new Date(Date.now() - ms) }).where(eq(escrowOps.id, opId));
 }
 
 async function payout(id: string) {
@@ -153,10 +164,6 @@ describe("wallet-signed ops: prepare → submit", () => {
 });
 
 describe("prepare reconciles stale and failed rows from chain state", () => {
-  async function age(opId: string, status: "submitted" | "failed", ms: number) {
-    await conn.update(escrowOps).set({ status, updatedAt: new Date(Date.now() - ms) }).where(eq(escrowOps.id, opId));
-  }
-
   it("fresh submitted row: conflict, wait", async () => {
     await releasable();
     const op = await prepareRelease();
@@ -231,11 +238,143 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
             return { unsignedXdr: op.unsignedXdr };
           },
           verify: async () => false,
+          onConfirmed: async () => {},
         },
         conn,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
     expect(built).toBe(0);
+  });
+
+  it("reconciled release marks the payout released with the prepared hash, and the next prepare moves on", async () => {
+    const { contractId, payoutId } = await releasable();
+    await escrow.appendMilestones(contractId, [{ description: "s2", amount: "10", receiver: "G_C2" }]);
+    await escrow.approveMilestones(contractId, [2]);
+    await conn.insert(submissions).values({ id: "sub_2", shortId: "s2", campaignId: CAMPAIGN, contributorPubkey: "G_C2", workUrl: "https://x.com/a/status/2", status: "decided" });
+    await conn.insert(payouts).values({ id: "pay_2", submissionId: "sub_2", milestoneIndex: 2, amount: "10", status: "approved" });
+
+    const op = await prepareRelease();
+    expect(op.milestoneIndex).toBe(1);
+    await escrow.submit(op.unsignedXdr); // landed; the app died before recording it
+    await age(op.opId, "submitted", STALE_SUBMITTED_MS + 1_000);
+    await expect(prepareRelease()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/already confirmed/) });
+    expect(await payout(payoutId)).toMatchObject({ status: "released", releaseTxHash: txHashOf(op.unsignedXdr) });
+    expect((await conn.select().from(submissions).where(eq(submissions.id, "sub_1")))[0]?.status).toBe("paid");
+
+    const next = await prepareRelease();
+    expect(next.milestoneIndex).toBe(2);
+    expect(next.opId).not.toBe(op.opId);
+  });
+
+  it("confirmed op whose payout write was lost: prepare replays the write, then conflicts", async () => {
+    const { payoutId } = await releasable();
+    const op = await prepareRelease();
+    await escrow.submit(op.unsignedXdr);
+    const hash = txHashOf(op.unsignedXdr);
+    await conn.update(escrowOps).set({ status: "confirmed", txHash: hash }).where(eq(escrowOps.id, op.opId));
+    await expect(prepareRelease()).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await payout(payoutId)).toMatchObject({ status: "released", releaseTxHash: hash });
+    expect(await prepareReleaseOp(CAMPAIGN, { pubkey: FUNDER }, escrow, conn)).toEqual([]);
+  });
+
+  it("reconciled fund sets fundedAt", async () => {
+    const d = await prepareDeploy(CAMPAIGN, actor, escrow, conn);
+    await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn);
+    const f = await prepareFund(CAMPAIGN, actor, escrow, conn);
+    await escrow.submit(f.unsignedXdr);
+    await age(f.opId, "submitted", STALE_SUBMITTED_MS + 1_000);
+    await expect(prepareFund(CAMPAIGN, actor, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/already confirmed/) });
+    expect((await campaign()).fundedAt).toBeInstanceOf(Date);
+    await expect(prepareFund(CAMPAIGN, actor, escrow, conn)).rejects.toMatchObject({ message: "campaign already funded" });
+  });
+
+  it("confirmed deploy whose contract id write was lost: prepare replays it from the op", async () => {
+    const d = await prepareDeploy(CAMPAIGN, actor, escrow, conn);
+    const { contractId } = await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn);
+    expect((await opRow(d.opId)).payload).toMatchObject({ contractId });
+    await conn.update(campaigns).set({ escrowContractId: null }).where(eq(campaigns.id, CAMPAIGN));
+    await expect(prepareDeploy(CAMPAIGN, actor, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect((await campaign()).escrowContractId).toBe(contractId);
+  });
+});
+
+describe("verify closures reject an accepted tx without effect", () => {
+  it("deploy: op failed, escrowContractId stays null", async () => {
+    const d = await prepareDeploy(CAMPAIGN, actor, escrow, conn);
+    escrow.failNextSubmit("accept-without-effect");
+    await expect(confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn)).rejects.toMatchObject({ code: "ESCROW" });
+    expect((await opRow(d.opId)).status).toBe("failed");
+    expect((await campaign()).escrowContractId).toBeNull();
+  });
+
+  it("fund: op failed, fundedAt stays null", async () => {
+    const d = await prepareDeploy(CAMPAIGN, actor, escrow, conn);
+    await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn);
+    const f = await prepareFund(CAMPAIGN, actor, escrow, conn);
+    escrow.failNextSubmit("accept-without-effect");
+    await expect(confirmFund({ campaignId: CAMPAIGN, opId: f.opId, signedXdr: f.unsignedXdr }, actor, escrow, conn)).rejects.toMatchObject({ code: "ESCROW" });
+    expect((await opRow(f.opId)).status).toBe("failed");
+    expect((await campaign()).fundedAt).toBeNull();
+  });
+});
+
+describe("concurrency", () => {
+  it("concurrent prepareRelease: one fulfilled, one conflict", async () => {
+    await releasable();
+    const results = await Promise.allSettled([prepareRelease(), prepareRelease()]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((r) => r.status === "rejected");
+    expect(rejected?.status === "rejected" ? rejected.reason : undefined).toMatchObject({ code: "CONFLICT" });
+    expect(await conn.select().from(escrowOps).where(eq(escrowOps.kind, "release"))).toHaveLength(1);
+  });
+
+  /** Holds the next submit until `release()` is called; `entered` resolves once the row is claimed. */
+  function holdSubmit() {
+    const original = escrow.submit.bind(escrow);
+    let release = () => {};
+    let entered = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const reached = new Promise<void>((r) => (entered = r));
+    vi.spyOn(escrow, "submit").mockImplementationOnce(async (xdr: string) => {
+      entered();
+      await gate;
+      return original(xdr);
+    });
+    return { release, reached };
+  }
+
+  async function reusedWhileSubmitting() {
+    const { payoutId } = await releasable();
+    const op = await prepareRelease();
+    const hold = holdSubmit();
+    const late = confirmReleaseOp({ campaignId: CAMPAIGN, opId: op.opId, signedXdr: op.unsignedXdr }, { pubkey: FUNDER }, escrow, conn);
+    await hold.reached;
+    await age(op.opId, "submitted", STALE_SUBMITTED_MS + 1_000);
+    const again = await prepareRelease();
+    expect(again.opId).toBe(op.opId);
+    // The funder's new signature claims the reused row before the late result arrives.
+    await conn.update(escrowOps).set({ status: "submitted" }).where(eq(escrowOps.id, op.opId));
+    return { op, again, late, hold, payoutId };
+  }
+
+  it("a late failing submit does not overwrite the reused op", async () => {
+    const { again, late, hold, op } = await reusedWhileSubmitting();
+    escrow.failNextSubmit("throw");
+    hold.release();
+    await expect(late).rejects.toThrow(/timed out/);
+    const row = await opRow(op.opId);
+    expect(row.status).toBe("submitted");
+    expect((row.payload as { unsignedHash: string }).unsignedHash).toBe(txHashOf(again.unsignedXdr));
+  });
+
+  it("a late landing submit does not overwrite the reused op", async () => {
+    const { again, late, hold, op, payoutId } = await reusedWhileSubmitting();
+    hold.release();
+    await expect(late).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/changed concurrently/) });
+    const row = await opRow(op.opId);
+    expect(row.status).toBe("submitted");
+    expect((row.payload as { unsignedHash: string }).unsignedHash).toBe(txHashOf(again.unsignedXdr));
+    expect((await payout(payoutId)).status).toBe("approved");
   });
 });
 

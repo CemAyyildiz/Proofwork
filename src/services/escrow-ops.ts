@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, escrowOps, type EscrowOp } from "@/db/schema";
 import type { EscrowPort, Submitted } from "@/escrow/port";
@@ -22,11 +22,19 @@ import { txHashOf } from "@/lib/tx";
  * when a stale `submitted` or a `failed` row is prepared again. The
  * idempotency key makes a retried prepare reuse the same row, and a
  * confirmed row can never be submitted twice.
+ *
+ * `onConfirmed` is the caller's domain write for a confirmed op (payout
+ * released, campaign funded, ...). It runs after a submit confirms and also
+ * when prepare meets an op that is already confirmed, so a reconciled op never
+ * leaves campaign or payout state behind the chain. It must be idempotent.
  */
 export type OpKind = EscrowOp["kind"];
 
 /** Reads chain state; true when the op's effect is visible on the escrow. */
 export type Verify = (res: Submitted) => Promise<boolean>;
+
+/** Domain write for a confirmed op; idempotent (only moves rows not yet in the target state). */
+export type OnConfirmed = (op: EscrowOp) => Promise<void>;
 
 /** A `submitted` row older than this is treated as abandoned and reconciled from chain state. */
 export const STALE_SUBMITTED_MS = 120_000;
@@ -45,12 +53,13 @@ interface PrepareArgs {
   keyParts: Array<string | number>;
   build: () => Promise<{ unsignedXdr: string; milestoneIndex?: number }>;
   verify: Verify;
+  onConfirmed: OnConfirmed;
 }
 
 /** A verifier error never confirms an op: a flaky read counts as "not visible". */
-async function safeVerify(verify: Verify, res: Submitted, ctx: { opId: string; kind: OpKind }): Promise<boolean> {
+async function safeVerify(verify: () => Promise<boolean>, ctx: { opId: string; kind: OpKind }): Promise<boolean> {
   try {
-    return await verify(res);
+    return await verify();
   } catch (e) {
     log.warn("escrow op verify failed", { ...ctx, err: e instanceof Error ? e.message : String(e) });
     return false;
@@ -61,14 +70,42 @@ function preparedHash(op: EscrowOp): string | undefined {
   return (op.payload as { unsignedHash?: string }).unsignedHash;
 }
 
-async function markConfirmed(conn: Db, id: string, txHash: string): Promise<EscrowOp> {
-  const [row] = await conn.update(escrowOps).set({ status: "confirmed", txHash, error: null }).where(eq(escrowOps.id, id)).returning();
-  if (!row) throw AppError.notFound("escrow operation");
+/** Matches the row only while it still carries this prepared hash, i.e. no prepare has reused it since. */
+function stillPrepared(id: string, hash: string) {
+  return and(eq(escrowOps.id, id), sql`${escrowOps.payload}->>'unsignedHash' = ${hash}`);
+}
+
+/**
+ * Confirm a row that is `from` one of the given statuses and still carries
+ * `hash`. A late writer whose row was reconciled and reused meanwhile updates
+ * nothing and gets a conflict instead of overwriting the new intent.
+ * `contractId` (deploy) is kept in the payload so `onConfirmed` can replay it.
+ */
+async function markConfirmed(
+  conn: Db,
+  op: EscrowOp,
+  hash: string,
+  from: Array<EscrowOp["status"]>,
+  contractId?: string,
+): Promise<EscrowOp> {
+  const payload = contractId ? sql`${escrowOps.payload} || ${JSON.stringify({ contractId })}::jsonb` : undefined;
+  const [row] = await conn
+    .update(escrowOps)
+    .set({ status: "confirmed", txHash: hash, error: null, ...(payload ? { payload } : {}) })
+    .where(and(stillPrepared(op.id, hash), inArray(escrowOps.status, from)))
+    .returning();
+  if (!row) throw AppError.conflict(`${op.kind} changed concurrently; retry`);
   return row;
 }
 
-async function markFailed(conn: Db, id: string, message: string): Promise<void> {
-  await conn.update(escrowOps).set({ status: "failed", error: message.slice(0, 1000) }).where(eq(escrowOps.id, id));
+/** Fail a submitted row that still carries `hash`; a row reused meanwhile is left alone. */
+async function markFailed(conn: Db, op: EscrowOp, hash: string, message: string): Promise<void> {
+  const moved = await conn
+    .update(escrowOps)
+    .set({ status: "failed", error: message.slice(0, 1000) })
+    .where(and(stillPrepared(op.id, hash), eq(escrowOps.status, "submitted")))
+    .returning({ id: escrowOps.id });
+  if (moved.length !== 1) log.warn("escrow op changed before it could be marked failed", { opId: op.id, kind: op.kind });
 }
 
 /**
@@ -77,11 +114,12 @@ async function markFailed(conn: Db, id: string, message: string): Promise<void> 
  * we prepared, and the caller gets a conflict instead of a second tx.
  * Otherwise the row is left `failed` for a fresh prepare.
  */
-async function reconcile(conn: Db, op: EscrowOp, verify: Verify): Promise<void> {
+async function reconcile(conn: Db, op: EscrowOp, args: PrepareArgs): Promise<void> {
   const hash = preparedHash(op);
-  if (hash && (await safeVerify(verify, { txHash: hash }, { opId: op.id, kind: op.kind }))) {
-    await markConfirmed(conn, op.id, hash);
+  if (hash && (await safeVerify(() => args.verify({ txHash: hash }), { opId: op.id, kind: op.kind }))) {
+    const row = await markConfirmed(conn, op, hash, ["submitted", "failed"]);
     log.info("escrow op reconciled from chain", { opId: op.id, kind: op.kind, txHash: hash });
+    await args.onConfirmed(row);
     throw AppError.conflict(`${op.kind} already confirmed (tx ${hash})`);
   }
   if (op.status === "submitted") {
@@ -99,13 +137,15 @@ export async function prepareOp(args: PrepareArgs, conn: Db = db): Promise<Prepa
   const key = idempotencyKey(args.keyParts);
   const existing = (await conn.select().from(escrowOps).where(eq(escrowOps.idempotencyKey, key)).limit(1))[0];
   if (existing?.status === "confirmed") {
+    // The domain write may have been lost (crash after confirm); replay it before refusing.
+    await args.onConfirmed(existing);
     throw AppError.conflict(`${args.kind} already confirmed (tx ${existing.txHash ?? "?"})`);
   }
   if (existing?.status === "submitted" && Date.now() - existing.updatedAt.getTime() < STALE_SUBMITTED_MS) {
     throw AppError.conflict(`${args.kind} is being submitted; wait for confirmation`);
   }
   if (existing?.status === "submitted" || existing?.status === "failed") {
-    await reconcile(conn, existing, args.verify);
+    await reconcile(conn, existing, args);
   }
 
   const built = await args.build();
@@ -180,9 +220,9 @@ export async function submitOp(
     res = await escrow.submit(input.signedXdr);
   } catch (e) {
     // A timeout can hide a tx that landed; only the chain can tell.
-    if (!(await safeVerify(input.verify, { txHash: actual }, ctx))) {
+    if (!(await safeVerify(() => input.verify({ txHash: actual }), ctx))) {
       const message = e instanceof Error ? e.message : String(e);
-      await markFailed(conn, op.id, message);
+      await markFailed(conn, op, actual, message);
       log.error("escrow op failed", { ...ctx, err: message });
       throw e;
     }
@@ -190,12 +230,13 @@ export async function submitOp(
     res = { txHash: actual };
   }
 
-  if (!(await safeVerify(input.verify, res, ctx))) {
-    await markFailed(conn, op.id, "effect not visible on chain");
+  const submitted = res;
+  if (!(await safeVerify(() => input.verify(submitted), ctx))) {
+    await markFailed(conn, op, actual, "effect not visible on chain");
     log.error("escrow op not visible on chain", { ...ctx, txHash: actual });
     throw new AppError("ESCROW", "effect not visible on chain", { txHash: actual });
   }
-  const updated = await markConfirmed(conn, op.id, actual);
+  const updated = await markConfirmed(conn, op, actual, ["submitted"], res.contractId);
   log.info("escrow op confirmed", { ...ctx, txHash: actual });
   return { ...res, txHash: actual, op: updated };
 }
@@ -239,7 +280,7 @@ export async function recordServerOp(
     return res;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await markFailed(conn, id, message);
+    await conn.update(escrowOps).set({ status: "failed", error: message.slice(0, 1000) }).where(eq(escrowOps.id, id));
     throw e;
   }
 }

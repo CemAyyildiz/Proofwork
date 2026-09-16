@@ -1,14 +1,14 @@
 import "server-only";
 import { StrKey } from "@stellar/stellar-sdk";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Db } from "@/db/client";
-import { campaigns, type Campaign } from "@/db/schema";
+import { campaigns, type Campaign, type EscrowOp } from "@/db/schema";
 import { assertPositiveAmount, toStroops } from "@/escrow/amount";
 import type { EscrowPort, Submitted } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
-import { campaignOwnedBy, prepareOp, submitOp, type PreparedOp, type Verify } from "./escrow-ops";
+import { campaignOwnedBy, prepareOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
 
 const CLOSE_MILESTONE_AMOUNT = "0.0000001";
 
@@ -99,6 +99,21 @@ function fundVisible(escrow: EscrowPort, contractId: string | null, budget: stri
   };
 }
 
+/** Record the deployed contract id; the op carries it from the submit body. */
+function deployConfirmed(campaignId: string, conn: Db): OnConfirmed {
+  return async (op: EscrowOp) => {
+    const contractId = (op.payload as { contractId?: string }).contractId;
+    if (!contractId) throw new AppError("ESCROW", "deploy confirmed but no contract id was recorded", { txHash: op.txHash });
+    await conn.update(campaigns).set({ escrowContractId: contractId }).where(and(eq(campaigns.id, campaignId), isNull(campaigns.escrowContractId)));
+  };
+}
+
+function fundConfirmed(campaignId: string, conn: Db): OnConfirmed {
+  return async () => {
+    await conn.update(campaigns).set({ fundedAt: new Date() }).where(and(eq(campaigns.id, campaignId), isNull(campaigns.fundedAt)));
+  };
+}
+
 /** Step 1 of funding: build the deploy transaction for the funder's wallet. */
 export async function prepareDeploy(
   campaignId: string,
@@ -128,6 +143,7 @@ export async function prepareDeploy(
           closeMilestone: { description: `campaign close · ${c.slug}`, amount: CLOSE_MILESTONE_AMOUNT },
         }),
       verify: deployVisible(escrow, c.slug),
+      onConfirmed: deployConfirmed(campaignId, conn),
     },
     conn,
   );
@@ -142,7 +158,7 @@ export async function confirmDeploy(
   const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
   const res = await submitOp({ ...input, expectedKind: "deploy", verify: deployVisible(escrow, c.slug) }, escrow, conn);
   if (!res.contractId) throw new AppError("ESCROW", "deploy confirmed but provider returned no contract id", { txHash: res.txHash });
-  await conn.update(campaigns).set({ escrowContractId: res.contractId }).where(eq(campaigns.id, input.campaignId));
+  await deployConfirmed(input.campaignId, conn)(res.op);
   return { txHash: res.txHash, contractId: res.contractId };
 }
 
@@ -159,6 +175,7 @@ export async function prepareFund(campaignId: string, actor: { pubkey: string },
       keyParts: ["fund", campaignId],
       build: () => escrow.buildFund(contractId, c.funderPubkey, c.budget),
       verify: fundVisible(escrow, contractId, c.budget),
+      onConfirmed: fundConfirmed(campaignId, conn),
     },
     conn,
   );
@@ -172,6 +189,6 @@ export async function confirmFund(
 ): Promise<{ txHash: string }> {
   const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
   const res = await submitOp({ ...input, expectedKind: "fund", verify: fundVisible(escrow, c.escrowContractId, c.budget) }, escrow, conn);
-  await conn.update(campaigns).set({ fundedAt: new Date() }).where(eq(campaigns.id, input.campaignId));
+  await fundConfirmed(input.campaignId, conn)(res.op);
   return { txHash: res.txHash };
 }
