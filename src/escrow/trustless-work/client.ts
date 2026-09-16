@@ -11,8 +11,44 @@ import { log } from "@/lib/logger";
  *   - auth header is x-api-key on every request, reads included
  *   - amounts are numbers; milestoneIndex is a string ("0")
  *   - after funding, update-escrow may only append milestones
- *   - rate limit 50 req / 60 s — calls are serialised through a queue
+ *   - rate limit 50 req / 60 s — calls are serialised through a queue and
+ *     held by a sliding-window limiter; a 429 waits Retry-After and retries once
  */
+
+/** Sliding-window request budget. Clock and sleep are injectable for tests. */
+export interface RateLimit {
+  max: number;
+  windowMs: number;
+  now: () => number;
+  sleep: (ms: number) => Promise<void>;
+}
+
+const DEFAULT_RATE_LIMIT: RateLimit = {
+  max: 50,
+  windowMs: 60_000,
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+const DEFAULT_RETRY_AFTER_MS = 5_000;
+const MAX_RETRY_AFTER_MS = 60_000;
+
+/** Retry-After is delta-seconds or an HTTP date; anything else falls back to the default. */
+function retryAfterMs(header: string | null, now: number): number {
+  if (!header) return DEFAULT_RETRY_AFTER_MS;
+  const secs = Number(header);
+  if (header.trim() !== "" && Number.isFinite(secs) && secs >= 0) return Math.min(secs * 1000, MAX_RETRY_AFTER_MS);
+  const at = Date.parse(header);
+  if (!Number.isNaN(at)) return Math.min(Math.max(at - now, 0), MAX_RETRY_AFTER_MS);
+  return DEFAULT_RETRY_AFTER_MS;
+}
+
+interface RawReply {
+  ok: boolean;
+  status: number;
+  text: string;
+  retryAfter: string | null;
+}
 
 const unsignedSchema = z.object({ unsignedTransaction: z.string().min(1) });
 
@@ -82,12 +118,18 @@ export interface TwMilestoneWrite {
 
 export class TrustlessWorkClient {
   private queue: Promise<unknown> = Promise.resolve();
+  /** start times of requests inside the current window, oldest first */
+  private sent: number[] = [];
+  private readonly limit: RateLimit;
 
   constructor(
     private readonly baseUrl: string,
     private readonly apiKey: string,
     private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+    limit: Partial<RateLimit> = {},
+  ) {
+    this.limit = { ...DEFAULT_RATE_LIMIT, ...limit };
+  }
 
   // ---- writes (build unsigned XDR) -------------------------------------
 
@@ -174,7 +216,7 @@ export class TrustlessWorkClient {
   async getEscrow(contractId: string): Promise<TwEscrowRead> {
     const q = new URLSearchParams([["contractIds[]", contractId], ["validateOnChain", "true"]]);
     const rows = await this.get(`/helper/get-escrow-by-contract-ids?${q.toString()}`, z.array(escrowReadSchema));
-    const row = rows.find((r) => r.contractId === contractId) ?? rows[0];
+    const row = rows.find((r) => r.contractId === contractId);
     if (!row) throw new AppError("ESCROW", "escrow not found", { contractId });
     return row;
   }
@@ -193,28 +235,57 @@ export class TrustlessWorkClient {
     return this.enqueue(() => this.request("GET", path, undefined, schema));
   }
 
-  /** Serialises calls so a burst never trips the 50/min limit. */
+  /** Serialises calls so a burst never fans out. */
   private enqueue<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.queue.then(fn, fn);
     this.queue = next.catch(() => undefined);
     return next;
   }
 
-  private async request<T>(method: "GET" | "POST" | "PUT", path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
+  /** Waits until a request fits the window, then records it. */
+  private async throttle(): Promise<void> {
+    const { max, windowMs, now, sleep } = this.limit;
+    for (;;) {
+      const t = now();
+      this.sent = this.sent.filter((s) => t - s < windowMs);
+      if (this.sent.length < max) {
+        this.sent.push(t);
+        return;
+      }
+      const oldest = this.sent[0] ?? t;
+      await sleep(oldest + windowMs - t);
+    }
+  }
+
+  private async send(method: "GET" | "POST" | "PUT", path: string, body: unknown): Promise<RawReply> {
+    await this.throttle();
     const started = Date.now();
-    let res: Response;
+    const shortPath = path.split("?")[0];
     try {
-      res = await this.fetchImpl(`${this.baseUrl}${path}`, {
+      const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method,
         headers: { "content-type": "application/json", "x-api-key": this.apiKey },
         body: body === undefined ? null : JSON.stringify(body),
         signal: AbortSignal.timeout(30_000),
       });
+      // The body read can abort too (timeout, dropped connection): same failure as connect.
+      const text = await res.text();
+      log.debug("tw request", { method, path: shortPath, status: res.status, ms: Date.now() - started });
+      return { ok: res.ok, status: res.status, text, retryAfter: res.headers.get("retry-after") };
     } catch (cause) {
       throw new AppError("ESCROW", `trustless work unreachable: ${path}`, { path }, { cause });
     }
-    const text = await res.text();
-    log.debug("tw request", { method, path: path.split("?")[0], status: res.status, ms: Date.now() - started });
+  }
+
+  private async request<T>(method: "GET" | "POST" | "PUT", path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
+    let res = await this.send(method, path, body);
+    if (res.status === 429) {
+      const waitMs = retryAfterMs(res.retryAfter, this.limit.now());
+      log.warn("tw rate limited; retrying once", { path: path.split("?")[0], waitMs });
+      await this.limit.sleep(waitMs);
+      res = await this.send(method, path, body);
+    }
+    const text = res.text;
 
     if (!res.ok) {
       throw new AppError("ESCROW", `trustless work ${res.status} on ${path.split("?")[0]}`, {
