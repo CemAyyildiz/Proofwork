@@ -93,6 +93,23 @@ describe("TrustlessWorkClient (v1)", () => {
       expect(calls).toBe(2);
       expect(c.waits).toEqual([5_000]);
     });
+
+    it("reads an HTTP-date Retry-After relative to the clock", async () => {
+      const { c, limit } = clock();
+      c.t = Date.parse("2026-09-25T10:00:00Z");
+      const replies = [{ status: 429, body: {}, headers: { "retry-after": "Fri, 25 Sep 2026 10:00:07 GMT" } }, ok];
+      const client = new TrustlessWorkClient("https://tw.test", KEY, fakeFetch(() => replies.shift() ?? ok), limit);
+      await expect(fund(client)).resolves.toEqual({ unsignedTransaction: "AAAA" });
+      expect(c.waits).toEqual([7_000]);
+    });
+
+    it("caps Retry-After at 60 s", async () => {
+      const { c, limit } = clock();
+      const replies = [{ status: 429, body: {}, headers: { "retry-after": "600" } }, ok];
+      const client = new TrustlessWorkClient("https://tw.test", KEY, fakeFetch(() => replies.shift() ?? ok), limit);
+      await expect(fund(client)).resolves.toEqual({ unsignedTransaction: "AAAA" });
+      expect(c.waits).toEqual([60_000]);
+    });
   });
 
   it("throws when the read has no row for the requested contract", async () => {
@@ -133,6 +150,29 @@ describe("TrustlessWorkClient (v1)", () => {
     await expect(c.fund({ contractId: "C1", signer: "G1", amount: 1 })).rejects.toMatchObject({
       code: "ESCROW",
       message: expect.stringMatching(/unreachable/),
+    });
+  });
+
+  it("names the path without its query string when a read aborts", async () => {
+    const c = new TrustlessWorkClient(
+      "https://tw.test",
+      KEY,
+      fakeFetch(
+        () =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.error(new Error("aborted"));
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    await expect(c.getEscrow("C1")).rejects.toMatchObject({
+      code: "ESCROW",
+      message: "trustless work unreachable: /helper/get-escrow-by-contract-ids",
+      details: { path: "/helper/get-escrow-by-contract-ids" },
     });
   });
 });

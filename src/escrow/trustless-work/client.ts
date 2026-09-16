@@ -43,6 +43,12 @@ function retryAfterMs(header: string | null, now: number): number {
   return DEFAULT_RETRY_AFTER_MS;
 }
 
+/** Error messages and logs carry the path without its query string (contract ids, flags). */
+function stripQuery(path: string): string {
+  const q = path.indexOf("?");
+  return q === -1 ? path : path.slice(0, q);
+}
+
 interface RawReply {
   ok: boolean;
   status: number;
@@ -260,7 +266,7 @@ export class TrustlessWorkClient {
   private async send(method: "GET" | "POST" | "PUT", path: string, body: unknown): Promise<RawReply> {
     await this.throttle();
     const started = Date.now();
-    const shortPath = path.split("?")[0];
+    const shortPath = stripQuery(path);
     try {
       const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method,
@@ -273,23 +279,24 @@ export class TrustlessWorkClient {
       log.debug("tw request", { method, path: shortPath, status: res.status, ms: Date.now() - started });
       return { ok: res.ok, status: res.status, text, retryAfter: res.headers.get("retry-after") };
     } catch (cause) {
-      throw new AppError("ESCROW", `trustless work unreachable: ${path}`, { path }, { cause });
+      throw new AppError("ESCROW", `trustless work unreachable: ${shortPath}`, { path: shortPath }, { cause });
     }
   }
 
   private async request<T>(method: "GET" | "POST" | "PUT", path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
+    const shortPath = stripQuery(path);
     let res = await this.send(method, path, body);
     if (res.status === 429) {
       const waitMs = retryAfterMs(res.retryAfter, this.limit.now());
-      log.warn("tw rate limited; retrying once", { path: path.split("?")[0], waitMs });
+      log.warn("tw rate limited; retrying once", { path: shortPath, waitMs });
       await this.limit.sleep(waitMs);
       res = await this.send(method, path, body);
     }
     const text = res.text;
 
     if (!res.ok) {
-      throw new AppError("ESCROW", `trustless work ${res.status} on ${path.split("?")[0]}`, {
-        path: path.split("?")[0],
+      throw new AppError("ESCROW", `trustless work ${res.status} on ${shortPath}`, {
+        path: shortPath,
         status: res.status,
         body: text.slice(0, 500),
       });
@@ -298,12 +305,12 @@ export class TrustlessWorkClient {
     try {
       json = JSON.parse(text);
     } catch (cause) {
-      throw new AppError("ESCROW", `trustless work returned non-JSON on ${path}`, { path }, { cause });
+      throw new AppError("ESCROW", `trustless work returned non-JSON on ${shortPath}`, { path: shortPath }, { cause });
     }
     const parsed = schema.safeParse(json);
     if (!parsed.success) {
-      throw new AppError("ESCROW", `trustless work response shape drifted on ${path.split("?")[0]}`, {
-        path: path.split("?")[0],
+      throw new AppError("ESCROW", `trustless work response shape drifted on ${shortPath}`, {
+        path: shortPath,
         issues: parsed.error.issues.slice(0, 5),
         sample: text.slice(0, 300),
       });
