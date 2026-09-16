@@ -222,6 +222,32 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
     expect((await opRow(op.opId)).kind).toBe("dispute");
   });
 
+  it("verifier error before a rebuild: retryable conflict, row untouched, nothing built", async () => {
+    await releasable();
+    const op = await prepareRelease();
+    await age(op.opId, "submitted", STALE_SUBMITTED_MS + 1_000);
+    const before = await opRow(op.opId);
+    let built = 0;
+    await expect(
+      prepareOp(
+        {
+          campaignId: CAMPAIGN,
+          kind: "release",
+          keyParts: ["release", CAMPAIGN, 1],
+          build: async () => {
+            built += 1;
+            return { unsignedXdr: op.unsignedXdr };
+          },
+          verify: () => Promise.reject(new Error("read failed")),
+          onConfirmed: async () => {},
+        },
+        conn,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT", message: "could not read chain state; retry" });
+    expect(built).toBe(0);
+    expect(await opRow(op.opId)).toEqual(before);
+  });
+
   it("generic prepareOp: confirmed row is never rebuilt", async () => {
     await releasable();
     const op = await prepareRelease();
@@ -444,6 +470,28 @@ describe("server-signed ops run at most once", () => {
     const res = recordServerOp({ campaignId: CAMPAIGN, kind, keyParts, run: async () => ({ txHash: "tx_p" }), verify: async () => false }, conn);
     await expect(res).rejects.toMatchObject({ code: "ESCROW", message: "effect not visible on chain" });
     expect((await conn.select().from(escrowOps))[0]).toMatchObject({ status: "failed", txHash: "tx_p" });
+  });
+
+  it("verifier error before a re-run: retryable conflict, run not called, row untouched", async () => {
+    await stageSubmitted(STALE_SUBMITTED_MS + 1_000);
+    const before = await opRow("op_x");
+    let runs = 0;
+    const call = recordServerOp(
+      {
+        campaignId: CAMPAIGN,
+        kind,
+        keyParts,
+        run: async () => {
+          runs += 1;
+          return { txHash: "t" };
+        },
+        verify: () => Promise.reject(new Error("read failed")),
+      },
+      conn,
+    );
+    await expect(call).rejects.toMatchObject({ code: "CONFLICT", message: "could not read chain state; retry" });
+    expect(runs).toBe(0);
+    expect(await opRow("op_x")).toEqual(before);
   });
 
   it("stale submitted row that landed: reconciled as confirmed, no re-run", async () => {

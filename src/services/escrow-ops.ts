@@ -66,6 +66,20 @@ async function safeVerify(verify: () => Promise<boolean>, ctx: { opId: string; k
   }
 }
 
+/**
+ * Before a rebuild or a re-run a verifier error must not count as "not
+ * visible": the op may have landed. Refuse with a retryable conflict and
+ * leave the row as it is.
+ */
+async function strictVerify(verify: () => Promise<boolean>, ctx: { opId: string; kind: OpKind }): Promise<boolean> {
+  try {
+    return await verify();
+  } catch (e) {
+    log.warn("escrow op verify failed before retry", { ...ctx, err: e instanceof Error ? e.message : String(e) });
+    throw AppError.conflict("could not read chain state; retry");
+  }
+}
+
 function preparedHash(op: EscrowOp): string | undefined {
   return (op.payload as { unsignedHash?: string }).unsignedHash;
 }
@@ -116,7 +130,7 @@ async function markFailed(conn: Db, op: EscrowOp, hash: string, message: string)
  */
 async function reconcile(conn: Db, op: EscrowOp, args: PrepareArgs): Promise<void> {
   const hash = preparedHash(op);
-  if (hash && (await safeVerify(() => args.verify({ txHash: hash }), { opId: op.id, kind: op.kind }))) {
+  if (hash && (await strictVerify(() => args.verify({ txHash: hash }), { opId: op.id, kind: op.kind }))) {
     const row = await markConfirmed(conn, op, hash, ["submitted", "failed"]);
     log.info("escrow op reconciled from chain", { opId: op.id, kind: op.kind, txHash: hash });
     await args.onConfirmed(row);
@@ -279,7 +293,7 @@ export async function recordServerOp(
     id = existing.id;
     const ctx = { opId: id, kind: existing.kind };
     // A failed or abandoned op may have landed after all: never run it twice.
-    if (await safeVerify(input.verify, ctx)) {
+    if (await strictVerify(input.verify, ctx)) {
       const txHash = existing.txHash ?? "";
       const done = await conn
         .update(escrowOps)
