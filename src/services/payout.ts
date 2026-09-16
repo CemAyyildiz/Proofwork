@@ -3,7 +3,7 @@ import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type EscrowOp, type Payout, type Submission } from "@/db/schema";
 import { addAmounts, toStroops } from "@/escrow/amount";
-import type { EscrowPort } from "@/escrow/port";
+import type { EscrowMilestone, EscrowPort } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
@@ -36,6 +36,22 @@ export async function submissionsForFunder(campaignId: string, conn: Db = db): P
   for (const d of ds) if (!latest.has(d.submissionId)) latest.set(d.submissionId, d);
   const payoutBySub = new Map(ps.map((p) => [p.submissionId, p]));
   return subs.map((s) => ({ submission: s, latest: latest.get(s.id) ?? null, payout: payoutBySub.get(s.id) ?? null }));
+}
+
+/**
+ * Each chosen submission's milestone on chain, located by its description
+ * prefix (`<shortId> `), or null when any is missing. Never by index: the
+ * index is recomputed on retry.
+ */
+async function chosenMilestones(escrow: EscrowPort, contractId: string, chosen: FunderSubmissionRow[]): Promise<EscrowMilestone[] | null> {
+  const { milestones } = await escrow.getEscrow(contractId);
+  const found: EscrowMilestone[] = [];
+  for (const r of chosen) {
+    const m = milestones.find((x) => x.description.startsWith(`${r.submission.shortId} `));
+    if (!m) return null;
+    found.push(m);
+  }
+  return found;
 }
 
 /**
@@ -90,6 +106,7 @@ export async function approveForPayout(
             receiver: r.submission.contributorPubkey,
           })),
         ),
+      verify: async () => (await chosenMilestones(escrow, contractId, chosen)) !== null,
     },
     conn,
   );
@@ -116,6 +133,10 @@ export async function approveForPayout(
         );
         return { txHash: subs.at(-1)?.txHash ?? "" };
       },
+      verify: async () => {
+        const ms = await chosenMilestones(escrow, contractId, chosen);
+        return ms !== null && ms.every((m, i) => m.evidence === chosen[i]?.submission.workUrl);
+      },
     },
     conn,
   );
@@ -132,6 +153,10 @@ export async function approveForPayout(
       run: async () => {
         const subs = await escrow.approveMilestones(contractId, chosen.map((_r, i) => startIndex + i));
         return { txHash: subs.at(-1)?.txHash ?? "" };
+      },
+      verify: async () => {
+        const ms = await chosenMilestones(escrow, contractId, chosen);
+        return ms !== null && ms.every((m) => m.approved);
       },
     },
     conn,

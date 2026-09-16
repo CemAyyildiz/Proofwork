@@ -1,13 +1,13 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
-import { campaigns, escrowOps, payouts, submissions } from "@/db/schema";
+import { campaigns, decisions, escrowOps, payouts, submissions } from "@/db/schema";
 import { FakeEscrow } from "@/escrow/fake";
 import { idempotencyKey } from "@/lib/ids";
 import { txHashOf } from "@/lib/tx";
 import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/services/campaign";
 import { prepareOp, recordServerOp, STALE_SUBMITTED_MS, submitOp } from "@/services/escrow-ops";
-import { confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp } from "@/services/payout";
+import { approveForPayout, confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp } from "@/services/payout";
 import { makeTestDb } from "./db";
 
 const FUNDER = "G_FUNDER";
@@ -380,70 +380,134 @@ describe("concurrency", () => {
 
 describe("server-signed ops run at most once", () => {
   const keyParts = ["append", CAMPAIGN, "sub_1"];
+  const kind = "append_milestones" as const;
+
+  /** A server op whose effect is "on chain" once `run` has succeeded (or `landed` is set). */
+  function serverOp(opts: { failFirst?: "before-landing" | "after-landing"; delayMs?: number } = {}) {
+    const state = { runs: 0, landed: false };
+    const run = async () => {
+      state.runs += 1;
+      if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
+      if (state.runs === 1 && opts.failFirst === "before-landing") throw new Error("boom");
+      state.landed = true;
+      if (state.runs === 1 && opts.failFirst === "after-landing") throw new Error("timed out");
+      return { txHash: `tx_${state.runs}` };
+    };
+    const call = () => recordServerOp({ campaignId: CAMPAIGN, kind, keyParts, run, verify: async () => state.landed }, conn);
+    return { state, call };
+  }
+
+  async function stageSubmitted(ms: number) {
+    await conn.insert(escrowOps).values({ id: "op_x", campaignId: CAMPAIGN, kind, idempotencyKey: idempotencyKey(keyParts), payload: {}, status: "submitted" });
+    await age("op_x", "submitted", ms);
+  }
 
   it("returns the recorded hash on retry without running again", async () => {
-    let runs = 0;
-    const run = async () => {
-      runs += 1;
-      return { txHash: "tx_server" };
-    };
-    await recordServerOp({ campaignId: CAMPAIGN, kind: "append_milestones", keyParts, run }, conn);
-    await expect(recordServerOp({ campaignId: CAMPAIGN, kind: "append_milestones", keyParts, run }, conn)).resolves.toEqual({ txHash: "tx_server" });
-    expect(runs).toBe(1);
+    const op = serverOp();
+    await op.call();
+    await expect(op.call()).resolves.toEqual({ txHash: "tx_1" });
+    expect(op.state.runs).toBe(1);
   });
 
   it("in flight: conflict, run not called", async () => {
-    await conn.insert(escrowOps).values({ id: "op_x", campaignId: CAMPAIGN, kind: "append_milestones", idempotencyKey: idempotencyKey(keyParts), payload: {}, status: "submitted" });
-    let runs = 0;
-    await expect(
-      recordServerOp(
-        {
-          campaignId: CAMPAIGN,
-          kind: "append_milestones",
-          keyParts,
-          run: async () => {
-            runs += 1;
-            return { txHash: "t" };
-          },
-        },
-        conn,
-      ),
-    ).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/in progress/) });
-    expect(runs).toBe(0);
+    await stageSubmitted(1_000);
+    const op = serverOp();
+    await expect(op.call()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/in progress/) });
+    expect(op.state.runs).toBe(0);
   });
 
   it("concurrent first calls: run executes once, the loser gets 409", async () => {
-    let runs = 0;
-    const call = () =>
-      recordServerOp(
-        {
-          campaignId: CAMPAIGN,
-          kind: "append_milestones",
-          keyParts,
-          run: async () => {
-            runs += 1;
-            await new Promise((r) => setTimeout(r, 20));
-            return { txHash: "tx_once" };
-          },
-        },
-        conn,
-      );
-    const results = await Promise.allSettled([call(), call()]);
-    expect(runs).toBe(1);
+    const op = serverOp({ delayMs: 20 });
+    const results = await Promise.allSettled([op.call(), op.call()]);
+    expect(op.state.runs).toBe(1);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     const rejected = results.find((r) => r.status === "rejected");
     expect(rejected?.status === "rejected" ? rejected.reason : undefined).toMatchObject({ code: "CONFLICT" });
   });
 
-  it("a failed op runs again on retry", async () => {
-    let runs = 0;
-    const run = async () => {
-      runs += 1;
-      if (runs === 1) throw new Error("boom");
-      return { txHash: "tx_2" };
-    };
-    await expect(recordServerOp({ campaignId: CAMPAIGN, kind: "append_milestones", keyParts, run }, conn)).rejects.toThrow("boom");
-    await expect(recordServerOp({ campaignId: CAMPAIGN, kind: "append_milestones", keyParts, run }, conn)).resolves.toEqual({ txHash: "tx_2" });
-    expect(runs).toBe(2);
+  it("a failed op that never landed runs again on retry", async () => {
+    const op = serverOp({ failFirst: "before-landing" });
+    await expect(op.call()).rejects.toThrow("boom");
+    await expect(op.call()).resolves.toEqual({ txHash: "tx_2" });
+    expect(op.state.runs).toBe(2);
+  });
+
+  it("run throws after landing: confirmed, never run again", async () => {
+    const op = serverOp({ failFirst: "after-landing" });
+    await expect(op.call()).resolves.toEqual({ txHash: "" });
+    expect(await opRow((await conn.select().from(escrowOps))[0]?.id ?? "")).toMatchObject({ status: "confirmed" });
+    await expect(op.call()).resolves.toEqual({ txHash: "" });
+    expect(op.state.runs).toBe(1);
+  });
+
+  it("run returns but the effect is not visible: failed, ESCROW", async () => {
+    const res = recordServerOp({ campaignId: CAMPAIGN, kind, keyParts, run: async () => ({ txHash: "tx_p" }), verify: async () => false }, conn);
+    await expect(res).rejects.toMatchObject({ code: "ESCROW", message: "effect not visible on chain" });
+    expect((await conn.select().from(escrowOps))[0]).toMatchObject({ status: "failed", txHash: "tx_p" });
+  });
+
+  it("stale submitted row that landed: reconciled as confirmed, no re-run", async () => {
+    await stageSubmitted(STALE_SUBMITTED_MS + 1_000);
+    const op = serverOp();
+    op.state.landed = true;
+    await expect(op.call()).resolves.toEqual({ txHash: "" });
+    expect(op.state.runs).toBe(0);
+    expect(await opRow("op_x")).toMatchObject({ status: "confirmed" });
+  });
+
+  it("stale submitted row that never landed: claimed and run once", async () => {
+    await stageSubmitted(STALE_SUBMITTED_MS + 1_000);
+    const op = serverOp({ delayMs: 20 });
+    const results = await Promise.allSettled([op.call(), op.call()]);
+    expect(op.state.runs).toBe(1);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await opRow("op_x")).toMatchObject({ status: "confirmed", txHash: "tx_1" });
+  });
+});
+
+describe("approveForPayout", () => {
+  async function passed(): Promise<string> {
+    const contractId = await funded();
+    await conn.insert(submissions).values({ id: "sub_1", shortId: "s1", campaignId: CAMPAIGN, contributorPubkey: "G_C1", workUrl: "https://x.com/a/status/1", status: "decided" });
+    await conn.insert(decisions).values({
+      id: "dec_1",
+      submissionId: "sub_1",
+      reviewerPubkey: "G_REV",
+      outcome: "PASS",
+      reasonCode: "R00_PASS",
+      signals: {},
+      note: "",
+      canonicalJson: "{}",
+      decisionHash: "h",
+      ledgerKey: "pw:s1",
+    });
+    return contractId;
+  }
+
+  it("appends, delivers and approves, each confirmed from chain state", async () => {
+    const contractId = await passed();
+    await approveForPayout(CAMPAIGN, ["sub_1"], { pubkey: FUNDER }, escrow, conn);
+    const m = (await escrow.getEscrow(contractId)).milestones[1];
+    expect(m).toMatchObject({ description: "s1 https://x.com/a/status/1", evidence: "https://x.com/a/status/1", approved: true });
+    const ops = await conn.select().from(escrowOps);
+    expect(ops.filter((o) => ["append_milestones", "mark_delivered", "approve"].includes(o.kind)).map((o) => o.status)).toEqual([
+      "confirmed",
+      "confirmed",
+      "confirmed",
+    ]);
+    expect((await conn.select().from(payouts))[0]?.status).toBe("approved");
+  });
+
+  it.each([
+    ["appendMilestones", "append_milestones"],
+    ["markDelivered", "mark_delivered"],
+    ["approveMilestones", "approve"],
+  ] as const)("%s accepted without effect: op failed, ESCROW", async (method, kind) => {
+    await passed();
+    const noop = { txHash: "tx_noop" };
+    if (method === "appendMilestones") vi.spyOn(escrow, method).mockResolvedValueOnce(noop);
+    else vi.spyOn(escrow, method).mockResolvedValueOnce([noop]);
+    await expect(approveForPayout(CAMPAIGN, ["sub_1"], { pubkey: FUNDER }, escrow, conn)).rejects.toMatchObject({ code: "ESCROW" });
+    expect((await conn.select().from(escrowOps).where(eq(escrowOps.kind, kind)))[0]?.status).toBe("failed");
   });
 });

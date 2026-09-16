@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, escrowOps, type EscrowOp } from "@/db/schema";
 import type { EscrowPort, Submitted } from "@/escrow/port";
@@ -243,17 +243,28 @@ export async function submitOp(
 
 /**
  * Server-signed ops run at most once per idempotency key: the row is claimed
- * (inserted, or moved from intent/failed) as `submitted` before `run`, so a
- * concurrent or repeated call gets a conflict instead of a second tx.
+ * (inserted, or moved from intent/failed/stale submitted) as `submitted`
+ * before `run`, so a concurrent or repeated call gets a conflict instead of a
+ * second tx. Like wallet ops, `verify` reads chain state and decides the
+ * outcome after `run`, after `run` throws, and before a failed or stale row is
+ * run again. A reconciled op whose tx hash was never recorded keeps `""`.
  */
 export async function recordServerOp(
-  input: { campaignId: string; kind: OpKind; keyParts: Array<string | number>; run: () => Promise<Submitted> },
+  input: {
+    campaignId: string;
+    kind: OpKind;
+    keyParts: Array<string | number>;
+    run: () => Promise<Submitted>;
+    verify: () => Promise<boolean>;
+  },
   conn: Db = db,
 ): Promise<Submitted> {
   const key = idempotencyKey(input.keyParts);
   const existing = (await conn.select().from(escrowOps).where(eq(escrowOps.idempotencyKey, key)).limit(1))[0];
-  if (existing?.status === "confirmed" && existing.txHash) return { txHash: existing.txHash };
-  if (existing?.status === "submitted") throw AppError.conflict(`${input.kind} in progress`);
+  if (existing?.status === "confirmed") return { txHash: existing.txHash ?? "" };
+  if (existing?.status === "submitted" && Date.now() - existing.updatedAt.getTime() < STALE_SUBMITTED_MS) {
+    throw AppError.conflict(`${input.kind} in progress`);
+  }
 
   let id: string;
   if (!existing) {
@@ -266,23 +277,55 @@ export async function recordServerOp(
     }
   } else {
     id = existing.id;
+    const ctx = { opId: id, kind: existing.kind };
+    // A failed or abandoned op may have landed after all: never run it twice.
+    if (await safeVerify(input.verify, ctx)) {
+      const txHash = existing.txHash ?? "";
+      const done = await conn
+        .update(escrowOps)
+        .set({ status: "confirmed", txHash, error: null })
+        .where(and(eq(escrowOps.id, id), eq(escrowOps.status, existing.status)))
+        .returning({ id: escrowOps.id });
+      if (done.length !== 1) throw AppError.conflict(`${input.kind} in progress`);
+      log.info("server escrow op reconciled from chain", ctx);
+      return { txHash };
+    }
+    const claimable =
+      existing.status === "submitted"
+        ? and(eq(escrowOps.status, "submitted"), lt(escrowOps.updatedAt, new Date(Date.now() - STALE_SUBMITTED_MS)))
+        : inArray(escrowOps.status, ["intent", "failed"]);
     const claimed = await conn
       .update(escrowOps)
-      .set({ status: "submitted", error: null })
-      .where(and(eq(escrowOps.id, id), inArray(escrowOps.status, ["intent", "failed"])))
+      .set({ status: "submitted", error: null, updatedAt: new Date() })
+      .where(and(eq(escrowOps.id, id), claimable))
       .returning({ id: escrowOps.id });
     if (claimed.length !== 1) throw AppError.conflict(`${input.kind} in progress`);
   }
 
+  const ctx = { opId: id, kind: input.kind };
+  const record = async (set: { status: "confirmed" | "failed"; txHash?: string; error: string | null }) => {
+    await conn.update(escrowOps).set(set).where(and(eq(escrowOps.id, id), eq(escrowOps.status, "submitted")));
+  };
+  let res: Submitted;
   try {
-    const res = await input.run();
-    await conn.update(escrowOps).set({ status: "confirmed", txHash: res.txHash, error: null }).where(eq(escrowOps.id, id));
-    return res;
+    res = await input.run();
   } catch (e) {
+    if (await safeVerify(input.verify, ctx)) {
+      log.warn("server escrow op errored but effect is on chain", ctx);
+      await record({ status: "confirmed", txHash: "", error: null });
+      return { txHash: "" };
+    }
     const message = e instanceof Error ? e.message : String(e);
-    await conn.update(escrowOps).set({ status: "failed", error: message.slice(0, 1000) }).where(eq(escrowOps.id, id));
+    await record({ status: "failed", error: message.slice(0, 1000) });
     throw e;
   }
+  if (!(await safeVerify(input.verify, ctx))) {
+    await record({ status: "failed", txHash: res.txHash, error: "effect not visible on chain" });
+    log.error("server escrow op not visible on chain", { ...ctx, txHash: res.txHash });
+    throw new AppError("ESCROW", "effect not visible on chain", { txHash: res.txHash });
+  }
+  await record({ status: "confirmed", txHash: res.txHash, error: null });
+  return res;
 }
 
 export async function listOps(campaignId: string, conn: Db = db): Promise<EscrowOp[]> {
