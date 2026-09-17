@@ -193,11 +193,14 @@ function releaseConfirmed(campaignId: string, conn: Db): OnConfirmed {
         .limit(1)
     )[0];
     if (!row) throw AppError.notFound("payout");
-    await conn
+    const moved = await conn
       .update(payouts)
       .set({ status: "released", releaseTxHash: op.txHash, releasedAt: new Date() })
-      .where(and(eq(payouts.id, row.p.id), eq(payouts.status, "approved")));
-    await conn.update(submissions).set({ status: "paid" }).where(eq(submissions.id, row.p.submissionId));
+      .where(and(eq(payouts.id, row.p.id), eq(payouts.status, "approved")))
+      .returning({ id: payouts.id });
+    if (moved.length === 1 || row.p.status === "released") {
+      await conn.update(submissions).set({ status: "paid" }).where(eq(submissions.id, row.p.submissionId));
+    }
   };
 }
 
