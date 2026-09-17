@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type EscrowOp, type Payout, type Submission } from "@/db/schema";
 import { addAmounts, toStroops } from "@/escrow/amount";
@@ -36,6 +36,53 @@ export async function submissionsForFunder(campaignId: string, conn: Db = db): P
   for (const d of ds) if (!latest.has(d.submissionId)) latest.set(d.submissionId, d);
   const payoutBySub = new Map(ps.map((p) => [p.submissionId, p]));
   return subs.map((s) => ({ submission: s, latest: latest.get(s.id) ?? null, payout: payoutBySub.get(s.id) ?? null }));
+}
+
+/** How long a payout lease holds without renewal; a crashed holder's lease lapses after this. */
+export const PAYOUT_LEASE_MS = 10 * 60_000;
+
+/** Extends the caller's lease; throws CONFLICT when another run has taken it. */
+export type RenewLease = () => Promise<void>;
+
+/**
+ * Runs `fn` while holding the campaign's payout lease, so one approve run at a
+ * time touches the escrow. The lease is a token and expiry on the campaign
+ * row, not a row lock: the run makes minutes of network calls and must not
+ * hold a transaction open. `fn` renews before each chain step; a renewal that
+ * finds another token means the lease lapsed and was taken, and aborts.
+ */
+export async function withPayoutLease<T>(campaignId: string, conn: Db, fn: (renew: RenewLease) => Promise<T>): Promise<T> {
+  const token = newId("lease");
+  const until = sql`now() + ${`${PAYOUT_LEASE_MS} milliseconds`}::interval`;
+  const taken = await conn
+    .update(campaigns)
+    .set({ payoutLockToken: token, payoutLockUntil: until })
+    .where(and(eq(campaigns.id, campaignId), or(isNull(campaigns.payoutLockUntil), lt(campaigns.payoutLockUntil, sql`now()`))))
+    .returning({ id: campaigns.id });
+  if (taken.length !== 1) throw AppError.conflict("payout run in progress");
+
+  const renew: RenewLease = async () => {
+    const kept = await conn
+      .update(campaigns)
+      .set({ payoutLockUntil: until })
+      .where(and(eq(campaigns.id, campaignId), eq(campaigns.payoutLockToken, token)))
+      .returning({ id: campaigns.id });
+    if (kept.length !== 1) throw AppError.conflict("payout run lost its lease; retry");
+  };
+
+  try {
+    return await fn(renew);
+  } finally {
+    try {
+      await conn
+        .update(campaigns)
+        .set({ payoutLockToken: null, payoutLockUntil: null })
+        .where(and(eq(campaigns.id, campaignId), eq(campaigns.payoutLockToken, token)));
+    } catch (e) {
+      // The lease lapses on its own; do not mask the run's own outcome.
+      log.warn("payout lease not cleared", { campaignId, err: e instanceof Error ? e.message : String(e) });
+    }
+  }
 }
 
 /**
