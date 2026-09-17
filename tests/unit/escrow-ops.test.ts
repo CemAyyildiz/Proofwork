@@ -214,12 +214,38 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
     expect((await opRow(op.opId)).status).toBe("intent");
   });
 
-  it("close confirms from the disputed close milestone", async () => {
+  async function openSubmissions() {
+    await conn.insert(submissions).values([
+      { id: "sub_p", shortId: "sp", campaignId: CAMPAIGN, contributorPubkey: "G_P", workUrl: "https://x.com/a/status/10", status: "pending" },
+      { id: "sub_a", shortId: "sa", campaignId: CAMPAIGN, contributorPubkey: "G_A", workUrl: "https://x.com/a/status/11", status: "appealed" },
+    ]);
+  }
+
+  async function expectClosed() {
+    expect((await campaign()).closedAt).toBeInstanceOf(Date);
+    const subs = await conn.select().from(submissions);
+    expect(subs.map((x) => x.status)).toEqual(["rejected", "rejected"]);
+  }
+
+  it("close confirms from the disputed close milestone and closes the campaign", async () => {
     await funded();
+    await openSubmissions();
     const op = await prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
     const res = await confirmClose({ campaignId: CAMPAIGN, opId: op.opId, signedXdr: op.unsignedXdr }, { pubkey: FUNDER }, escrow, conn);
     expect(res.txHash).toBe(txHashOf(op.unsignedXdr));
     expect((await opRow(op.opId)).kind).toBe("dispute");
+    await expectClosed();
+  });
+
+  it("reconciled close sets closedAt", async () => {
+    await funded();
+    await openSubmissions();
+    const op = await prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
+    await escrow.submit(op.unsignedXdr);
+    await age(op.opId, "submitted", STALE_SUBMITTED_MS + 1_000);
+    await expect(prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/already confirmed/) });
+    await expectClosed();
+    await expect(prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn)).rejects.toMatchObject({ message: "campaign already closed" });
   });
 
   it("verifier error before a rebuild: retryable conflict, row untouched, nothing built", async () => {
