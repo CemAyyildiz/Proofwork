@@ -15,6 +15,13 @@
       "when": 1790174809746,
       "tag": "0001_nebulous_bloodaxe",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790323408170,
+      "tag": "0002_needy_meltdown",
+      "breakpoints": true
     }
   ]
 }

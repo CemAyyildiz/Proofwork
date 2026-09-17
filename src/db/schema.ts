@@ -78,6 +78,9 @@ export const campaigns = pgTable("campaign", {
   fundedAt: timestamp("funded_at", { withTimezone: true }),
   closedAt: timestamp("closed_at", { withTimezone: true }),
   remainderTxHash: text("remainder_tx_hash"),
+  /** Payout pipeline lease: the holder's token and when it lapses. Null when free. */
+  payoutLockToken: text("payout_lock_token"),
+  payoutLockUntil: timestamp("payout_lock_until", { withTimezone: true }),
   createdAt: createdAt(),
 });
 
