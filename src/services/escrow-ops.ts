@@ -281,10 +281,14 @@ export async function recordServerOp(
   }
 
   let id: string;
+  // Claim token: the updated_at this caller writes. A later stale takeover changes it.
+  const claimedAt = new Date();
   if (!existing) {
     id = newId("op");
     try {
-      await conn.insert(escrowOps).values({ id, campaignId: input.campaignId, kind: input.kind, idempotencyKey: key, payload: {}, status: "submitted" });
+      await conn
+        .insert(escrowOps)
+        .values({ id, campaignId: input.campaignId, kind: input.kind, idempotencyKey: key, payload: {}, status: "submitted", updatedAt: claimedAt });
     } catch (e) {
       if (isUniqueViolation(e)) throw AppError.conflict(`${input.kind} in progress`);
       throw e;
@@ -310,7 +314,7 @@ export async function recordServerOp(
         : inArray(escrowOps.status, ["intent", "failed"]);
     const claimed = await conn
       .update(escrowOps)
-      .set({ status: "submitted", error: null, updatedAt: new Date() })
+      .set({ status: "submitted", error: null, updatedAt: claimedAt })
       .where(and(eq(escrowOps.id, id), claimable))
       .returning({ id: escrowOps.id });
     if (claimed.length !== 1) throw AppError.conflict(`${input.kind} in progress`);
@@ -318,7 +322,15 @@ export async function recordServerOp(
 
   const ctx = { opId: id, kind: input.kind };
   const record = async (set: { status: "confirmed" | "failed"; txHash?: string; error: string | null }) => {
-    await conn.update(escrowOps).set(set).where(and(eq(escrowOps.id, id), eq(escrowOps.status, "submitted")));
+    const done = await conn
+      .update(escrowOps)
+      .set(set)
+      .where(and(eq(escrowOps.id, id), eq(escrowOps.status, "submitted"), eq(escrowOps.updatedAt, claimedAt)))
+      .returning({ id: escrowOps.id });
+    if (done.length !== 1) {
+      log.warn("server escrow op was taken over before its result was recorded", { ...ctx, status: set.status });
+      throw AppError.conflict(`${input.kind} changed concurrently; retry`);
+    }
   };
   let res: Submitted;
   try {

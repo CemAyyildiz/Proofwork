@@ -494,6 +494,27 @@ describe("server-signed ops run at most once", () => {
     expect(await opRow("op_x")).toEqual(before);
   });
 
+  it("taken over while running: the first caller records nothing and gets a conflict", async () => {
+    let landed = false;
+    const call = recordServerOp(
+      {
+        campaignId: CAMPAIGN,
+        kind,
+        keyParts,
+        run: async () => {
+          // A second caller's stale takeover re-claims the row mid-run.
+          await conn.update(escrowOps).set({ updatedAt: new Date(Date.now() + 5_000) }).where(eq(escrowOps.idempotencyKey, idempotencyKey(keyParts)));
+          landed = true;
+          return { txHash: "tx_first" };
+        },
+        verify: async () => landed,
+      },
+      conn,
+    );
+    await expect(call).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/changed concurrently/) });
+    expect((await conn.select().from(escrowOps))[0]).toMatchObject({ status: "submitted", txHash: null });
+  });
+
   it("stale submitted row that landed: reconciled as confirmed, no re-run", async () => {
     await stageSubmitted(STALE_SUBMITTED_MS + 1_000);
     const op = serverOp();
