@@ -239,6 +239,29 @@ describe("approveForPayout", () => {
     expect((await lease()).token).toBe("lease_thief");
   });
 
+  it("renew moves the lease expiry forward under the same token", async () => {
+    const { ids } = await passed(1);
+    let token: string | null = null;
+    const deliver = escrow.markDelivered.bind(escrow);
+    vi.spyOn(escrow, "markDelivered").mockImplementation(async (id, updates) => {
+      token = (await lease()).token;
+      await conn.update(campaigns).set({ payoutLockUntil: new Date(Date.now() - 1_000) }).where(eq(campaigns.id, CAMPAIGN));
+      return deliver(id, updates);
+    });
+    const approveMs = escrow.approveMilestones.bind(escrow);
+    let checked = false;
+    vi.spyOn(escrow, "approveMilestones").mockImplementation(async (id, idx) => {
+      const l = await lease();
+      expect(token).not.toBeNull();
+      expect(l.token).toBe(token);
+      expect(l.until?.getTime()).toBeGreaterThan(Date.now());
+      checked = true;
+      return approveMs(id, idx);
+    });
+    await approve(ids);
+    expect(checked).toBe(true);
+  });
+
   it("one submission's failed deliver leaves the others approved, and a retry finishes it", async () => {
     const { ids } = await passed(3);
     const deliver = escrow.markDelivered.bind(escrow);
