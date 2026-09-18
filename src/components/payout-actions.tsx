@@ -30,7 +30,9 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const eligible = rows.filter((r) => r.status === "decided" && r.outcome === "PASS" && !r.payoutStatus);
+  // A payout stuck before approval can be re-selected: the server resumes it from chain state.
+  const resumable = new Set<string | null>([null, "milestone_added", "delivered"]);
+  const eligible = rows.filter((r) => r.status === "decided" && r.outcome === "PASS" && resumable.has(r.payoutStatus));
   const awaiting = rows.filter((r) => r.status === "pending" || r.status === "appealed").length;
 
   async function api<T>(body: unknown): Promise<T> {
@@ -58,7 +60,7 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
     run("approve", async () => {
       const r = await api<{ appended: number }>({ action: "approve", submissionIds: [...selected] });
       setSelected(new Set());
-      return `${r.appended} milestone(s) added to escrow, delivered and approved. Sign the release to pay.`;
+      return `${r.appended} new milestone(s) added; the selected payouts are delivered and approved. Sign the release to pay.`;
     });
 
   const signAll = (kind: "release" | "close") =>
