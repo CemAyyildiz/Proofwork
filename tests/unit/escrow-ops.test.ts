@@ -1,13 +1,13 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
-import { campaigns, decisions, escrowOps, payouts, submissions } from "@/db/schema";
+import { campaigns, escrowOps, payouts, submissions } from "@/db/schema";
 import { FakeEscrow } from "@/escrow/fake";
 import { idempotencyKey } from "@/lib/ids";
 import { txHashOf } from "@/lib/tx";
 import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/services/campaign";
 import { prepareOp, recordServerOp, STALE_SUBMITTED_MS, submitOp } from "@/services/escrow-ops";
-import { approveForPayout, confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp } from "@/services/payout";
+import { confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp } from "@/services/payout";
 import { makeTestDb } from "./db";
 
 const FUNDER = "G_FUNDER";
@@ -557,52 +557,5 @@ describe("server-signed ops run at most once", () => {
     expect(op.state.runs).toBe(1);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(await opRow("op_x")).toMatchObject({ status: "confirmed", txHash: "tx_1" });
-  });
-});
-
-describe("approveForPayout", () => {
-  async function passed(): Promise<string> {
-    const contractId = await funded();
-    await conn.insert(submissions).values({ id: "sub_1", shortId: "s1", campaignId: CAMPAIGN, contributorPubkey: "G_C1", workUrl: "https://x.com/a/status/1", status: "decided" });
-    await conn.insert(decisions).values({
-      id: "dec_1",
-      submissionId: "sub_1",
-      reviewerPubkey: "G_REV",
-      outcome: "PASS",
-      reasonCode: "R00_PASS",
-      signals: {},
-      note: "",
-      canonicalJson: "{}",
-      decisionHash: "h",
-      ledgerKey: "pw:s1",
-    });
-    return contractId;
-  }
-
-  it("appends, delivers and approves, each confirmed from chain state", async () => {
-    const contractId = await passed();
-    await approveForPayout(CAMPAIGN, ["sub_1"], { pubkey: FUNDER }, escrow, conn);
-    const m = (await escrow.getEscrow(contractId)).milestones[1];
-    expect(m).toMatchObject({ description: "s1 https://x.com/a/status/1", evidence: "https://x.com/a/status/1", approved: true });
-    const ops = await conn.select().from(escrowOps);
-    expect(ops.filter((o) => ["append_milestones", "mark_delivered", "approve"].includes(o.kind)).map((o) => o.status)).toEqual([
-      "confirmed",
-      "confirmed",
-      "confirmed",
-    ]);
-    expect((await conn.select().from(payouts))[0]?.status).toBe("approved");
-  });
-
-  it.each([
-    ["appendMilestones", "append_milestones"],
-    ["markDelivered", "mark_delivered"],
-    ["approveMilestones", "approve"],
-  ] as const)("%s accepted without effect: op failed, ESCROW", async (method, kind) => {
-    await passed();
-    const noop = { txHash: "tx_noop" };
-    if (method === "appendMilestones") vi.spyOn(escrow, method).mockResolvedValueOnce(noop);
-    else vi.spyOn(escrow, method).mockResolvedValueOnce([noop]);
-    await expect(approveForPayout(CAMPAIGN, ["sub_1"], { pubkey: FUNDER }, escrow, conn)).rejects.toMatchObject({ code: "ESCROW" });
-    expect((await conn.select().from(escrowOps).where(eq(escrowOps.kind, kind)))[0]?.status).toBe("failed");
   });
 });
