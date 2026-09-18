@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type EscrowOp, type Payout, type Submission } from "@/db/schema";
 import { addAmounts, toStroops } from "@/escrow/amount";
@@ -86,25 +86,41 @@ export async function withPayoutLease<T>(campaignId: string, conn: Db, fn: (rene
 }
 
 /**
- * Each chosen submission's milestone on chain, located by its description
- * prefix (`<shortId> `), or null when any is missing. Never by index: the
- * index is recomputed on retry.
+ * A submission's own milestone on chain: its description starts with
+ * `<shortId> ` and it pays the submission's contributor. Never located by
+ * index, which depends on what else was appended.
  */
-async function chosenMilestones(escrow: EscrowPort, contractId: string, chosen: FunderSubmissionRow[]): Promise<EscrowMilestone[] | null> {
-  const { milestones } = await escrow.getEscrow(contractId);
-  const found: EscrowMilestone[] = [];
-  for (const r of chosen) {
-    const m = milestones.find((x) => x.description.startsWith(`${r.submission.shortId} `));
-    if (!m) return null;
-    found.push(m);
-  }
-  return found;
+function milestoneOf(milestones: EscrowMilestone[], s: Submission): EscrowMilestone | undefined {
+  return milestones.find((m) => m.description.startsWith(`${s.shortId} `) && m.receiver === s.contributorPubkey);
+}
+
+async function readMilestone(escrow: EscrowPort, contractId: string, s: Submission): Promise<EscrowMilestone | undefined> {
+  return milestoneOf((await escrow.getEscrow(contractId)).milestones, s);
+}
+
+/** Pipeline order; `failed` ranks below every step so any confirmed step supersedes it. */
+const STEP_RANK: Record<Payout["status"], number> = { failed: -1, milestone_added: 0, delivered: 1, approved: 2, released: 3 };
+
+/** Move a payout to `to` only if it is behind it: the DB never walks back. */
+async function advancePayout(conn: Db, payoutId: string, to: "delivered" | "approved"): Promise<void> {
+  const behind = (Object.keys(STEP_RANK) as Array<Payout["status"]>).filter((s) => STEP_RANK[s] < STEP_RANK[to]);
+  await conn
+    .update(payouts)
+    .set({ status: to })
+    .where(and(eq(payouts.id, payoutId), inArray(payouts.status, behind)));
 }
 
 /**
- * Funder's final approval for a set of rubric-passed submissions. Appends
- * one milestone per submission in a single update-escrow call, then marks
- * each delivered. Both are platform-signed and move no money.
+ * Funder's final approval for a set of rubric-passed submissions, run as a
+ * resumable pipeline under the campaign's payout lease:
+ *
+ *   read chain → append the milestones not on chain (one update-escrow)
+ *              → re-read chain, record each payout at its own milestone index
+ *              → per submission: deliver, then approve, each only if not on chain
+ *
+ * Chain state decides every skip, so a retry after any partial failure
+ * finishes the work without a second chain effect. All steps are
+ * platform-signed and move no money.
  */
 export async function approveForPayout(
   campaignId: string,
@@ -113,107 +129,140 @@ export async function approveForPayout(
   escrow: EscrowPort,
   conn: Db = db,
 ): Promise<{ appended: number; txHash: string }> {
-  const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
-  if (!c.escrowContractId || !c.fundedAt) throw AppError.conflict("campaign is not funded");
-  if (c.closedAt) throw AppError.conflict("campaign is closed");
+  await campaignOwnedBy(campaignId, actor.pubkey, conn);
   const unique = [...new Set(submissionIds)];
   if (unique.length === 0) throw AppError.validation("no submissions selected");
 
-  const rows = await submissionsForFunder(campaignId, conn);
-  const chosen = rows.filter((r) => unique.includes(r.submission.id));
-  if (chosen.length !== unique.length) throw AppError.notFound("submission");
-  for (const r of chosen) {
-    if (r.submission.status !== "decided" || r.latest?.outcome !== "PASS") {
-      throw AppError.conflict(`${r.submission.shortId} has not passed the rubric`);
+  return withPayoutLease(campaignId, conn, async (renew) => {
+    const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
+    if (!c.escrowContractId || !c.fundedAt) throw AppError.conflict("campaign is not funded");
+    if (c.closedAt) throw AppError.conflict("campaign is closed");
+    const contractId = c.escrowContractId;
+
+    const rows = await submissionsForFunder(campaignId, conn);
+    const chosen = rows.filter((r) => unique.includes(r.submission.id));
+    if (chosen.length !== unique.length) throw AppError.notFound("submission");
+    for (const r of chosen) {
+      if (r.payout?.status === "released") throw AppError.conflict(`${r.submission.shortId} is already paid`);
+      if (r.submission.status !== "decided" || r.latest?.outcome !== "PASS") {
+        throw AppError.conflict(`${r.submission.shortId} has not passed the rubric`);
+      }
     }
-    if (r.payout) throw AppError.conflict(`${r.submission.shortId} already queued for payout`);
-  }
 
-  // Budget check against what is actually still in escrow.
-  const state = await escrow.getEscrow(c.escrowContractId);
-  const committed = state.milestones.filter((m) => !m.released && !m.resolved).reduce((acc, m) => addAmounts(acc, m.amount), "0");
-  const needed = chosen.reduce((acc) => addAmounts(acc, c.rewardAmount), "0");
-  if (toStroops(committed) + toStroops(needed) > toStroops(state.balance)) {
-    throw AppError.conflict(`escrow balance ${state.balance} cannot cover ${needed} more in rewards`);
-  }
+    // Chain first: only submissions without their own milestone need one.
+    await renew();
+    const state = await escrow.getEscrow(contractId);
+    const missing = chosen.filter((r) => !milestoneOf(state.milestones, r.submission));
 
-  const startIndex = state.milestones.length;
-  const contractId = c.escrowContractId;
-  const res = await recordServerOp(
-    {
-      campaignId,
-      kind: "append_milestones",
-      keyParts: ["append", campaignId, ...chosen.map((r) => r.submission.id).sort()],
-      run: () =>
-        escrow.appendMilestones(
-          contractId,
-          chosen.map((r) => ({
-            description: `${r.submission.shortId} ${r.submission.workUrl}`,
-            amount: c.rewardAmount,
-            receiver: r.submission.contributorPubkey,
-          })),
-        ),
-      verify: async () => (await chosenMilestones(escrow, contractId, chosen)) !== null,
-    },
-    conn,
-  );
+    let txHash = "";
+    if (missing.length > 0) {
+      // Budget check against what is actually still in escrow, for the new rewards only.
+      const committed = state.milestones.filter((m) => !m.released && !m.resolved).reduce((acc, m) => addAmounts(acc, m.amount), "0");
+      const needed = missing.reduce((acc) => addAmounts(acc, c.rewardAmount), "0");
+      if (toStroops(committed) + toStroops(needed) > toStroops(state.balance)) {
+        throw AppError.conflict(`escrow balance ${state.balance} cannot cover ${needed} more in rewards`);
+      }
+      await renew();
+      const res = await recordServerOp(
+        {
+          campaignId,
+          kind: "append_milestones",
+          keyParts: ["append", campaignId, ...missing.map((r) => r.submission.id).sort()],
+          run: () =>
+            escrow.appendMilestones(
+              contractId,
+              missing.map((r) => ({
+                description: `${r.submission.shortId} ${r.submission.workUrl}`,
+                amount: c.rewardAmount,
+                receiver: r.submission.contributorPubkey,
+              })),
+            ),
+          verify: async () => {
+            const { milestones } = await escrow.getEscrow(contractId);
+            return missing.every((r) => milestoneOf(milestones, r.submission) !== undefined);
+          },
+        },
+        conn,
+      );
+      txHash = res.txHash;
+    }
 
-  for (const [i, r] of chosen.entries()) {
-    await conn.insert(payouts).values({
-      id: newId("pay"),
-      submissionId: r.submission.id,
-      milestoneIndex: startIndex + i,
-      amount: c.rewardAmount,
-      status: "milestone_added",
-    });
-  }
+    // Every payout points at its own milestone as the chain reports it now.
+    await renew();
+    const after = await escrow.getEscrow(contractId);
+    const plan: Array<{ row: FunderSubmissionRow; milestone: EscrowMilestone; payoutId: string }> = [];
+    for (const r of chosen) {
+      const m = milestoneOf(after.milestones, r.submission);
+      if (!m) throw new AppError("ESCROW", `milestone for ${r.submission.shortId} not visible on chain`);
+      const [p] = await conn
+        .insert(payouts)
+        .values({ id: newId("pay"), submissionId: r.submission.id, milestoneIndex: m.index, amount: c.rewardAmount, status: "milestone_added" })
+        .onConflictDoUpdate({ target: payouts.submissionId, set: { milestoneIndex: m.index }, setWhere: ne(payouts.status, "released") })
+        .returning({ id: payouts.id });
+      if (!p) throw AppError.conflict(`${r.submission.shortId} is already paid`);
+      plan.push({ row: r, milestone: m, payoutId: p.id });
+    }
 
-  const delivered = await recordServerOp(
-    {
-      campaignId,
-      kind: "mark_delivered",
-      keyParts: ["deliver", campaignId, ...chosen.map((r) => r.submission.id).sort()],
-      run: async () => {
-        const subs = await escrow.markDelivered(
-          contractId,
-          chosen.map((r, i) => ({ index: startIndex + i, evidence: r.submission.workUrl })),
-        );
-        return { txHash: subs.at(-1)?.txHash ?? "" };
-      },
-      verify: async () => {
-        const ms = await chosenMilestones(escrow, contractId, chosen);
-        return ms !== null && ms.every((m, i) => m.evidence === chosen[i]?.submission.workUrl);
-      },
-    },
-    conn,
-  );
-  await conn
-    .update(payouts)
-    .set({ status: "delivered" })
-    .where(inArray(payouts.submissionId, chosen.map((r) => r.submission.id)));
+    // Deliver and approve per submission, so one failure does not hold back the rest.
+    const failures: Array<{ shortId: string; error: unknown }> = [];
+    for (const { row, milestone: m, payoutId } of plan) {
+      const s = row.submission;
+      await renew();
+      try {
+        if (!m.approved && m.evidence !== s.workUrl) {
+          await recordServerOp(
+            {
+              campaignId,
+              kind: "mark_delivered",
+              keyParts: ["deliver", campaignId, s.id],
+              run: async () => {
+                const [sub] = await escrow.markDelivered(contractId, [{ index: m.index, evidence: s.workUrl }]);
+                if (!sub) throw new AppError("ESCROW", "provider returned no transaction");
+                return sub;
+              },
+              verify: async () => (await readMilestone(escrow, contractId, s))?.evidence === s.workUrl,
+            },
+            conn,
+          );
+        }
+        await advancePayout(conn, payoutId, "delivered");
+      } catch (error) {
+        failures.push({ shortId: s.shortId, error });
+        continue;
+      }
 
-  const approved = await recordServerOp(
-    {
-      campaignId,
-      kind: "approve",
-      keyParts: ["approve", campaignId, ...chosen.map((r) => r.submission.id).sort()],
-      run: async () => {
-        const subs = await escrow.approveMilestones(contractId, chosen.map((_r, i) => startIndex + i));
-        return { txHash: subs.at(-1)?.txHash ?? "" };
-      },
-      verify: async () => {
-        const ms = await chosenMilestones(escrow, contractId, chosen);
-        return ms !== null && ms.every((m) => m.approved);
-      },
-    },
-    conn,
-  );
-  await conn
-    .update(payouts)
-    .set({ status: "approved" })
-    .where(inArray(payouts.submissionId, chosen.map((r) => r.submission.id)));
-  log.info("payouts queued", { campaignId, count: chosen.length, appendTx: res.txHash, deliverTx: delivered.txHash, approveTx: approved.txHash });
-  return { appended: chosen.length, txHash: res.txHash };
+      await renew();
+      try {
+        if (!m.approved) {
+          await recordServerOp(
+            {
+              campaignId,
+              kind: "approve",
+              keyParts: ["approve", campaignId, s.id],
+              run: async () => {
+                const [sub] = await escrow.approveMilestones(contractId, [m.index]);
+                if (!sub) throw new AppError("ESCROW", "provider returned no transaction");
+                return sub;
+              },
+              verify: async () => (await readMilestone(escrow, contractId, s))?.approved === true,
+            },
+            conn,
+          );
+        }
+        await advancePayout(conn, payoutId, "approved");
+      } catch (error) {
+        failures.push({ shortId: s.shortId, error });
+      }
+    }
+
+    for (const f of failures) {
+      log.error("payout step failed", { campaignId, shortId: f.shortId, err: f.error instanceof Error ? f.error.message : String(f.error) });
+    }
+    const first = failures[0];
+    if (first) throw first.error;
+    log.info("payouts approved", { campaignId, count: chosen.length, appended: missing.length, appendTx: txHash });
+    return { appended: missing.length, txHash };
+  });
 }
 
 /** A release is visible once the milestone reads back as released. */
