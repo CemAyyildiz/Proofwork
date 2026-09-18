@@ -205,58 +205,61 @@ export async function approveForPayout(
 
     // Deliver and approve per submission, so one failure does not hold back the rest.
     const failures: Array<{ shortId: string; error: unknown }> = [];
-    for (const { row, milestone: m, payoutId } of plan) {
-      const s = row.submission;
-      await renew();
-      try {
-        if (!m.approved && m.evidence !== s.workUrl) {
-          await recordServerOp(
-            {
-              campaignId,
-              kind: "mark_delivered",
-              keyParts: ["deliver", campaignId, s.id],
-              run: async () => {
-                const [sub] = await escrow.markDelivered(contractId, [{ index: m.index, evidence: s.workUrl }]);
-                if (!sub) throw new AppError("ESCROW", "provider returned no transaction");
-                return sub;
+    try {
+      for (const { row, milestone: m, payoutId } of plan) {
+        const s = row.submission;
+        await renew();
+        try {
+          if (!m.approved && m.evidence !== s.workUrl) {
+            await recordServerOp(
+              {
+                campaignId,
+                kind: "mark_delivered",
+                keyParts: ["deliver", campaignId, s.id],
+                run: async () => {
+                  const [sub] = await escrow.markDelivered(contractId, [{ index: m.index, evidence: s.workUrl }]);
+                  if (!sub) throw new AppError("ESCROW", "provider returned no transaction");
+                  return sub;
+                },
+                verify: async () => (await readMilestone(escrow, contractId, s))?.evidence === s.workUrl,
               },
-              verify: async () => (await readMilestone(escrow, contractId, s))?.evidence === s.workUrl,
-            },
-            conn,
-          );
+              conn,
+            );
+          }
+          await advancePayout(conn, payoutId, "delivered");
+        } catch (error) {
+          failures.push({ shortId: s.shortId, error });
+          continue;
         }
-        await advancePayout(conn, payoutId, "delivered");
-      } catch (error) {
-        failures.push({ shortId: s.shortId, error });
-        continue;
-      }
 
-      await renew();
-      try {
-        if (!m.approved) {
-          await recordServerOp(
-            {
-              campaignId,
-              kind: "approve",
-              keyParts: ["approve", campaignId, s.id],
-              run: async () => {
-                const [sub] = await escrow.approveMilestones(contractId, [m.index]);
-                if (!sub) throw new AppError("ESCROW", "provider returned no transaction");
-                return sub;
+        await renew();
+        try {
+          if (!m.approved) {
+            await recordServerOp(
+              {
+                campaignId,
+                kind: "approve",
+                keyParts: ["approve", campaignId, s.id],
+                run: async () => {
+                  const [sub] = await escrow.approveMilestones(contractId, [m.index]);
+                  if (!sub) throw new AppError("ESCROW", "provider returned no transaction");
+                  return sub;
+                },
+                verify: async () => (await readMilestone(escrow, contractId, s))?.approved === true,
               },
-              verify: async () => (await readMilestone(escrow, contractId, s))?.approved === true,
-            },
-            conn,
-          );
+              conn,
+            );
+          }
+          await advancePayout(conn, payoutId, "approved");
+        } catch (error) {
+          failures.push({ shortId: s.shortId, error });
         }
-        await advancePayout(conn, payoutId, "approved");
-      } catch (error) {
-        failures.push({ shortId: s.shortId, error });
       }
-    }
-
-    for (const f of failures) {
-      log.error("payout step failed", { campaignId, shortId: f.shortId, err: f.error instanceof Error ? f.error.message : String(f.error) });
+    } finally {
+      // Logged on every exit, including a lost lease that aborts the loop.
+      for (const f of failures) {
+        log.error("payout step failed", { campaignId, shortId: f.shortId, err: f.error instanceof Error ? f.error.message : String(f.error) });
+      }
     }
     const first = failures[0];
     if (first) throw first.error;
