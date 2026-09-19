@@ -142,11 +142,21 @@ export async function decide(
 
 /** Contributor asks for the one re-review the SOW allows. */
 export async function requestAppeal(submissionId: string, actor: { pubkey: string }, conn: Db = db): Promise<void> {
-  const s = (await conn.select().from(submissions).where(eq(submissions.id, submissionId)).limit(1))[0];
-  if (!s) throw AppError.notFound("submission");
+  const row = (
+    await conn
+      .select({ s: submissions, closedAt: campaigns.closedAt })
+      .from(submissions)
+      .innerJoin(campaigns, eq(campaigns.id, submissions.campaignId))
+      .where(eq(submissions.id, submissionId))
+      .limit(1)
+  )[0];
+  if (!row) throw AppError.notFound("submission");
+  const { s } = row;
   if (s.contributorPubkey !== actor.pubkey) throw AppError.forbidden("not your submission");
+  if (row.closedAt) throw AppError.conflict("campaign is closed");
   if (s.status !== "rejected") throw AppError.conflict("only a rejected submission can be appealed");
   const count = (await conn.select({ n: sql<number>`count(*)::int` }).from(decisions).where(eq(decisions.submissionId, s.id)))[0]?.n ?? 0;
+  if (count === 0) throw AppError.conflict("no decision to appeal");
   if (count >= 2) throw AppError.conflict("the one re-review has already been used");
   await conn.update(submissions).set({ status: "appealed" }).where(eq(submissions.id, s.id));
 }
