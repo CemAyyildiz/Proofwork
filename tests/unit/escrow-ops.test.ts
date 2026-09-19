@@ -229,8 +229,9 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
 
   it("close confirms from the disputed close milestone and closes the campaign", async () => {
     await funded();
-    await openSubmissions();
     const op = await prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
+    // Submitted while the funder signs: the confirmed close still rejects them.
+    await openSubmissions();
     const res = await confirmClose({ campaignId: CAMPAIGN, opId: op.opId, signedXdr: op.unsignedXdr }, { pubkey: FUNDER }, escrow, conn);
     expect(res.txHash).toBe(txHashOf(op.unsignedXdr));
     expect((await opRow(op.opId)).kind).toBe("dispute");
@@ -239,8 +240,9 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
 
   it("reconciled close sets closedAt", async () => {
     await funded();
-    await openSubmissions();
     const op = await prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
+    // Submitted while the funder signs: the confirmed close still rejects them.
+    await openSubmissions();
     await escrow.submit(op.unsignedXdr);
     await age(op.opId, "submitted", STALE_SUBMITTED_MS + 1_000);
     await expect(prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/already confirmed/) });

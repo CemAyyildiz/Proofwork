@@ -4,7 +4,7 @@ import type { Db } from "@/db/client";
 import { campaigns, decisions, escrowOps, payouts, submissions } from "@/db/schema";
 import { FakeEscrow } from "@/escrow/fake";
 import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/services/campaign";
-import { approveForPayout } from "@/services/payout";
+import { approveForPayout, prepareClose } from "@/services/payout";
 import { makeTestDb } from "./db";
 
 const FUNDER = "G_FUNDER";
@@ -78,7 +78,7 @@ async function payoutOf(submissionId: string) {
   return (await conn.select().from(payouts).where(eq(payouts.submissionId, submissionId)))[0];
 }
 
-async function opsOf(kind: "append_milestones" | "mark_delivered" | "approve") {
+async function opsOf(kind: "append_milestones" | "mark_delivered" | "approve" | "dispute") {
   return conn.select().from(escrowOps).where(eq(escrowOps.kind, kind));
 }
 
@@ -295,5 +295,74 @@ describe("approveForPayout", () => {
     else vi.spyOn(escrow, method).mockResolvedValueOnce([noop]);
     await expect(approve(ids)).rejects.toMatchObject({ code: "ESCROW" });
     expect((await opsOf(kind))[0]?.status).toBe("failed");
+  });
+});
+
+describe("prepareClose", () => {
+  const closeIt = () => prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
+
+  it.each(["pending", "appealed"] as const)("refused while a submission is %s", async (status) => {
+    await passed(0);
+    await conn.insert(submissions).values({ id: "sub_r", shortId: "sr", campaignId: CAMPAIGN, contributorPubkey: "G_CR", workUrl: "https://x.com/a/status/9", status });
+    await expect(closeIt()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/^1 submission\(s\) still in review/) });
+    expect(await opsOf("dispute")).toHaveLength(0);
+  });
+
+  it("a prior close that never reached the chain does not lift the review guard", async () => {
+    await passed(0);
+    const op = await closeIt();
+    await conn.update(escrowOps).set({ status: "failed" }).where(eq(escrowOps.id, op.opId));
+    await conn.insert(submissions).values({ id: "sub_r", shortId: "sr", campaignId: CAMPAIGN, contributorPubkey: "G_CR", workUrl: "https://x.com/a/status/9", status: "pending" });
+    await expect(closeIt()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/still in review/) });
+    expect((await opsOf("dispute")).map((o) => o.status)).toEqual(["failed"]);
+  });
+
+  it("refused while an approve run holds the lease", async () => {
+    await passed(0);
+    await conn.update(campaigns).set({ payoutLockToken: "lease_other", payoutLockUntil: new Date(Date.now() + 60_000) }).where(eq(campaigns.id, CAMPAIGN));
+    await expect(closeIt()).rejects.toMatchObject({ code: "CONFLICT", message: "payout run in progress" });
+    expect(await opsOf("dispute")).toHaveLength(0);
+  });
+
+  it("refused when prepared between an approve run's append and its payout upsert", async () => {
+    const { ids } = await passed(1);
+    const append = escrow.appendMilestones.bind(escrow);
+    let raced: unknown = null;
+    vi.spyOn(escrow, "appendMilestones").mockImplementation(async (id, ms) => {
+      const res = await append(id, ms);
+      raced = await closeIt().then(() => "prepared", (e: unknown) => e);
+      return res;
+    });
+    await approve(ids);
+    expect(raced).toMatchObject({ code: "CONFLICT", message: "payout run in progress" });
+    expect(await opsOf("dispute")).toHaveLength(0);
+    expect(await payoutOf("sub_1")).toMatchObject({ status: "approved" });
+  });
+
+  it("refused while a payout is unreleased", async () => {
+    const { ids } = await passed(1);
+    await approve(ids);
+    await expect(closeIt()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/unreleased/) });
+  });
+
+  it("an unselected PASS submission does not block the close and stays decided", async () => {
+    await passed(1);
+    const op = await closeIt();
+    expect(op.opId).toBeTruthy();
+    expect((await opsOf("dispute")).map((o) => o.status)).toEqual(["intent"]);
+    const s = (await conn.select().from(submissions).where(eq(submissions.id, "sub_1")))[0];
+    expect(s?.status).toBe("decided");
+    expect(await payoutOf("sub_1")).toBeUndefined();
+  });
+
+  it("prepares the dispute op when every payout is released and the lease is free", async () => {
+    const { ids } = await passed(2);
+    await approve(ids);
+    await conn.update(payouts).set({ status: "released" });
+    await conn.update(submissions).set({ status: "paid" });
+    const dispute = vi.spyOn(escrow, "buildDispute");
+    await expect(closeIt()).resolves.toMatchObject({ unsignedXdr: expect.any(String) });
+    expect(dispute).toHaveBeenCalledWith(expect.any(String), FUNDER, [0]);
+    expect(await opsOf("dispute")).toHaveLength(1);
   });
 });

@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
-import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type EscrowOp, type Payout, type Submission } from "@/db/schema";
+import { campaigns, decisions, escrowOps, payouts, submissions, type Campaign, type Decision, type EscrowOp, type Payout, type Submission } from "@/db/schema";
 import { addAmounts, toStroops } from "@/escrow/amount";
 import type { EscrowMilestone, EscrowPort } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
@@ -274,8 +274,12 @@ function releaseVisible(escrow: EscrowPort, contractId: string, idx: number): Ve
 }
 
 /** A close is visible once the close milestone (index 0) reads back as disputed. */
+async function closeOnChain(escrow: EscrowPort, contractId: string): Promise<boolean> {
+  return (await escrow.getEscrow(contractId)).milestones[0]?.disputed === true;
+}
+
 function closeVisible(escrow: EscrowPort, contractId: string): Verify {
-  return async () => (await escrow.getEscrow(contractId)).milestones[0]?.disputed === true;
+  return () => closeOnChain(escrow, contractId);
 }
 
 /** Mark the released milestone's payout (still `approved`) released with the op's tx hash. */
@@ -381,18 +385,61 @@ export async function confirmReleaseOp(
   return { txHash: res.txHash, milestoneIndex: idx };
 }
 
+/**
+ * Why a close cannot start yet, or null. An approve run between its append and
+ * its payout upsert leaves reward milestones on chain that no payout row shows
+ * yet; its lease covers that gap. Unselected PASS submissions (`decided`, no
+ * payout) do not block: the remainder comes back to the funder.
+ */
+async function closeBlocker(c: Campaign, conn: Db): Promise<string | null> {
+  if (c.payoutLockUntil && c.payoutLockUntil.getTime() > Date.now()) return "payout run in progress";
+  const inReview =
+    (
+      await conn
+        .select({ n: sql<number>`count(*)::int` })
+        .from(submissions)
+        .where(and(eq(submissions.campaignId, c.id), inArray(submissions.status, ["pending", "appealed"])))
+    )[0]?.n ?? 0;
+  return inReview > 0 ? `${inReview} submission(s) still in review; decide them first` : null;
+}
+
+async function closeLanded(escrow: EscrowPort, contractId: string): Promise<boolean> {
+  try {
+    return await closeOnChain(escrow, contractId);
+  } catch (e) {
+    log.warn("close state not readable", { contractId, err: e instanceof Error ? e.message : String(e) });
+    throw AppError.conflict("could not read chain state; retry");
+  }
+}
+
+/** A close dispute that may have reached the chain. */
+async function priorClose(campaignId: string, conn: Db): Promise<boolean> {
+  const rows = await conn
+    .select({ id: escrowOps.id })
+    .from(escrowOps)
+    .where(and(eq(escrowOps.campaignId, campaignId), eq(escrowOps.kind, "dispute"), inArray(escrowOps.status, ["submitted", "failed", "confirmed"])))
+    .limit(1);
+  return rows.length > 0;
+}
+
 /** Funder closes the campaign: disputes the close milestone so the resolver can sweep the remainder. */
 export async function prepareClose(campaignId: string, actor: { pubkey: string }, escrow: EscrowPort, conn: Db = db): Promise<PreparedOp> {
   const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
   if (c.closedAt) throw AppError.conflict("campaign already closed");
+  const contractId = c.escrowContractId;
+  const blocker = await closeBlocker(c, conn);
+  // A close already on chain must still reconcile, even if review reopened
+  // while it was in flight; the confirmed close rejects what is still open.
+  if (blocker && !((await priorClose(campaignId, conn)) && (await closeLanded(escrow, contractId)))) {
+    throw AppError.conflict(blocker);
+  }
   const open = await conn
     .select({ id: payouts.id })
     .from(payouts)
     .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
     .where(and(eq(submissions.campaignId, campaignId), inArray(payouts.status, ["milestone_added", "delivered", "approved"])));
   if (open.length > 0) throw AppError.conflict(`${open.length} payout(s) still unreleased; release or resolve them first`);
-  const contractId = c.escrowContractId;
   return prepareOp(
     {
       campaignId,
