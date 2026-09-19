@@ -11,6 +11,7 @@ import { newId } from "@/lib/ids";
 import { campaignOwnedBy, prepareOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
 
 const CLOSE_MILESTONE_AMOUNT = "0.0000001";
+const MAX_REWARDS = 49n;
 
 const amount = z.string().trim().refine((v) => {
   try {
@@ -30,7 +31,12 @@ export const createCampaignSchema = z
     deadlineAt: z.coerce.date().refine((d) => d.getTime() > Date.now() + 60 * 60 * 1000, "deadline must be at least one hour away"),
     disputeResolverPubkey: z.string().refine((v) => StrKey.isValidEd25519PublicKey(v), "invalid public key"),
   })
-  .refine((c) => toStroops(c.budget) >= toStroops(c.rewardAmount), { message: "budget must cover at least one reward", path: ["budget"] });
+  .refine((c) => toStroops(c.budget) >= toStroops(c.rewardAmount), { message: "budget must cover at least one reward", path: ["budget"] })
+  // Escrow holds 50 milestones: the close milestone plus 49 rewards. Bigint division floors.
+  .refine((c) => toStroops(c.budget) / toStroops(c.rewardAmount) <= MAX_REWARDS, {
+    message: "budget covers more than 49 rewards; the escrow holds 49 reward milestones",
+    path: ["budget"],
+  });
 
 export type CreateCampaignInput = z.infer<typeof createCampaignSchema>;
 
