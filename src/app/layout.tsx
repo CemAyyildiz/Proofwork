@@ -2,7 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { WalletButton } from "@/components/wallet-button";
 import { currentUser } from "@/lib/current-user";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
+
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
+const instrument = Instrument_Serif({ subsets: ["latin"], weight: "400", style: "italic", variable: "--font-instrument" });
 
 export const metadata: Metadata = {
   title: "Proofwork",
@@ -12,8 +17,8 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-white text-neutral-900 antialiased">
+    <html lang="en" className={`${geist.variable} ${geistMono.variable} ${instrument.variable}`}>
+      <body className="min-h-screen bg-canvas font-sans text-text antialiased">
         <header className="border-b border-neutral-200">
           <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-3">
             <nav className="flex items-center gap-4 text-sm">

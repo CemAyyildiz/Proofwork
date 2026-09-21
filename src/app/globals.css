@@ -1,12 +1,117 @@
 @import "tailwindcss";
 
-/* Light theme only for the sprint: every component is styled for it. */
-:root {
-  color-scheme: light;
+/*
+ * Proofwork v2 visual system. Dark only. Token names mirror DESIGN.md so
+ * components write `bg-surface border-line text-muted rounded-xl`, never hex.
+ */
+@theme {
+  --color-canvas: #0c0c0c;
+  --color-surface: #131313;
+  --color-raised: #181818;
+  --color-sunken: #0a0a0a;
+  --color-line: #ffffff10;
+  --color-line-strong: #ffffff1f;
+  --color-text: #f2f1ec;
+  --color-text-2: #c9c7be;
+  --color-muted: #8a8a86;
+  --color-faint: #5a5a57;
+  --color-accent: #fdda24;
+  --color-accent-ink: #0f0f0f;
+  --color-accent-soft: #fdda241a;
+  --color-accent-line: #fdda2455;
+  --color-pass: #4ade80;
+  --color-pass-soft: #4ade801a;
+  --color-pass-line: #4ade804d;
+  --color-fail: #f87171;
+  --color-fail-soft: #f871711a;
+  --color-fail-line: #f8717155;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-xxl: 28px;
+
+  --container-app: 1280px;
+  --container-column: 640px;
+
+  --ease-expo: cubic-bezier(0.2, 0.7, 0.1, 1);
+
+  --animate-reveal: reveal 0.8s cubic-bezier(0.2, 0.7, 0.1, 1) both;
+  --animate-sheen: sheen 1.1s linear infinite;
+
+  @keyframes reveal {
+    from {
+      opacity: 0;
+      transform: translateY(40px);
+    }
+  }
+
+  @keyframes sheen {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
 }
 
-body {
-  background: #ffffff;
-  color: #171717;
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+/* next/font sets these variables on <html>; `inline` resolves them where used. */
+@theme inline {
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-serif: var(--font-instrument), Georgia, serif;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    background-color: var(--color-canvas);
+  }
+
+  body {
+    min-height: 100vh;
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: var(--color-accent);
+    color: var(--color-accent-ink);
+  }
+
+  /* Accessibility floor: 2px accent ring with a 2px offset on every focusable element. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* Grain overlay for atmosphere. Decorative, never intercepts input. */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: -50%;
+    z-index: 200;
+    pointer-events: none;
+    opacity: 0.06;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+/* Everything renders in its final state when the OS asks for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }
