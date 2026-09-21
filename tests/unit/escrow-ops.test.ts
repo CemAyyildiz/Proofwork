@@ -238,6 +238,19 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
     await expectClosed();
   });
 
+  it("failed close whose tx later shows on chain: confirmed despite late submissions, conflict", async () => {
+    await funded();
+    const op = await prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
+    escrow.failNextSubmit("throw");
+    await expect(confirmClose({ campaignId: CAMPAIGN, opId: op.opId, signedXdr: op.unsignedXdr }, { pubkey: FUNDER }, escrow, conn)).rejects.toThrow();
+    expect((await opRow(op.opId)).status).toBe("failed");
+    await escrow.submit(op.unsignedXdr); // indexer caught up / tx landed late
+    await openSubmissions();
+    await expect(prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/already confirmed/) });
+    expect(await opRow(op.opId)).toMatchObject({ status: "confirmed", txHash: txHashOf(op.unsignedXdr) });
+    await expectClosed();
+  });
+
   it("reconciled close sets closedAt", async () => {
     await funded();
     const op = await prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);

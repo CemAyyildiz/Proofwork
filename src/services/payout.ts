@@ -392,7 +392,7 @@ export async function confirmReleaseOp(
  * payout) do not block: the remainder comes back to the funder.
  */
 async function closeBlocker(c: Campaign, conn: Db): Promise<string | null> {
-  if (c.payoutLockUntil && c.payoutLockUntil.getTime() > Date.now()) return "payout run in progress";
+  if (leaseLive(c)) return "payout run in progress";
   const inReview =
     (
       await conn
@@ -410,6 +410,20 @@ async function closeLanded(escrow: EscrowPort, contractId: string): Promise<bool
     log.warn("close state not readable", { contractId, err: e instanceof Error ? e.message : String(e) });
     throw AppError.conflict("could not read chain state; retry");
   }
+}
+
+function leaseLive(c: Campaign): boolean {
+  return c.payoutLockUntil !== null && c.payoutLockUntil.getTime() > Date.now();
+}
+
+/** Refuses while unreleased payouts exist. */
+async function assertPayoutsSettled(c: Campaign, conn: Db): Promise<void> {
+  const open = await conn
+    .select({ id: payouts.id })
+    .from(payouts)
+    .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
+    .where(and(eq(submissions.campaignId, c.id), inArray(payouts.status, ["milestone_added", "delivered", "approved"])));
+  if (open.length > 0) throw AppError.conflict(`${open.length} payout(s) still unreleased; release or resolve them first`);
 }
 
 /** A close dispute that may have reached the chain. */
@@ -434,12 +448,7 @@ export async function prepareClose(campaignId: string, actor: { pubkey: string }
   if (blocker && !((await priorClose(campaignId, conn)) && (await closeLanded(escrow, contractId)))) {
     throw AppError.conflict(blocker);
   }
-  const open = await conn
-    .select({ id: payouts.id })
-    .from(payouts)
-    .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
-    .where(and(eq(submissions.campaignId, campaignId), inArray(payouts.status, ["milestone_added", "delivered", "approved"])));
-  if (open.length > 0) throw AppError.conflict(`${open.length} payout(s) still unreleased; release or resolve them first`);
+  await assertPayoutsSettled(c, conn);
   return prepareOp(
     {
       campaignId,
@@ -465,6 +474,11 @@ export async function confirmClose(
 ): Promise<{ txHash: string }> {
   const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
+  const op = await findOp(input.opId, input.campaignId, conn);
+  if (op.kind !== "dispute") throw AppError.validation(`operation is a ${op.kind}, not a dispute`);
+  // An approve run may have started after the close was prepared.
+  if (leaseLive(c)) throw AppError.conflict("payout run in progress");
+  await assertPayoutsSettled(c, conn);
   const res = await submitOp({ ...input, expectedKind: "dispute", verify: closeVisible(escrow, c.escrowContractId) }, escrow, conn);
   await closeConfirmed(input.campaignId, conn)(res.op);
   return { txHash: res.txHash };
