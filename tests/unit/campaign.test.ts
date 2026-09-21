@@ -33,6 +33,12 @@ describe("createCampaignSchema reward cap", () => {
     expect(createCampaignSchema.safeParse({ ...base, rewardAmount: "0.1", budget: "4.9999999" }).success).toBe(true);
   });
 
+  it("a zero reward fails the parse instead of dividing by zero", () => {
+    const res = createCampaignSchema.safeParse({ ...base, rewardAmount: "0", budget: "100" });
+    expect(res.success).toBe(false);
+    expect(res.error?.issues).toEqual([expect.objectContaining({ path: ["rewardAmount"] })]);
+  });
+
   it("a route on the schema answers VALIDATION 400", async () => {
     const route = jsonRoute(createCampaignSchema, async () => ({ ok: true }));
     const res = await route(new Request("http://test/api/campaigns", { method: "POST", body: JSON.stringify({ ...base, budget: "500" }) }));

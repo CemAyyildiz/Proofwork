@@ -33,7 +33,11 @@ export const createCampaignSchema = z
   })
   .refine((c) => toStroops(c.budget) >= toStroops(c.rewardAmount), { message: "budget must cover at least one reward", path: ["budget"] })
   // Escrow holds 50 milestones: the close milestone plus 49 rewards. Bigint division floors.
-  .refine((c) => toStroops(c.budget) / toStroops(c.rewardAmount) <= MAX_REWARDS, {
+  .refine((c) => {
+    const reward = toStroops(c.rewardAmount);
+    // A zero reward is already reported by the field refine.
+    return reward === 0n || toStroops(c.budget) / reward <= MAX_REWARDS;
+  }, {
     message: "budget covers more than 49 rewards; the escrow holds 49 reward milestones",
     path: ["budget"],
   });
