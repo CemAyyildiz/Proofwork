@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
 import { campaigns, decisions, submissions } from "@/db/schema";
 import { requestAppeal } from "@/services/review";
@@ -29,6 +29,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await close();
 });
 
@@ -64,6 +65,20 @@ describe("requestAppeal", () => {
     await fail(1);
     await conn.update(campaigns).set({ closedAt: new Date() }).where(eq(campaigns.id, CAMPAIGN));
     await expect(appeal()).rejects.toMatchObject({ code: "CONFLICT", message: "campaign is closed" });
+    expect(await status()).toBe("rejected");
+  });
+
+  it("a close landing between the checks and the write leaves the submission rejected", async () => {
+    await fail(1);
+    const select = conn.select.bind(conn);
+    let calls = 0;
+    vi.spyOn(conn, "select").mockImplementation(((...args: Parameters<typeof conn.select>) => {
+      calls += 1;
+      // The decision count is the second read; the close is queued ahead of it.
+      if (calls === 2) void conn.update(campaigns).set({ closedAt: new Date() }).where(eq(campaigns.id, CAMPAIGN)).execute();
+      return select(...args);
+    }) as typeof conn.select);
+    await expect(appeal()).rejects.toMatchObject({ code: "CONFLICT" });
     expect(await status()).toBe("rejected");
   });
 

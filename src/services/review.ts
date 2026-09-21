@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, reviewTimes, submissions, type Decision, type Submission } from "@/db/schema";
@@ -158,7 +158,19 @@ export async function requestAppeal(submissionId: string, actor: { pubkey: strin
   const count = (await conn.select({ n: sql<number>`count(*)::int` }).from(decisions).where(eq(decisions.submissionId, s.id)))[0]?.n ?? 0;
   if (count === 0) throw AppError.conflict("no decision to appeal");
   if (count >= 2) throw AppError.conflict("the one re-review has already been used");
-  await conn.update(submissions).set({ status: "appealed" }).where(eq(submissions.id, s.id));
+  // Conditional so an appeal racing a close or another appeal cannot land.
+  const moved = await conn
+    .update(submissions)
+    .set({ status: "appealed" })
+    .where(
+      and(
+        eq(submissions.id, s.id),
+        eq(submissions.status, "rejected"),
+        notExists(conn.select({ id: campaigns.id }).from(campaigns).where(and(eq(campaigns.id, submissions.campaignId), isNotNull(campaigns.closedAt)))),
+      ),
+    )
+    .returning({ id: submissions.id });
+  if (moved.length !== 1) throw AppError.conflict("submission changed concurrently; retry");
 }
 
 export async function getDecision(id: string, conn: Db = db) {
