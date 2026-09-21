@@ -10,6 +10,16 @@ export function formatDate(d: Date): string {
   return d.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC";
 }
 
+/**
+ * Keeps `head` leading and `tail` trailing characters around an ellipsis.
+ * A value that would not get shorter is returned unchanged.
+ */
+export function truncateMiddle(value: string, head: number, tail: number): string {
+  if (value.length <= head + tail + 1) return value;
+  return `${value.slice(0, head)}…${tail > 0 ? value.slice(-tail) : ""}`;
+}
+
+/** Wallet address, 4 + 4. */
 export function shortKey(k: string): string {
-  return `${k.slice(0, 4)}…${k.slice(-4)}`;
+  return truncateMiddle(k, 4, 4);
 }
