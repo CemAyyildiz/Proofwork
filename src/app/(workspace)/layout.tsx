@@ -43,9 +43,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
               <WorkspaceNav funder={funder} reviewer={reviewer} variant="top" />
             </div>
             <div className="flex shrink-0 items-center gap-3">
-              <span className="hidden md:inline">
-                <TestnetBadge />
-              </span>
+              <TestnetBadge />
               <WalletButton pubkey={pubkey} />
             </div>
           </div>

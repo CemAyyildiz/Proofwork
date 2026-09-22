@@ -57,7 +57,7 @@ export function Button({
       {busy ? (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 -translate-x-full animate-sheen bg-linear-100 from-transparent from-30% via-white/50 via-50% to-transparent to-70%"
+          className="pointer-events-none absolute inset-0 animate-sheen bg-linear-100 from-transparent from-30% via-white/50 via-50% to-transparent to-70%"
         />
       ) : null}
       <span className="relative inline-flex items-center gap-2">{busy && busyLabel ? busyLabel : children}</span>

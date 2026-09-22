@@ -18,11 +18,18 @@ vi.mock("@/lib/current-user", () => ({ currentUser: async () => session.user }))
 const { WalletButton } = await import("@/components/wallet-button");
 const { WorkspaceNav } = await import("@/components/workspace-nav");
 const { default: WorkspaceLayout } = await import("@/app/(workspace)/layout");
+const { default: PublicLayout } = await import("@/app/(public)/layout");
+const { Button } = await import("@/components/ui/button");
 
 const WALLET = "GDXGQ7VJ2Y6XJ3KZ5L4M8N2P7R9S3T6U1W4X8Y2Z5A7B9C3D6EQR4F2A";
 
 async function renderWorkspace(): Promise<string> {
   const tree = (await WorkspaceLayout({ children: createElement("p", null, "page body") })) as ReactElement;
+  return renderToStaticMarkup(tree);
+}
+
+async function renderPublic(): Promise<string> {
+  const tree = (await PublicLayout({ children: createElement("p", null, "page body") })) as ReactElement;
   return renderToStaticMarkup(tree);
 }
 
@@ -84,5 +91,48 @@ describe("workspace shell", () => {
     expect(html).not.toContain("Workspace");
     expect(html).not.toContain(">Campaigns<");
     expect(html).toContain("Public");
+  });
+});
+
+describe("public shell", () => {
+  it("shows no role links when signed out", async () => {
+    const html = await renderPublic();
+    expect(html).not.toContain('href="/campaigns"');
+    expect(html).not.toContain('href="/review"');
+    expect(html).toContain("Connect wallet");
+    expect(html).toContain("page body");
+  });
+
+  it("shows only Review, and no Home item, for a reviewer", async () => {
+    session.user = { pubkey: WALLET, roles: new Set(["reviewer"]) };
+    const html = await renderPublic();
+    expect(html).toContain('href="/review"');
+    expect(html).not.toContain('href="/campaigns"');
+    expect(html).not.toContain(">Home<");
+  });
+
+  it("shows no nav links for a wallet with zero roles", async () => {
+    session.user = { pubkey: WALLET, roles: new Set() };
+    const html = await renderPublic();
+    expect(html).not.toContain("<nav");
+    expect(html).not.toContain('href="/campaigns"');
+    expect(html).not.toContain('href="/review"');
+  });
+});
+
+describe("button", () => {
+  it("is disabled, aria-busy and shows the busy label while busy", () => {
+    const html = renderToStaticMarkup(createElement(Button, { busy: true, busyLabel: "Committing on-chain…" }, "Record PASS on-chain"));
+    expect(html).toMatch(/<button[^>]*\bdisabled=""/);
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("Committing on-chain…");
+    expect(html).not.toContain("Record PASS on-chain");
+  });
+
+  it("has neither attribute when not busy", () => {
+    const html = renderToStaticMarkup(createElement(Button, null, "Record PASS on-chain"));
+    expect(html).not.toMatch(/<button[^>]*\bdisabled=""/);
+    expect(html).not.toContain("aria-busy");
+    expect(html).toContain("Record PASS on-chain");
   });
 });
