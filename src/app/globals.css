@@ -105,6 +105,41 @@
   }
 }
 
+/* Gradient hairline border for hero cards (DESIGN.md card-glow). */
+@utility card-glow {
+  &::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    pointer-events: none;
+    background: linear-gradient(
+      140deg,
+      color-mix(in srgb, var(--color-accent) 30%, transparent),
+      transparent 40%,
+      transparent 70%,
+      var(--color-line-strong)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+}
+
+/* Wallet avatar: a deterministic brand gradient, not an identicon. */
+@utility avatar-gradient {
+  background: conic-gradient(
+    from 200deg,
+    var(--color-accent),
+    var(--color-text) 30%,
+    var(--color-faint) 60%,
+    var(--color-accent)
+  );
+}
+
 /* Everything renders in its final state when the OS asks for less motion. */
 @media (prefers-reduced-motion: reduce) {
   *,
