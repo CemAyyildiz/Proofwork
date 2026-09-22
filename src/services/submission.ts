@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, eq } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
-import { campaigns, decisions, submissions, type Campaign, type Decision, type Submission } from "@/db/schema";
+import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type Payout, type Submission } from "@/db/schema";
 import { canonicalizeSubmissionUrl, submissionUrlSchema } from "@/domain/submission-url";
 import { AppError } from "@/lib/errors";
 import { newId, newShortId } from "@/lib/ids";
@@ -12,6 +12,8 @@ export interface PublicCampaign {
   title: string;
   brief: string;
   rewardAmount: string;
+  /** Total budget the funder committed, for the "N of M USDC left" meter. */
+  budget: string;
   deadlineAt: Date;
   escrowContractId: string | null;
   open: boolean;
@@ -31,6 +33,7 @@ export async function publicCampaign(slug: string, conn: Db = db): Promise<Publi
     title: c.title,
     brief: c.brief,
     rewardAmount: c.rewardAmount,
+    budget: c.budget,
     deadlineAt: c.deadlineAt,
     escrowContractId: c.escrowContractId,
     open: isOpen(c),
@@ -75,6 +78,8 @@ export async function createSubmission(
 export interface MySubmission {
   submission: Submission;
   decisions: Decision[];
+  /** The payout row, if one exists. Only `released` with a `releaseTxHash` means paid. */
+  payout: Payout | null;
 }
 
 export async function mySubmission(campaignId: string, pubkey: string, conn: Db = db): Promise<MySubmission | null> {
@@ -87,5 +92,6 @@ export async function mySubmission(campaignId: string, pubkey: string, conn: Db 
   )[0];
   if (!s) return null;
   const ds = await conn.select().from(decisions).where(eq(decisions.submissionId, s.id)).orderBy(asc(decisions.decidedAt));
-  return { submission: s, decisions: ds };
+  const payout = (await conn.select().from(payouts).where(eq(payouts.submissionId, s.id)).limit(1))[0] ?? null;
+  return { submission: s, decisions: ds, payout };
 }

@@ -1,0 +1,94 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Db } from "@/db/client";
+import { campaigns, decisions, payouts, submissions } from "@/db/schema";
+import { mySubmission, publicCampaign } from "@/services/submission";
+import { makeTestDb } from "./db";
+
+const CAMPAIGN = "cmp_1";
+const SUB = "sub_1";
+const CONTRIBUTOR = "G_C1";
+const RELEASE_TX = "360d69ee23f843dbb237bd1d7533f14b891ac47bb83fdd9d25bb62eecf20658e";
+
+let conn: Db;
+let close: () => Promise<void>;
+
+beforeEach(async () => {
+  ({ db: conn, close } = await makeTestDb());
+  await conn.insert(campaigns).values({
+    id: CAMPAIGN,
+    slug: "camp-1",
+    title: "Campaign",
+    brief: "A brief long enough to pass validation.",
+    rewardAmount: "5",
+    budget: "100",
+    deadlineAt: new Date(Date.now() + 86_400_000),
+    funderPubkey: "G_FUNDER",
+    disputeResolverPubkey: "G_DR",
+  });
+  await conn.insert(submissions).values({ id: SUB, shortId: "s1", campaignId: CAMPAIGN, contributorPubkey: CONTRIBUTOR, workUrl: "https://x.com/a/status/1", status: "decided" });
+});
+
+afterEach(async () => {
+  await close();
+});
+
+async function decided(outcome: "PASS" | "FAIL"): Promise<void> {
+  await conn.insert(decisions).values({
+    id: "dec_1",
+    submissionId: SUB,
+    reviewerPubkey: "G_REV",
+    outcome,
+    reasonCode: outcome === "PASS" ? "R00_PASS" : "R03_TASK",
+    signals: {},
+    note: "note",
+    canonicalJson: "{}",
+    decisionHash: "h",
+    ledgerKey: "pw:s1",
+    txHash: "t",
+  });
+}
+
+describe("publicCampaign", () => {
+  it("exposes the budget for the balance meter", async () => {
+    const c = await publicCampaign("camp-1", conn);
+    expect(c?.budget).toBe("100.0000000");
+  });
+});
+
+describe("mySubmission payout", () => {
+  it("returns a released payout with its release tx", async () => {
+    await decided("PASS");
+    await conn.insert(payouts).values({ id: "pay_1", submissionId: SUB, milestoneIndex: 1, amount: "5", status: "released", releaseTxHash: RELEASE_TX, releasedAt: new Date() });
+    const mine = await mySubmission(CAMPAIGN, CONTRIBUTOR, conn);
+    expect(mine?.payout?.status).toBe("released");
+    expect(mine?.payout?.releaseTxHash).toBe(RELEASE_TX);
+    expect(Number(mine?.payout?.amount)).toBe(5);
+  });
+
+  it("returns an approved payout without a release tx", async () => {
+    await decided("PASS");
+    await conn.insert(payouts).values({ id: "pay_1", submissionId: SUB, milestoneIndex: 1, amount: "5", status: "approved" });
+    const mine = await mySubmission(CAMPAIGN, CONTRIBUTOR, conn);
+    expect(mine?.payout?.status).toBe("approved");
+    expect(mine?.payout?.releaseTxHash).toBeNull();
+  });
+
+  it("returns null when there is no payout (FAIL)", async () => {
+    await decided("FAIL");
+    const mine = await mySubmission(CAMPAIGN, CONTRIBUTOR, conn);
+    expect(mine?.decisions).toHaveLength(1);
+    expect(mine?.payout).toBeNull();
+  });
+
+  it("returns null when undecided", async () => {
+    const mine = await mySubmission(CAMPAIGN, CONTRIBUTOR, conn);
+    expect(mine?.decisions).toHaveLength(0);
+    expect(mine?.payout).toBeNull();
+  });
+
+  it("never returns another contributor's payout", async () => {
+    await decided("PASS");
+    await conn.insert(payouts).values({ id: "pay_1", submissionId: SUB, milestoneIndex: 1, amount: "5", status: "released", releaseTxHash: RELEASE_TX });
+    expect(await mySubmission(CAMPAIGN, "G_OTHER", conn)).toBeNull();
+  });
+});
