@@ -13,7 +13,16 @@ const COPIED_MS = 1500;
 const itemClass =
   "flex w-full items-center justify-between gap-3 rounded-[10px] px-3 py-2 text-left text-sm font-medium text-text-2 hover:bg-white/5 hover:text-text focus-visible:bg-white/5 focus-visible:text-text";
 
-export function WalletButton({ pubkey, className }: { pubkey: string | null; className?: string }) {
+export function WalletButton({
+  pubkey,
+  className,
+  menuPlacement = "down",
+}: {
+  pubkey: string | null;
+  className?: string;
+  /** "up" opens the account menu above the button, for the sidebar foot. */
+  menuPlacement?: "down" | "up";
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +126,10 @@ export function WalletButton({ pubkey, className }: { pubkey: string | null; cla
               role="menu"
               aria-label="Wallet"
               onKeyDown={onMenuKeyDown}
-              className="absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-line-strong bg-raised p-1.5 shadow-2xl shadow-black/60"
+              className={cx(
+                "absolute z-50 w-56 rounded-lg border border-line-strong bg-raised p-1.5 shadow-2xl shadow-black/60",
+                menuPlacement === "up" ? "bottom-full left-0 mb-2" : "right-0 top-full mt-2",
+              )}
             >
               <button type="button" role="menuitem" tabIndex={-1} className={itemClass} onClick={() => onCopy(pubkey)}>
                 Copy address
