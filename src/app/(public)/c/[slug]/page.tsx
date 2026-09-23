@@ -15,7 +15,7 @@ import type { Decision } from "@/db/schema";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
 import { getEscrow } from "@/escrow";
 import { currentUser } from "@/lib/current-user";
-import { formatDateShort, formatUsdc, truncateMiddle } from "@/lib/format";
+import { budgetMeter, formatDateShort, formatUsdc, truncateMiddle } from "@/lib/format";
 import { log } from "@/lib/logger";
 import { mySubmission, publicCampaign, type MySubmission, type PublicCampaign } from "@/services/submission";
 
@@ -154,9 +154,7 @@ function Meta({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function EscrowCard({ contractId, balance, budget }: { contractId: string | null; balance: string | null; budget: string }) {
-  const total = Number(budget);
-  const left = balance === null ? null : Number(balance);
-  const pct = left !== null && total > 0 ? Math.min(100, Math.max(0, (left / total) * 100)) : null;
+  const meter = budgetMeter(balance, budget);
 
   return (
     <Card glow className="overflow-hidden bg-linear-180 from-raised to-surface p-6 md:p-[26px]">
@@ -183,20 +181,21 @@ function EscrowCard({ contractId, balance, budget }: { contractId: string | null
             {figure(balance)}
             <small className="ml-[0.25em] text-[0.36em] font-medium tracking-[-0.01em] text-muted">USDC held</small>
           </p>
-          {pct !== null ? (
+          {meter ? (
             <>
               <div
                 role="meter"
                 aria-valuemin={0}
-                aria-valuemax={total}
-                aria-valuenow={left ?? 0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(meter.pct)}
+                aria-valuetext={meter.label}
                 aria-label="Budget left in escrow"
                 className="mt-5 h-2 overflow-hidden rounded-[4px] bg-white/5"
               >
-                <div className="h-full origin-left animate-grow rounded-[4px] bg-accent" style={{ width: `${pct}%` }} />
+                <div className="h-full origin-left animate-grow rounded-[4px] bg-accent" style={{ width: `${meter.pct}%` }} />
               </div>
               <p className="mt-2.5 text-[12.5px] text-muted">
-                {figure(balance)} of {formatUsdc(budget)} left
+                {meter.label}
               </p>
             </>
           ) : null}

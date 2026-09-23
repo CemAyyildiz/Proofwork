@@ -31,3 +31,16 @@ export function formatDateShort(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()] ?? ""} · ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
 }
+
+/**
+ * Escrow budget meter for the contributor page: the share of the budget still
+ * held, clamped to 0–100. Null when the balance could not be read or there is
+ * no budget, so the page shows no meter rather than a guess.
+ */
+export function budgetMeter(balance: string | null, budget: string): { pct: number; label: string } | null {
+  const total = Number(budget);
+  if (balance === null || !(total > 0)) return null;
+  const left = Number(balance);
+  const pct = Math.min(100, Math.max(0, (left / total) * 100));
+  return { pct, label: `${formatUsdc(balance).replace(/ USDC$/, "")} of ${formatUsdc(budget)} left` };
+}

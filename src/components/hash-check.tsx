@@ -17,6 +17,13 @@ export async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** What the seal says once the check is done; null while it is still running. */
+export function sealFor(computed: string | null, expected: string, txHash: string | null): { tone: "pass" | "fail"; title: string } | null {
+  if (computed === null) return null;
+  if (computed !== expected) return { tone: "fail", title: "Does not match the recorded hash" };
+  return { tone: "pass", title: txHash ? "Hash matches the on-chain memo" : "Matches the recorded hash" };
+}
+
 /**
  * Recomputes SHA-256 of the canonical JSON in the browser with WebCrypto and
  * compares it with the recorded hash, as a three-step proof with a seal.
@@ -78,7 +85,8 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
   }
 
   const done = step === 4;
-  const match = computed !== null && computed === expectedHash;
+  const seal = sealFor(computed, expectedHash, txHash);
+  const match = seal?.tone === "pass";
   const bytes = new TextEncoder().encode(canonicalJson).length;
   const state = (n: 1 | 2 | 3): "idle" | "run" | "ok" | "fail" =>
     step > n || (n === 3 && done) ? (n === 3 && !match ? "fail" : "ok") : step === n ? "run" : "idle";
@@ -122,16 +130,12 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
       </ol>
 
       <div aria-live="polite">
-        {done ? (
-          match ? (
-            <Seal tone="pass" title={txHash ? "Hash matches the on-chain memo" : "Matches the recorded hash"}>
-              This record is exactly what was committed{txHash ? " on-chain" : ""}.
-            </Seal>
-          ) : (
-            <Seal tone="fail" title="Does not match the recorded hash">
-              The hash your browser computed differs from the recorded one. Compare both values above.
-            </Seal>
-          )
+        {done && seal ? (
+          <Seal tone={seal.tone} title={seal.title}>
+            {seal.tone === "pass"
+              ? `This record is exactly what was committed${txHash ? " on-chain" : ""}.`
+              : "The hash your browser computed differs from the recorded one. Compare both values above."}
+          </Seal>
         ) : null}
       </div>
 
