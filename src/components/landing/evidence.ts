@@ -14,8 +14,8 @@ export const SPIKE_RECORD = {
   txHash: "1be85aa3bc199d8643aefe9c17b1f0ed97d8e7c05b863bb94ed541ac3a72d19e",
 } as const;
 
-/** manage_data value format from src/ledger/decision-ledger.ts: "v1|<outcome>|<reason>|<hash8>". */
-export const SPIKE_LEDGER_VALUE = `v1|PASS|R00_PASS|${SPIKE_RECORD.memoHash.slice(0, 8)}`;
+/** manage_data value from src/ledger/canonical.ts `ledgerValue`: the first 8 bytes of the hash, i.e. 16 hex chars. */
+export const SPIKE_LEDGER_VALUE = `v1|PASS|R00_PASS|${SPIKE_RECORD.memoHash.slice(0, 16)}`;
 
 export const SPIKE_FUND = { amount: "5", txHash: "9fe69bb62061c736e1ed6f885803a4488c78947ba5b59348ed8966da863894ba" } as const;
 

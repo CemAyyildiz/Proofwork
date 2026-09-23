@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "@/components/hash-check";
-import { EVIDENCE_TXS, SPIKE_CONTRACT, SPIKE_FUND, SPIKE_RECORD, SPIKE_RELEASE } from "@/components/landing/evidence";
+import { EVIDENCE_TXS, SPIKE_CONTRACT, SPIKE_FUND, SPIKE_LEDGER_VALUE, SPIKE_RECORD, SPIKE_RELEASE } from "@/components/landing/evidence";
+import { ledgerValue, type DecisionRecord } from "@/ledger/canonical";
 import { verdictFor } from "@/components/landing/rubric-playground";
 import { evaluate, SIGNALS, type Signals } from "@/domain/rubric";
 
@@ -21,6 +22,13 @@ describe("verify playground record", () => {
     expect(EVIDENCE).toContain(`tx/${SPIKE_RECORD.txHash}`);
     expect(EVIDENCE).toContain(`key=${SPIKE_RECORD.ledgerKey}`);
     expect(EVIDENCE).toContain(SPIKE_CONTRACT);
+  });
+
+  it("shows the manage_data value the ledger writer produces", () => {
+    const record = JSON.parse(SPIKE_RECORD.canonicalJson) as DecisionRecord;
+    expect(SPIKE_LEDGER_VALUE).toBe(ledgerValue(record).toString("utf8"));
+    // Read from Horizon for tx 1be85aa3…d19e on 2026-09-25.
+    expect(SPIKE_LEDGER_VALUE).toBe("v1|PASS|R00_PASS|6a72919fdfbd4426");
   });
 
   it("uses only transaction hashes from the evidence file", () => {
