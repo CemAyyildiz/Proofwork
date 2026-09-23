@@ -39,11 +39,65 @@
 
   --animate-reveal: reveal 0.8s cubic-bezier(0.2, 0.7, 0.1, 1) both;
   --animate-sheen: sheen 1.1s linear infinite;
+  --animate-rise: rise 1.1s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pop: pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-ping: ping 2s ease-out infinite;
+  --animate-marquee: marquee 60s linear infinite;
+  --animate-blink: blink 1s steps(2) infinite;
+  --animate-grow: grow 1.8s cubic-bezier(0.33, 1, 0.68, 1) both;
+  --animate-drift: drift 14s ease-in-out infinite alternate;
 
   @keyframes reveal {
     from {
       opacity: 0;
       transform: translateY(40px);
+    }
+  }
+
+  /* Line-masked headline word: rises from below its clipping line. */
+  @keyframes rise {
+    from {
+      transform: translateY(110%) rotate(4deg);
+    }
+  }
+
+  @keyframes pop {
+    from {
+      transform: scale(0);
+    }
+  }
+
+  @keyframes ping {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent);
+    }
+    70%,
+    100% {
+      box-shadow: 0 0 0 8px transparent;
+    }
+  }
+
+  @keyframes grow {
+    from {
+      transform: scaleX(0);
+    }
+  }
+
+  @keyframes marquee {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes drift {
+    to {
+      transform: translate(-120px, 80px) scale(1.1);
     }
   }
 
@@ -138,6 +192,26 @@
     var(--color-faint) 60%,
     var(--color-accent)
   );
+}
+
+/*
+ * Scroll reveal (components/landing/reveal.tsx). Content is only hidden when
+ * the OS allows motion, so reduced-motion visitors always see the final state.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(40px);
+    transition:
+      opacity 0.9s var(--ease-expo),
+      transform 1.1s var(--ease-expo);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  [data-reveal="shown"] {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Everything renders in its final state when the OS asks for less motion. */

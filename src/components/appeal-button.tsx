@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 
 export function AppealButton({ submissionId }: { submissionId: string }) {
   const router = useRouter();
@@ -24,11 +25,16 @@ export function AppealButton({ submissionId }: { submissionId: string }) {
   }
 
   return (
-    <div className="flex items-center gap-3">
-      <button type="button" disabled={busy} onClick={appeal} className="rounded border border-neutral-300 px-3 py-1 text-sm disabled:opacity-50">
-        {busy ? "Requesting…" : "Request one re-review"}
-      </button>
-      {error ? <span className="text-sm text-red-600">{error}</span> : null}
+    <div className="mt-3">
+      <Button variant="secondary" size="sm" busy={busy} busyLabel="Requesting…" onClick={appeal}>
+        Request a re-review
+      </Button>
+      <p className="mt-2 text-[12.5px] text-muted">You can do this once while the campaign is open.</p>
+      {error ? (
+        <p role="alert" className="mt-2 text-[13px] text-fail">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

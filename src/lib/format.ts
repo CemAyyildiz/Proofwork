@@ -23,3 +23,11 @@ export function truncateMiddle(value: string, head: number, tail: number): strin
 export function shortKey(k: string): string {
   return truncateMiddle(k, 4, 4);
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** Short UTC date for public pages, e.g. "2 Oct · 18:00 UTC" (EXPERIENCE.md voice). */
+export function formatDateShort(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()] ?? ""} · ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+}
