@@ -100,7 +100,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
                 <span className="[overflow-wrap:anywhere]">{c.title}</span>
               </Kv>
               <Kv label="Reviewer" border="top">
-                <HashChip value={d.reviewerPubkey} head={4} tail={4} href={publicEnv.explorerAccountUrl(d.reviewerPubkey)} />
+                <HashChip value={d.reviewerPubkey} head={4} tail={4} href={publicEnv.explorerAccountUrl(d.reviewerPubkey)} className="whitespace-nowrap" />
               </Kv>
               <Kv label="Decided" border="both">
                 <span className="font-mono">{formatDateShort(d.decidedAt)}</span>
