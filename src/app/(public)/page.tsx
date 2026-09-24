@@ -347,8 +347,8 @@ export default async function Home() {
           <p className="mt-[26px] text-lg text-text-2">Run a campaign where every payout can be checked.</p>
           <div className="mt-[38px] flex flex-wrap items-center justify-center gap-3">
             {cta}
-            <a href="https://x.com/proofwork_xyz" target="_blank" rel="noreferrer" className={buttonClasses("secondary")}>
-              Follow @proofwork_xyz ↗
+            <a href="https://x.com/proofworkapp" target="_blank" rel="noreferrer" className={buttonClasses("secondary")}>
+              Follow @proofworkapp ↗
             </a>
           </div>
         </Reveal>
