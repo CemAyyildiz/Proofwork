@@ -121,6 +121,10 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
             <OnChainRow label="Ledger key">
               <HashChip value={d.ledgerKey} head={12} tail={6} />
             </OnChainRow>
+            <OnChainRow label="Ledger value">
+              {/* What ledgerValue() in src/ledger/canonical.ts writes as the manage_data value. */}
+              <HashChip value={`v1|${d.outcome}|${d.reasonCode}|${d.decisionHash.slice(0, 16)}`} head={48} tail={0} className="whitespace-nowrap" />
+            </OnChainRow>
             <OnChainRow label="Memo hash">
               <HashChip value={d.decisionHash} />
             </OnChainRow>

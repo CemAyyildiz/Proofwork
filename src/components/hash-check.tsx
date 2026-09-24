@@ -17,11 +17,15 @@ export async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** What the seal says once the check is done; null while it is still running. */
-export function sealFor(computed: string | null, expected: string, txHash: string | null): { tone: "pass" | "fail"; title: string } | null {
+/**
+ * What the seal says once the check is done; null while it is still running.
+ * The expected value is the recorded hash from this server, not a Stellar read,
+ * so the seal never claims an on-chain match; the reader confirms that in the explorer.
+ */
+export function sealFor(computed: string | null, expected: string): { tone: "pass" | "fail"; title: string } | null {
   if (computed === null) return null;
   if (computed !== expected) return { tone: "fail", title: "Does not match the recorded hash" };
-  return { tone: "pass", title: txHash ? "Hash matches the on-chain memo" : "Matches the recorded hash" };
+  return { tone: "pass", title: "Matches the recorded hash" };
 }
 
 /**
@@ -57,6 +61,7 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
         setShown(i);
         await wait(16);
       }
+    if (!live()) return;
     setStep(3);
     await wait(instant ? 0 : 500);
     if (!live()) return;
@@ -85,7 +90,7 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
   }
 
   const done = step === 4;
-  const seal = sealFor(computed, expectedHash, txHash);
+  const seal = sealFor(computed, expectedHash);
   const match = seal?.tone === "pass";
   const bytes = new TextEncoder().encode(canonicalJson).length;
   const state = (n: 1 | 2 | 3): "idle" | "run" | "ok" | "fail" =>
@@ -121,9 +126,16 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
             {computed ? computed.slice(0, shown) : step >= 2 ? "computing…" : "—"}
           </code>
         </ProofStep>
-        <ProofStep n={3} state={state(3)} title="Compare with the memo on Stellar">
+        <ProofStep n={3} state={state(3)} title="Compare with the recorded hash">
           <p className="mt-1 text-[13px] text-muted">
-            {txHash ? `memo_hash of tx ${truncateMiddle(txHash, 6, 6)}` : "The recorded hash. This decision has no transaction yet."}
+            {txHash ? (
+              <>
+                Then confirm it is the memo_hash of tx{" "}
+                <ExplorerLink txHash={txHash} /> in the explorer.
+              </>
+            ) : (
+              "This decision has no transaction yet, so there is no memo to confirm it against."
+            )}
           </p>
           <code className="mt-2.5 block break-all font-mono text-[12.5px] leading-[1.6] text-accent">{expectedHash}</code>
         </ProofStep>
@@ -132,9 +144,17 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
       <div aria-live="polite">
         {done && seal ? (
           <Seal tone={seal.tone} title={seal.title}>
-            {seal.tone === "pass"
-              ? `This record is exactly what was committed${txHash ? " on-chain" : ""}.`
-              : "The hash your browser computed differs from the recorded one. Compare both values above."}
+            {seal.tone === "pass" ? (
+              txHash ? (
+                <>
+                  Confirm it is the memo_hash of tx <ExplorerLink txHash={txHash} /> on Stellar.
+                </>
+              ) : (
+                "Not yet committed to Stellar, so there is no memo to confirm it against."
+              )
+            ) : (
+              "The hash your browser computed differs from the recorded one. Compare both values above."
+            )}
           </Seal>
         ) : null}
       </div>
@@ -150,6 +170,20 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
         ) : null}
       </div>
     </div>
+  );
+}
+
+function ExplorerLink({ txHash }: { txHash: string }) {
+  return (
+    <a
+      href={publicEnv.explorerTxUrl(txHash)}
+      target="_blank"
+      rel="noreferrer"
+      title={txHash}
+      className="rounded-sm font-mono text-text-2 underline decoration-line-strong underline-offset-[3px] hover:text-text"
+    >
+      {truncateMiddle(txHash, 6, 6)} ↗
+    </a>
   );
 }
 
