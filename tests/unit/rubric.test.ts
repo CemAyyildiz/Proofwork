@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { evaluate, validateReason, type Signals } from "@/domain/rubric";
+import { evaluate, PASS_THRESHOLD, reasonCodeSchema, SIGNALS, validateReason, type Signals } from "@/domain/rubric";
 
 const allPass: Signals = {
   account_genuine: true,
@@ -24,5 +26,16 @@ describe("rubric", () => {
     expect(validateReason(fail, "R02_ORIGINAL").ok).toBe(true);
     expect(validateReason(fail, "R01_ACCOUNT").ok).toBe(false);
     expect(validateReason(fail, "R00_PASS").ok).toBe(false);
+  });
+
+  it("keeps docs/rubric.md in sync with the code", () => {
+    const doc = readFileSync(join(process.cwd(), "docs/rubric.md"), "utf8");
+    const expected = new Set([
+      ...SIGNALS.flatMap((s) => [s.label, s.failCode]),
+      ...reasonCodeSchema.options,
+      `${PASS_THRESHOLD} of ${SIGNALS.length}`,
+    ]);
+    const missing = [...expected].filter((item) => !doc.includes(item));
+    expect(missing, `missing from docs/rubric.md: ${missing.join(", ")}`).toEqual([]);
   });
 });
