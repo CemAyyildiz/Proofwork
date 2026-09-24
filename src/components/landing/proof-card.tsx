@@ -4,6 +4,7 @@ import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { SIGNALS } from "@/domain/rubric";
 import { truncateMiddle } from "@/lib/format";
 import { cx } from "@/components/ui/cx";
+import { Eyebrow } from "@/components/ui/eyebrow";
 import { canHoverFine, useReducedMotion } from "@/components/use-reduced-motion";
 import { SPIKE_LEDGER_VALUE, SPIKE_RECORD } from "./evidence";
 
@@ -128,6 +129,9 @@ export function ProofCard() {
                 @
               </span>
               <span className="text-[13px] text-muted">A contributor&apos;s post on X</span>
+              <Eyebrow as="span" className="ml-auto text-[10.5px]">
+                Illustration
+              </Eyebrow>
             </div>
             <p className="mt-2.5 text-sm leading-[1.55] text-text-2">
               Tried the testnet flow. Seeing the escrow balance before doing anything is what made me trust it. The brief could use an

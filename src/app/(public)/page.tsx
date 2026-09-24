@@ -92,7 +92,7 @@ const ROLES: ReadonlyArray<{ name: string; icon: ReactNode; can: string[]; canno
 const FACTS: ReadonlyArray<{ value: number; label: string; accent?: boolean }> = [
   { value: SIGNALS.length, label: "signals scored per submission" },
   { value: PASS_THRESHOLD, label: "needed to pass" },
-  { value: 1, label: "re-review for any rejection" },
+  { value: 1, label: "re-review per rejection, while the campaign is open" },
   { value: 0, label: "funds held by Proofwork", accent: true },
 ];
 
