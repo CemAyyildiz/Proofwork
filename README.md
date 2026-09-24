@@ -78,7 +78,7 @@ Each decision is one classic Stellar transaction from the decision ledger accoun
 
 The verify page recomputes the hash in the browser. Compare it with the memo in any explorer. No tooling required.
 
-What each signal checks, what counts as pass or fail, and which reason code a failed submission gets: [docs/rubric.md](docs/rubric.md).
+[docs/rubric.md](docs/rubric.md) explains what each signal checks, what counts as pass or fail, and which reason code a failed submission gets.
 
 ## Layout
 

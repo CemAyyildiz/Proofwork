@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { evaluate, PASS_THRESHOLD, reasonCodeSchema, SIGNALS, validateReason, type Signals } from "@/domain/rubric";
+import { ledgerKey } from "@/ledger/canonical";
 
 const allPass: Signals = {
   account_genuine: true,
@@ -29,13 +30,17 @@ describe("rubric", () => {
   });
 
   it("keeps docs/rubric.md in sync with the code", () => {
-    const doc = readFileSync(join(process.cwd(), "docs/rubric.md"), "utf8");
-    const expected = new Set([
-      ...SIGNALS.flatMap((s) => [s.label, s.failCode]),
+    const doc = readFileSync(fileURLToPath(new URL("../../docs/rubric.md", import.meta.url)), "utf8");
+    const phrases = new Set([
+      ...SIGNALS.map((s) => `${s.label} · fail code \`${s.failCode}\``),
       ...reasonCodeSchema.options,
-      `${PASS_THRESHOLD} of ${SIGNALS.length}`,
+      ledgerKey("<id>", true),
     ]);
-    const missing = [...expected].filter((item) => !doc.includes(item));
+    const counts = [`${PASS_THRESHOLD} of ${SIGNALS.length}`, `${PASS_THRESHOLD - 1} or fewer`];
+    const missing = [
+      ...[...phrases].filter((item) => !doc.includes(item)),
+      ...counts.filter((item) => !new RegExp(`\\b${item}\\b`).test(doc)),
+    ];
     expect(missing, `missing from docs/rubric.md: ${missing.join(", ")}`).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 # Proofwork review rubric (v1)
 
-**Purpose.** Every submission to a Proofwork campaign is checked by a human reviewer against the same six yes/no signals before any money can move. Each signal asks one question about the submission. The reviewer ticks each signal as pass or fail, the rubric turns that into an outcome, and the outcome is written to the Stellar ledger with a reason code, so anyone can check afterwards what was decided and why.
+**Purpose.** Before any money moves, a human reviewer checks every submission against the same six yes/no signals. The rubric turns those answers into an outcome, which is written to the Stellar ledger with a reason code, so anyone can later check what was decided and why.
 
 **The gate.** A submission passes when **at least 4 of 6** signals pass. With 3 or fewer it fails. A pass only makes the submission eligible: the funder's approval is the final human check before a reward is paid.
 
@@ -52,17 +52,17 @@
 
 - A **PASS** always carries `R00_PASS`.
 - A **FAIL** carries the code of the primary failed signal, chosen by the reviewer from the signals that actually failed (`R01_ACCOUNT`, `R02_ORIGINAL`, `R03_TASK`, `R04_BRIEF`, `R05_MULTI`, `R06_SPAM`). Using the code of a signal that passed is rejected by the app.
-- Every decision also carries one line of note the contributor can act on.
+- Each decision also has a short written note for the contributor. The app stores it; it is not on-chain and not covered by the hash.
 
 ## One-shot re-review
 
-A contributor whose submission failed can ask for exactly one re-review. It is scored with the same six signals and recorded the same way, under its own ledger key `pw:<id>:a1`. The re-review record includes the hash of the first decision, so the two are linked and the first one cannot be quietly replaced.
+A contributor can ask for exactly one re-review, only for a rejected submission and only while the campaign is open. It is scored with the same six signals and recorded the same way, under its own ledger key `pw:<id>:a1`. The re-review record includes the hash of the first decision, so the two are linked and the first one cannot be quietly replaced.
 
 ## What goes on-chain per decision
 
 Each decision is one Stellar transaction from the decision ledger account:
 
-- `manage_data` key `pw:<id>` (first pass) or `pw:<id>:a1` (re-review), value `v1|<outcome>|<code>|<hash prefix>`, for example `v1|FAIL|R03_TASK|9f2c…`.
+- `manage_data` key `pw:<id>` (first pass) or `pw:<id>:a1` (re-review), value `v1|<outcome>|<code>|<hash prefix>`, where the prefix is the first 16 hex characters of the decision hash.
 - `memo_hash` set to the SHA-256 hash of the full decision record (submission, campaign, reviewer, outcome, reason code, all six signal answers, time and, for a re-review, the first decision's hash).
 
 The `/verify/<decision>` page recomputes that hash from the stored record, so anyone can compare it with the memo in a Stellar explorer.
