@@ -11,6 +11,16 @@ import { HashChip } from "@/components/ui/hash-chip";
 /** Below this many characters a half-typed link is not called wrong yet. */
 const HINT_AFTER = 12;
 
+/**
+ * Submit gate: `valid` uses the same schema the server applies
+ * (domain/submission-url.ts; the server still re-checks), `wrong` says whether
+ * to show the wrong-link hint.
+ */
+export function urlGate(value: string): { valid: boolean; wrong: boolean } {
+  const valid = submissionUrlSchema.safeParse(value).success;
+  return { valid, wrong: !valid && value.trim().length > HINT_AFTER };
+}
+
 export function SubmitForm({ campaignSlug, payTo }: { campaignSlug: string; payTo: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -19,9 +29,7 @@ export function SubmitForm({ campaignSlug, payTo }: { campaignSlug: string; payT
   const hintId = useId();
   const inputId = useId();
 
-  // Same rule the server applies (domain/submission-url.ts); the server still re-checks.
-  const valid = submissionUrlSchema.safeParse(value).success;
-  const wrong = !valid && value.trim().length > HINT_AFTER;
+  const { valid, wrong } = urlGate(value);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

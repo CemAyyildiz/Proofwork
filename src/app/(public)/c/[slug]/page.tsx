@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { AppealButton } from "@/components/appeal-button";
+import { stageOf, timelineView, type Stage } from "@/components/contributor-state";
 import { Countdown } from "@/components/countdown";
 import { SubmitForm } from "@/components/submit-form";
 import { Card } from "@/components/ui/card";
@@ -21,14 +22,6 @@ import { mySubmission, publicCampaign, type MySubmission, type PublicCampaign } 
 
 export const dynamic = "force-dynamic";
 
-type Stage = "open" | "closed" | "ended" | "unfunded";
-
-function stageOf(c: PublicCampaign, now = Date.now()): Stage {
-  if (c.open) return "open";
-  if (c.closedAt) return "closed";
-  if (c.deadlineAt.getTime() <= now) return "ended";
-  return "unfunded";
-}
 
 const STAGE_PILL: Record<Stage, { tone: PillTone; label: string }> = {
   open: { tone: "pass", label: "Open" },
@@ -88,18 +81,26 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
             <Meta label="Reward">
               <span className="text-accent">{formatUsdc(c.rewardAmount)}</span>
             </Meta>
-            <Meta label={stage === "open" ? "Closes in" : "Closed"}>
-              {stage === "open" ? (
+            {stage === "open" ? (
+              <Meta label="Closes in">
                 <Countdown deadlineAt={c.deadlineAt.toISOString()} fallback={formatDateShort(c.deadlineAt)} />
-              ) : (
-                formatDateShort(c.closedAt ?? c.deadlineAt)
-              )}
-            </Meta>
+              </Meta>
+            ) : stage === "unfunded" ? (
+              <Meta label="Opens when funded">
+                <span className="text-text-2">closes {formatDateShort(c.deadlineAt)}</span>
+              </Meta>
+            ) : stage === "ended" ? (
+              <Meta label="Ended">{formatDateShort(c.deadlineAt)}</Meta>
+            ) : (
+              <Meta label="Closed">{formatDateShort(c.closedAt ?? c.deadlineAt)}</Meta>
+            )}
             <Meta label="Reviewed by">a person</Meta>
           </dl>
-          <p style={rise(2).style} className={cx("mt-3 text-[13px] text-muted", rise(2).className)}>
-            Per approved submission, net of the 0.3% protocol fee. Closes {formatDateShort(c.deadlineAt)}.
-          </p>
+          {stage === "open" ? (
+            <p style={rise(2).style} className={cx("mt-3 text-[13px] text-muted", rise(2).className)}>
+              Per approved submission, net of the 0.3% protocol fee. Closes {formatDateShort(c.deadlineAt)}.
+            </p>
+          ) : null}
         </div>
         <div style={rise(3).style} className={rise(3).className}>
           <EscrowCard contractId={c.escrowContractId} balance={balance} budget={c.budget} />
@@ -327,14 +328,9 @@ function passCount(d: Decision): number {
 }
 
 function Timeline({ mine, campaignOpen }: { mine: MySubmission; campaignOpen: boolean }) {
-  const { submission: s, decisions, payout } = mine;
-  // Only decisions with a confirmed on-chain tx are shown as made (AD-9).
-  const recorded = decisions.filter((d) => d.txHash !== null);
-  const unrecorded = recorded.length < decisions.length;
+  const s = mine.submission;
+  const { recorded, unrecorded, reReviewPending, canAppeal, paid } = timelineView(mine, campaignOpen);
   const latest = recorded.at(-1) ?? null;
-  const reReviewPending = s.status === "appealed" && !unrecorded;
-  const canAppeal = s.status === "rejected" && decisions.length < 2 && campaignOpen;
-  const paid = payout?.status === "released" && payout.releaseTxHash ? payout : null;
   const shownUrl = s.workUrl.replace(/^https:\/\//, "");
 
   return (
@@ -396,9 +392,7 @@ function Timeline({ mine, campaignOpen }: { mine: MySubmission; campaignOpen: bo
             Paid · <span className="text-pass">{formatUsdc(paid.amount)}</span>
           </StepTitle>
           <StepText>Released from escrow to your wallet.</StepText>
-          {paid.releaseTxHash ? (
-            <HashChip value={paid.releaseTxHash} href={publicEnv.explorerTxUrl(paid.releaseTxHash)} className="mt-2.5" />
-          ) : null}
+          <HashChip value={paid.releaseTxHash} href={publicEnv.explorerTxUrl(paid.releaseTxHash)} className="mt-2.5" />
         </Step>
       ) : (
         <Step state="pending" last>
