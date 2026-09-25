@@ -22,8 +22,10 @@ export interface HorizonConfig {
   fetch?: typeof fetch;
 }
 
-/** Horizon and Friendbot calls give up after this long; the caller shows a retry. */
+/** Horizon reads and Friendbot give up after this long; the caller shows a retry. */
 const TIMEOUT_MS = 10_000;
+/** Horizon's synchronous submit waits for ledger close, which can take far longer than a read. */
+const SUBMIT_TIMEOUT_MS = 60_000;
 
 /** Base32 G-address shape. The checksum is Horizon's problem; this only keeps the URL safe. */
 const G_ADDRESS = /^G[A-Z2-7]{55}$/;
@@ -46,6 +48,7 @@ const accountSchema = z.object({
       asset_type: z.string(),
       asset_code: z.string().optional(),
       asset_issuer: z.string().optional(),
+      is_authorized: z.boolean().optional(),
     }),
   ),
 });
@@ -54,19 +57,20 @@ function checkAddress(address: string): void {
   if (!G_ADDRESS.test(address)) throw new OnboardingError("rejected", "not a Stellar public key");
 }
 
-async function call(f: typeof fetch, url: string, init: RequestInit = {}): Promise<Response> {
+async function call(f: typeof fetch, url: string, init: RequestInit = {}, timeoutMs = TIMEOUT_MS): Promise<Response> {
   try {
-    return await f(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    return await f(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (cause) {
     throw new OnboardingError("unreachable", "Stellar testnet did not answer", { cause });
   }
 }
 
-/** Classifies a Horizon account body: does it hold a USDC line from our issuer? */
+/** Classifies a Horizon account body: does it hold an authorized USDC line from our issuer? */
 export function classifyAccount(body: unknown, usdcIssuer: string): AccountState {
   const parsed = accountSchema.safeParse(body);
   if (!parsed.success) throw new OnboardingError("unreachable", "unexpected account response from Horizon");
-  const has = parsed.data.balances.some((b) => b.asset_code === "USDC" && b.asset_issuer === usdcIssuer);
+  // An unauthorized line exists but cannot receive, so a release to it would fail on chain.
+  const has = parsed.data.balances.some((b) => b.asset_code === "USDC" && b.asset_issuer === usdcIssuer && b.is_authorized !== false);
   return has ? { kind: "ready" } : { kind: "no-trustline", sequence: parsed.data.sequence };
 }
 
@@ -85,14 +89,18 @@ export async function hasUsdcTrustline(address: string, cfg: HorizonConfig): Pro
 }
 
 /**
- * Activates a testnet account with Friendbot. Friendbot answers 400 when the
- * account already exists, which is the state we wanted, so the caller re-reads
- * the account instead of trusting either reply.
+ * Activates a testnet account with Friendbot. A 400 saying the account already
+ * exists is the state we wanted; any other 400 (bad request, rate limit) is a
+ * failure. The caller re-reads the account instead of trusting either reply.
  */
 export async function fundWithFriendbot(address: string, cfg: { friendbotUrl: string; fetch?: typeof fetch }): Promise<void> {
   checkAddress(address);
   const res = await call(cfg.fetch ?? fetch, `${cfg.friendbotUrl}/?addr=${address}`);
-  if (res.ok || res.status === 400) return;
+  if (res.ok) return;
+  if (res.status === 400) {
+    const text = await res.text().catch(() => "");
+    if (/createAccountAlreadyExist|op_already_exists/.test(text)) return;
+  }
   throw new OnboardingError("unreachable", `Friendbot answered ${res.status}`);
 }
 
@@ -125,7 +133,7 @@ export async function submitSignedXdr(signedXdr: string, cfg: { horizonUrl: stri
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
     body: new URLSearchParams({ tx: signedXdr }).toString(),
-  });
+  }, SUBMIT_TIMEOUT_MS);
   const body: unknown = await res.json().catch(() => null);
   if (res.ok) {
     const ok = submitOk.safeParse(body);

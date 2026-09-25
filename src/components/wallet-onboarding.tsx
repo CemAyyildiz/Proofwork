@@ -106,7 +106,7 @@ export function WalletOnboarding({ campaignSlug, address }: { campaignSlug: stri
     <>
       {view.step === "ready" ? (
         trustTx ? (
-          <p className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted">
+          <p role="status" className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted">
             <span className="text-pass">USDC trustline added</span>
             <HashChip value={trustTx} href={publicEnv.explorerTxUrl(trustTx)} />
           </p>
@@ -187,7 +187,7 @@ function Node({ state, n, children }: { state: OnboardingNode; n: number; childr
           "mt-px grid h-6 w-6 place-items-center rounded-full border-2 font-mono text-[11px] font-semibold",
           state === "done" && "border-pass bg-pass text-accent-ink",
           state === "current" && "border-accent text-accent shadow-[0_0_0_4px_var(--color-accent-soft)]",
-          state === "pending" && "border-white/20 text-muted",
+          state === "pending" && "border-line-strong text-muted",
         )}
       >
         {state === "done" ? "✓" : n}

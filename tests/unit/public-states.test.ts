@@ -50,6 +50,12 @@ describe("submit form", () => {
     expect(html).toMatch(/<button[^>]*type="submit"[^>]*\bdisabled=""/);
   });
 
+  it("disables the link field while the wallet cannot receive USDC", () => {
+    const html = renderToStaticMarkup(createElement(SubmitForm, { campaignSlug: "c", payTo: "GDXGQ7VJ2Y6XJ3KZ5L4M8N2P7R9S3T6U1W4X8Y2Z5A7B9C3D6EQR4F2A", locked: true }));
+    const input = html.match(/<input[^>]*name="workUrl"[^>]*>/)?.[0] ?? "";
+    expect(input).toMatch(/\bdisabled=""/);
+  });
+
   it("gates on the same schema the server enforces", () => {
     expect(submissionUrlSchema.safeParse("https://example.com/post").success).toBe(false);
     expect(submissionUrlSchema.safeParse("https://x.com/deniz_k/status/1841200000000000000").success).toBe(true);

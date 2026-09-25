@@ -1,10 +1,13 @@
-import { Networks, Operation, TransactionBuilder, type Transaction } from "@stellar/stellar-sdk";
-import { describe, expect, it } from "vitest";
+import { Keypair, Networks, Operation, TransactionBuilder, type Transaction } from "@stellar/stellar-sdk";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { onboardingView } from "@/components/contributor-state";
+import { env } from "@/config/env";
+import { horizonTrustlineReader } from "@/services/submission";
 import {
   OnboardingError,
   buildChangeTrustXdr,
   fundWithFriendbot,
+  hasUsdcTrustline,
   isSignatureRejection,
   readAccount,
   submitSignedXdr,
@@ -45,6 +48,13 @@ describe("readAccount", () => {
     expect(await readAccount(ADDR, cfg)).toEqual({ kind: "no-trustline", sequence: "4242" });
   });
 
+  it("does not count a USDC line the issuer has not authorized", async () => {
+    const { cfg } = horizonReplying(200, { sequence: "7", balances: [xlm, { ...usdc(), is_authorized: false }] });
+    expect(await readAccount(ADDR, cfg)).toEqual({ kind: "no-trustline", sequence: "7" });
+    const ok = horizonReplying(200, { sequence: "7", balances: [xlm, { ...usdc(), is_authorized: true }] });
+    expect((await readAccount(ADDR, ok.cfg)).kind).toBe("ready");
+  });
+
   it("does not count a USDC line from another issuer", async () => {
     const { cfg } = horizonReplying(200, { sequence: "1", balances: [xlm, usdc("GCKFBEIYV2U22IO2BJ4KVJOIP7XPWQGQFKKWXR6DOSJBV7STMAQSMTGG")] });
     expect((await readAccount(ADDR, cfg)).kind).toBe("no-trustline");
@@ -70,6 +80,42 @@ describe("readAccount", () => {
   });
 });
 
+describe("hasUsdcTrustline", () => {
+  it("maps the account state to the server gate's boolean", async () => {
+    expect(await hasUsdcTrustline(ADDR, horizonReplying(404, {}).cfg)).toBe(false);
+    expect(await hasUsdcTrustline(ADDR, horizonReplying(200, { sequence: "1", balances: [xlm] }).cfg)).toBe(false);
+    expect(await hasUsdcTrustline(ADDR, horizonReplying(200, { sequence: "1", balances: [xlm, usdc()] }).cfg)).toBe(true);
+  });
+});
+
+describe("horizonTrustlineReader", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("reads the configured Horizon host and matches the configured USDC issuer", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@localhost/db");
+    vi.stubEnv("STELLAR_NETWORK", "testnet");
+    vi.stubEnv("TW_API_KEY", "k".repeat(16));
+    // Throwaway seeds generated per run: the env schema needs three distinct valid ones.
+    vi.stubEnv("PLATFORM_ADMIN_SECRET", Keypair.random().secret());
+    vi.stubEnv("PLATFORM_OPS_SECRET", Keypair.random().secret());
+    vi.stubEnv("DECISION_LEDGER_SECRET", Keypair.random().secret());
+    vi.stubEnv("SESSION_SECRET", "s".repeat(43));
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch((url) => {
+        seen.push(url);
+        return { status: 200, body: { sequence: "1", balances: [xlm, usdc(env.USDC_ISSUER)] } };
+      }),
+    );
+    expect(await horizonTrustlineReader(ADDR)).toBe(true);
+    expect(seen).toEqual([`${env.HORIZON_URL}/accounts/${ADDR}`]);
+  });
+});
+
 describe("fundWithFriendbot", () => {
   it("calls the configured Friendbot host for the address", async () => {
     const seen: string[] = [];
@@ -81,9 +127,16 @@ describe("fundWithFriendbot", () => {
     expect(seen).toEqual([`https://friendbot.stellar.org/?addr=${ADDR}`]);
   });
 
-  it("accepts 400 (account already exists): the caller re-reads the account", async () => {
-    const f = fakeFetch(() => ({ status: 400, body: { detail: "createAccountAlreadyExist" } }));
-    await expect(fundWithFriendbot(ADDR, { friendbotUrl: "https://friendbot.stellar.org", fetch: f })).resolves.toBeUndefined();
+  it("accepts a 400 only when the account already exists: the caller re-reads the account", async () => {
+    for (const body of [{ detail: "createAccountAlreadyExist" }, { extras: { result_codes: { operations: ["op_already_exists"] } } }]) {
+      const f = fakeFetch(() => ({ status: 400, body }));
+      await expect(fundWithFriendbot(ADDR, { friendbotUrl: "https://friendbot.stellar.org", fetch: f })).resolves.toBeUndefined();
+    }
+  });
+
+  it("throws on any other 400 (bad request, rate limit)", async () => {
+    const f = fakeFetch(() => ({ status: 400, body: { title: "Bad Request", detail: "rate limited" } }));
+    await expect(fundWithFriendbot(ADDR, { friendbotUrl: "https://friendbot.stellar.org", fetch: f })).rejects.toMatchObject({ kind: "unreachable" });
   });
 
   it("throws on a Friendbot failure so the form stays disabled", async () => {

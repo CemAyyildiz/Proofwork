@@ -278,7 +278,7 @@ function SubmissionPanel({
   return (
     <>
       <h2 className="text-lg font-semibold tracking-[-0.02em]">Submit your post</h2>
-      <WalletOnboarding campaignSlug={c.slug} address={pubkey} />
+      <WalletOnboarding key={pubkey} campaignSlug={c.slug} address={pubkey} />
     </>
   );
 }
