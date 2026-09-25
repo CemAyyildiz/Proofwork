@@ -1,6 +1,6 @@
 import { ReviewCard } from "@/components/review-card";
 import { currentUser } from "@/lib/current-user";
-import { reviewQueue } from "@/services/review";
+import { reviewLogCampaigns, reviewQueue } from "@/services/review";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,7 @@ export default async function ReviewPage() {
   if (!user) return <p className="text-neutral-600">Connect your wallet.</p>;
   if (!user.roles.has("reviewer")) return <p className="text-neutral-600">Your wallet has no reviewer role.</p>;
 
-  const queue = await reviewQueue();
+  const [queue, logs] = await Promise.all([reviewQueue(), reviewLogCampaigns(user)]);
   return (
     <div className="space-y-6">
       <div>
@@ -28,6 +28,23 @@ export default async function ReviewPage() {
           ))}
         </div>
       )}
+      {logs.length > 0 ? (
+        <section className="space-y-2">
+          <h2 className="font-medium">Review logs</h2>
+          <ul className="space-y-1 text-sm">
+            {logs.map((c) => (
+              <li key={c.id}>
+                <a className="underline" href={`/api/campaigns/${encodeURIComponent(c.id)}/review-log`} download>
+                  Download review log
+                </a>{" "}
+                <span className="text-neutral-500">
+                  {c.title} · {c.decisions} {c.decisions === 1 ? "decision" : "decisions"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

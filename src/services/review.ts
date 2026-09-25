@@ -2,13 +2,15 @@ import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Db } from "@/db/client";
-import { campaigns, decisions, reviewTimes, submissions, type Decision, type Submission } from "@/db/schema";
-import { evaluate, reasonCodeSchema, signalsSchema, validateReason } from "@/domain/rubric";
+import { campaigns, decisions, payouts, reviewTimes, roleGrants, submissions, type Decision, type Submission } from "@/db/schema";
+import { publicEnv } from "@/config/public-env";
+import { evaluate, reasonCodeSchema, SIGNALS, signalsSchema, validateReason, type SignalId } from "@/domain/rubric";
 import type { DecisionLedger } from "@/ledger/decision-ledger";
 import type { DecisionRecord } from "@/ledger/canonical";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
+import { rolesFor } from "./auth";
 
 /**
  * Blind review queue. The reviewer sees the work URL, a short id and the
@@ -184,4 +186,116 @@ export async function getDecision(id: string, conn: Db = db) {
       .limit(1)
   )[0];
   return row ?? null;
+}
+
+/**
+ * Review log export (SOW §6.1 Deliverable 2 evidence): one row per decision,
+ * re-reviews included, ordered by decision time. Column names are shared by
+ * the CSV and JSON forms. There is no planted/genuine column: that list never
+ * enters the app and is joined to this export offline (AD-10).
+ */
+export const REVIEW_LOG_COLUMNS = [
+  "campaign_slug",
+  "submission_short_id",
+  "work_url",
+  "contributor_pubkey",
+  "decision_id",
+  "is_appeal",
+  "appeal_of",
+  "reviewer_pubkey",
+  ...SIGNALS.map((s) => `signal_${s.id}` as const),
+  "pass_count",
+  "outcome",
+  "reason_code",
+  "note",
+  "decision_hash",
+  "ledger_key",
+  "tx_hash",
+  "explorer_url",
+  "decided_at",
+  "review_seconds",
+  "blind",
+  "submission_status",
+  "payout_status",
+  "release_tx_hash",
+] as const;
+
+export type ReviewLogColumn = (typeof REVIEW_LOG_COLUMNS)[number];
+export type ReviewLogRow = Record<ReviewLogColumn, string | number | boolean | null>;
+
+/** Reviewer (global or for this campaign) or the campaign's own funder; anyone else is refused. */
+async function assertCanReadReviewLog(campaign: { id: string; funderPubkey: string }, actor: { pubkey: string }, conn: Db): Promise<void> {
+  const roles = await rolesFor(actor.pubkey, campaign.id, conn);
+  if (roles.has("reviewer")) return;
+  if (roles.has("funder") && campaign.funderPubkey === actor.pubkey) return;
+  throw AppError.forbidden("review log is for reviewers and the campaign funder");
+}
+
+export async function reviewLog(
+  campaignId: string,
+  actor: { pubkey: string },
+  conn: Db = db,
+): Promise<{ campaign: { id: string; slug: string }; rows: ReviewLogRow[] }> {
+  const c = (await conn.select().from(campaigns).where(eq(campaigns.id, campaignId)).limit(1))[0];
+  if (!c) throw AppError.notFound("campaign");
+  await assertCanReadReviewLog(c, actor, conn);
+
+  const found = await conn
+    .select({ d: decisions, s: submissions, t: reviewTimes, p: payouts })
+    .from(decisions)
+    .innerJoin(submissions, eq(submissions.id, decisions.submissionId))
+    .leftJoin(reviewTimes, eq(reviewTimes.decisionId, decisions.id))
+    .leftJoin(payouts, eq(payouts.submissionId, submissions.id))
+    .where(eq(submissions.campaignId, c.id))
+    .orderBy(asc(decisions.decidedAt), asc(decisions.id));
+
+  const rows = found.map(({ d, s, t, p }): ReviewLogRow => {
+    const signal = (id: SignalId): boolean | null => (typeof d.signals[id] === "boolean" ? d.signals[id] : null);
+    const signals = Object.fromEntries(SIGNALS.map((x) => [`signal_${x.id}`, signal(x.id)])) as Record<`signal_${SignalId}`, boolean | null>;
+    return {
+      campaign_slug: c.slug,
+      submission_short_id: s.shortId,
+      work_url: s.workUrl,
+      contributor_pubkey: s.contributorPubkey,
+      decision_id: d.id,
+      is_appeal: d.appealOf !== null,
+      appeal_of: d.appealOf,
+      reviewer_pubkey: d.reviewerPubkey,
+      ...signals,
+      pass_count: SIGNALS.filter((x) => d.signals[x.id] === true).length,
+      outcome: d.outcome,
+      reason_code: d.reasonCode,
+      note: d.note,
+      decision_hash: d.decisionHash,
+      ledger_key: d.ledgerKey,
+      tx_hash: d.txHash,
+      explorer_url: d.txHash ? publicEnv.explorerTxUrl(d.txHash) : null,
+      decided_at: d.decidedAt.toISOString(),
+      review_seconds: t?.secondsTotal ?? null,
+      blind: t?.blind ?? null,
+      submission_status: s.status,
+      payout_status: p?.status ?? null,
+      release_tx_hash: p?.releaseTxHash ?? null,
+    };
+  });
+  return { campaign: { id: c.id, slug: c.slug }, rows };
+}
+
+/** Campaigns with at least one decision whose log this reviewer may download, newest first. */
+export async function reviewLogCampaigns(actor: { pubkey: string }, conn: Db = db): Promise<Array<{ id: string; slug: string; title: string; decisions: number }>> {
+  const grants = await conn
+    .select({ campaignId: roleGrants.campaignId })
+    .from(roleGrants)
+    .where(and(eq(roleGrants.pubkey, actor.pubkey), eq(roleGrants.role, "reviewer")));
+  if (grants.length === 0) return [];
+  const global = grants.some((g) => g.campaignId === null);
+  const scoped = grants.flatMap((g) => (g.campaignId === null ? [] : [g.campaignId]));
+  return conn
+    .select({ id: campaigns.id, slug: campaigns.slug, title: campaigns.title, decisions: sql<number>`count(${decisions.id})::int` })
+    .from(campaigns)
+    .innerJoin(submissions, eq(submissions.campaignId, campaigns.id))
+    .innerJoin(decisions, eq(decisions.submissionId, submissions.id))
+    .where(global ? undefined : inArray(campaigns.id, scoped))
+    .groupBy(campaigns.id)
+    .orderBy(desc(campaigns.createdAt));
 }

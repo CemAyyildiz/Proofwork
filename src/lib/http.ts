@@ -25,16 +25,21 @@ export function jsonRoute<S extends z.ZodTypeAny>(schema: S, handler: Handler<z.
       const out = await handler(parsed.data, req);
       return out instanceof Response ? out : NextResponse.json(out);
     } catch (e) {
-      if (isAppError(e)) {
-        return NextResponse.json({ error: e.code, message: e.message, details: e.details ?? null }, { status: httpStatus(e.code) });
-      }
       if (e instanceof SyntaxError) {
         return NextResponse.json({ error: "VALIDATION", message: "malformed JSON" }, { status: 400 });
       }
-      log.error("unhandled route error", { err: e instanceof Error ? e.message : String(e) });
-      return NextResponse.json({ error: "INTERNAL", message: "internal error" }, { status: 500 });
+      return errorResponse(e);
     }
   };
+}
+
+/** Maps a thrown error to a JSON error response; never leaks internals on 500. */
+export function errorResponse(e: unknown): Response {
+  if (isAppError(e)) {
+    return NextResponse.json({ error: e.code, message: e.message, details: e.details ?? null }, { status: httpStatus(e.code) });
+  }
+  log.error("unhandled route error", { err: e instanceof Error ? e.message : String(e) });
+  return NextResponse.json({ error: "INTERNAL", message: "internal error" }, { status: 500 });
 }
 
 export function clientIp(req: Request): string {

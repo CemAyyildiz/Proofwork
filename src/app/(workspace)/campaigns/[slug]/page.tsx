@@ -76,6 +76,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
           ) : (
             <PayoutActions campaignId={c.id} funderPubkey={c.funderPubkey} rows={rows} counts={counts} closed={c.closedAt !== null} />
           )}
+          {rows.some((r) => r.decisionId) ? (
+            <p className="text-sm">
+              <a className="underline" href={`/api/campaigns/${encodeURIComponent(c.id)}/review-log`} download>
+                Download review log
+              </a>
+            </p>
+          ) : null}
           {c.remainderTxHash ? (
             <p className="text-sm text-green-700">
               Remainder returned:{" "}
