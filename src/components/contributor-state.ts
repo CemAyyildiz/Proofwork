@@ -1,5 +1,6 @@
 import type { Decision, Payout } from "@/db/schema";
 import type { MySubmission, PublicCampaign } from "@/services/submission";
+import type { AccountState } from "@/wallet/onboarding";
 
 export type Stage = "open" | "closed" | "ended" | "unfunded";
 
@@ -35,5 +36,31 @@ export function timelineView(mine: MySubmission, campaignOpen: boolean): Timelin
     reReviewPending: s.status === "appealed" && !unrecorded,
     canAppeal: s.status === "rejected" && !unrecorded && latest?.outcome === "FAIL" && decisions.length < 2 && campaignOpen,
     paid: payout && releaseTxHash ? { ...payout, releaseTxHash } : null,
+  };
+}
+
+/** The browser's latest read of the connected wallet on Horizon testnet. */
+export type WalletCheck = { status: "checking" } | { status: "unreachable" } | { status: "read"; account: AccountState };
+
+export type OnboardingStep = "checking" | "unreachable" | "no-account" | "no-trustline" | "ready";
+export type OnboardingNode = "done" | "current" | "pending";
+
+export interface OnboardingView {
+  step: OnboardingStep;
+  /** Submitting is allowed only once the wallet can receive USDC. */
+  canSubmit: boolean;
+  /** Per-step state for "Activate testnet account" and "Add USDC trustline". */
+  activate: OnboardingNode;
+  trustline: OnboardingNode;
+}
+
+/** What the contributor sees before the submit form, from one wallet check. */
+export function onboardingView(check: WalletCheck): OnboardingView {
+  const step: OnboardingStep = check.status === "read" ? check.account.kind : check.status;
+  return {
+    step,
+    canSubmit: step === "ready",
+    activate: step === "no-account" ? "current" : step === "no-trustline" || step === "ready" ? "done" : "pending",
+    trustline: step === "no-trustline" ? "current" : step === "ready" ? "done" : "pending",
   };
 }

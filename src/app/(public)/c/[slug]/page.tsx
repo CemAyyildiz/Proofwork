@@ -4,13 +4,13 @@ import type { ReactNode } from "react";
 import { AppealButton } from "@/components/appeal-button";
 import { stageOf, timelineView, type Stage } from "@/components/contributor-state";
 import { Countdown } from "@/components/countdown";
-import { SubmitForm } from "@/components/submit-form";
 import { Card } from "@/components/ui/card";
 import { cx } from "@/components/ui/cx";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { HashChip } from "@/components/ui/hash-chip";
 import { Pill, type PillTone } from "@/components/ui/pill";
 import { WalletButton } from "@/components/wallet-button";
+import { WalletOnboarding } from "@/components/wallet-onboarding";
 import { publicEnv } from "@/config/public-env";
 import type { Decision } from "@/db/schema";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
@@ -22,6 +22,8 @@ import { mySubmission, publicCampaign, type MySubmission, type PublicCampaign } 
 
 export const dynamic = "force-dynamic";
 
+/** Freighter's own site; the Wallets Kit modal links it too when the extension is missing. */
+const FREIGHTER_URL = "https://www.freighter.app";
 
 const STAGE_PILL: Record<Stage, { tone: PillTone; label: string }> = {
   open: { tone: "pass", label: "Open" },
@@ -260,16 +262,23 @@ function SubmissionPanel({
       <>
         <h2 className="text-lg font-semibold tracking-[-0.02em]">Submit your post</h2>
         <p className="mt-3 text-sm leading-normal text-text-2">
-          Connect your Stellar wallet to submit. The reward is paid to that wallet in USDC, so it needs a USDC trustline.
+          Connect your Stellar wallet to submit. The reward is paid to that wallet in USDC. If the wallet is new, this page
+          activates it on testnet and adds USDC before you submit.
         </p>
         <WalletButton pubkey={null} className="mt-4" />
+        <p className="mt-3 text-[12.5px] text-muted">
+          No wallet yet?{" "}
+          <a href={FREIGHTER_URL} target="_blank" rel="noreferrer" className="rounded-sm font-medium text-accent hover:underline">
+            Install Freighter ↗
+          </a>
+        </p>
       </>
     );
   }
   return (
     <>
       <h2 className="text-lg font-semibold tracking-[-0.02em]">Submit your post</h2>
-      <SubmitForm campaignSlug={c.slug} payTo={pubkey} />
+      <WalletOnboarding campaignSlug={c.slug} address={pubkey} />
     </>
   );
 }

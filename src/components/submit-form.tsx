@@ -21,7 +21,16 @@ export function urlGate(value: string): { valid: boolean; wrong: boolean } {
   return { valid, wrong: !valid && value.trim().length > HINT_AFTER };
 }
 
-export function SubmitForm({ campaignSlug, payTo }: { campaignSlug: string; payTo: string }) {
+export function SubmitForm({
+  campaignSlug,
+  payTo,
+  locked = false,
+}: {
+  campaignSlug: string;
+  payTo: string;
+  /** True until the wallet can receive USDC: the field and submit stay disabled. */
+  locked?: boolean;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +42,7 @@ export function SubmitForm({ campaignSlug, payTo }: { campaignSlug: string; payT
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (locked) return;
     setBusy(true);
     setError(null);
     const workUrl = String(new FormData(e.currentTarget).get("workUrl") ?? "");
@@ -75,12 +85,13 @@ export function SubmitForm({ campaignSlug, payTo }: { campaignSlug: string; payT
           autoComplete="off"
           spellCheck={false}
           required
+          disabled={locked}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="https://x.com/you/status/…"
           aria-invalid={wrong || undefined}
           aria-describedby={hintId}
-          className="min-w-0 flex-1 bg-transparent font-mono text-sm text-text outline-none placeholder:text-faint focus-visible:outline-none"
+          className="min-w-0 flex-1 bg-transparent font-mono text-sm text-text outline-none placeholder:text-faint focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
         />
         <svg
           width="18"
@@ -104,7 +115,7 @@ export function SubmitForm({ campaignSlug, payTo }: { campaignSlug: string; payT
           {error}
         </p>
       ) : null}
-      <Button type="submit" disabled={!valid} busy={busy} busyLabel="Submitting…" className="mt-3.5 h-[52px] w-full text-[15.5px]">
+      <Button type="submit" disabled={!valid || locked} busy={busy} busyLabel="Submitting…" className="mt-3.5 h-[52px] w-full text-[15.5px]">
         Submit for review
       </Button>
       <p className="mt-3 text-[12.5px] text-muted">One submission per wallet. The post must stay public until the campaign closes.</p>

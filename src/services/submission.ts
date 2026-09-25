@@ -2,9 +2,19 @@ import "server-only";
 import { and, asc, eq } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type Payout, type Submission } from "@/db/schema";
+import { env } from "@/config/env";
 import { canonicalizeSubmissionUrl, submissionUrlSchema } from "@/domain/submission-url";
 import { AppError } from "@/lib/errors";
 import { newId, newShortId } from "@/lib/ids";
+import { log } from "@/lib/logger";
+import { hasUsdcTrustline } from "@/wallet/onboarding";
+
+/** Answers whether a wallet can receive USDC. Injected so unit tests need no network. */
+export type TrustlineReader = (pubkey: string) => Promise<boolean>;
+
+/** Default reader: one Horizon read against the configured testnet host. */
+export const horizonTrustlineReader: TrustlineReader = (pubkey) =>
+  hasUsdcTrustline(pubkey, { horizonUrl: env.HORIZON_URL, usdcIssuer: env.USDC_ISSUER });
 
 export interface PublicCampaign {
   id: string;
@@ -45,6 +55,7 @@ export async function createSubmission(
   input: { campaignSlug: string; workUrl: string },
   actor: { pubkey: string },
   conn: Db = db,
+  trustline: TrustlineReader = horizonTrustlineReader,
 ): Promise<Submission> {
   const c = (await conn.select().from(campaigns).where(eq(campaigns.slug, input.campaignSlug)).limit(1))[0];
   if (!c) throw AppError.notFound("campaign");
@@ -67,6 +78,17 @@ export async function createSubmission(
 
   const dup = (await conn.select({ id: submissions.id }).from(submissions).where(eq(submissions.workUrl, url)).limit(1))[0];
   if (dup) throw AppError.conflict("this post has already been submitted");
+
+  // A release to a wallet without the trustline fails on chain, so a submission
+  // it could never be paid for is refused here, not only in the UI.
+  let canReceive: boolean;
+  try {
+    canReceive = await trustline(actor.pubkey);
+  } catch (e) {
+    log.warn("trustline check failed", { err: e instanceof Error ? e.message : String(e) });
+    throw new AppError("LEDGER", "couldn't check your wallet on Stellar, try again", undefined, { cause: e });
+  }
+  if (!canReceive) throw AppError.conflict("wallet needs a USDC trustline");
 
   const [row] = await conn
     .insert(submissions)
