@@ -308,6 +308,11 @@ function releaseConfirmed(campaignId: string, conn: Db): OnConfirmed {
 }
 
 /** Close the campaign and reject whatever is still open. */
+/**
+ * Rejecting here is a fallback, not a review outcome: createSubmission refuses
+ * new work while a dispute op is intent/submitted, and prepareClose refuses
+ * while any submission is pending or appealed (R1b2).
+ */
 function closeConfirmed(campaignId: string, conn: Db): OnConfirmed {
   return async () => {
     await conn.update(campaigns).set({ closedAt: new Date() }).where(and(eq(campaigns.id, campaignId), isNull(campaigns.closedAt)));

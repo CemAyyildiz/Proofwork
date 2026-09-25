@@ -1,7 +1,7 @@
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
-import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type Payout, type Submission } from "@/db/schema";
+import { campaigns, decisions, escrowOps, payouts, submissions, type Campaign, type Decision, type Payout, type Submission } from "@/db/schema";
 import { env } from "@/config/env";
 import { canonicalizeSubmissionUrl, submissionUrlSchema } from "@/domain/submission-url";
 import { AppError } from "@/lib/errors";
@@ -63,6 +63,14 @@ export async function createSubmission(
   const c = (await conn.select().from(campaigns).where(eq(campaigns.slug, input.campaignSlug)).limit(1))[0];
   if (!c) throw AppError.notFound("campaign");
   if (!isOpen(c)) throw AppError.conflict("campaign is not accepting submissions");
+  // closeConfirmed rejects every pending submission without a decision, so none
+  // may arrive while the funder's close (a dispute op) can still land.
+  const closing = await conn
+    .select({ id: escrowOps.id })
+    .from(escrowOps)
+    .where(and(eq(escrowOps.campaignId, c.id), eq(escrowOps.kind, "dispute"), inArray(escrowOps.status, ["intent", "submitted"])))
+    .limit(1);
+  if (closing.length > 0) throw AppError.conflict("campaign is closing");
   if (actor.pubkey === c.funderPubkey || actor.pubkey === c.disputeResolverPubkey) {
     throw AppError.forbidden("campaign roles cannot submit to their own campaign");
   }

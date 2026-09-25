@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db/client";
-import { campaigns, submissions } from "@/db/schema";
+import { campaigns, escrowOps, submissions, type EscrowOp } from "@/db/schema";
 import { createSubmission, type TrustlineReader } from "@/services/submission";
 import { makeTestDb } from "./db";
 
@@ -72,5 +72,31 @@ describe("createSubmission trustline gate", () => {
       }),
     ).rejects.toMatchObject({ code: "CONFLICT", message: "you already submitted to this campaign" });
     expect(asked).toBe(false);
+  });
+});
+
+describe("createSubmission during a close", () => {
+  async function closeOp(status: EscrowOp["status"]): Promise<void> {
+    await conn.insert(escrowOps).values({ id: "op_close", campaignId: "cmp_1", kind: "dispute", idempotencyKey: "dispute-close:cmp_1", payload: {}, status });
+  }
+
+  it.each(["intent", "submitted"] as const)("refuses while the close dispute is %s and writes nothing", async (status) => {
+    await closeOp(status);
+    await expect(createSubmission(INPUT, CONTRIBUTOR, conn, reader(true))).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "campaign is closing",
+    });
+    expect(await conn.select().from(submissions)).toHaveLength(0);
+  });
+
+  it("accepts again after the close failed and the campaign is still open", async () => {
+    await closeOp("failed");
+    const s = await createSubmission(INPUT, CONTRIBUTOR, conn, reader(true));
+    expect(s.status).toBe("pending");
+  });
+
+  it("ignores in-flight ops of other kinds", async () => {
+    await conn.insert(escrowOps).values({ id: "op_rel", campaignId: "cmp_1", kind: "release", idempotencyKey: "release:cmp_1:1", payload: {}, status: "submitted" });
+    await expect(createSubmission(INPUT, CONTRIBUTOR, conn, reader(true))).resolves.toMatchObject({ status: "pending" });
   });
 });
