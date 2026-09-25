@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, escrowOps, type EscrowOp } from "@/db/schema";
 import type { EscrowPort, Submitted } from "@/escrow/port";
@@ -38,6 +38,28 @@ export type OnConfirmed = (op: EscrowOp) => Promise<void>;
 
 /** A `submitted` row older than this is treated as abandoned and reconciled from chain state. */
 export const STALE_SUBMITTED_MS = 120_000;
+
+/**
+ * A close (dispute op) that is confirmed, or intent/submitted and touched
+ * within STALE_SUBMITTED_MS. Its confirm rejects every pending or appealed
+ * submission, so intake and appeals stop while it holds; an abandoned one
+ * stops blocking once stale.
+ */
+export async function closeInFlight(campaignId: string, conn: Db = db): Promise<boolean> {
+  const freshSince = new Date(Date.now() - STALE_SUBMITTED_MS);
+  const rows = await conn
+    .select({ id: escrowOps.id })
+    .from(escrowOps)
+    .where(
+      and(
+        eq(escrowOps.campaignId, campaignId),
+        eq(escrowOps.kind, "dispute"),
+        or(eq(escrowOps.status, "confirmed"), and(inArray(escrowOps.status, ["intent", "submitted"]), gt(escrowOps.updatedAt, freshSince))),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
 
 export interface PreparedOp {
   opId: string;

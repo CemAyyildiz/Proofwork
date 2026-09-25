@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db/client";
 import { campaigns, escrowOps, submissions, type EscrowOp } from "@/db/schema";
+import { STALE_SUBMITTED_MS } from "@/services/escrow-ops";
 import { createSubmission, type TrustlineReader } from "@/services/submission";
 import { makeTestDb } from "./db";
 
@@ -76,17 +77,30 @@ describe("createSubmission trustline gate", () => {
 });
 
 describe("createSubmission during a close", () => {
-  async function closeOp(status: EscrowOp["status"]): Promise<void> {
-    await conn.insert(escrowOps).values({ id: "op_close", campaignId: "cmp_1", kind: "dispute", idempotencyKey: "dispute-close:cmp_1", payload: {}, status });
+  async function closeOp(status: EscrowOp["status"], ageMs = 0): Promise<void> {
+    await conn.insert(escrowOps).values({
+      id: "op_close",
+      campaignId: "cmp_1",
+      kind: "dispute",
+      idempotencyKey: "dispute-close:cmp_1",
+      payload: {},
+      status,
+      updatedAt: new Date(Date.now() - ageMs),
+    });
   }
 
-  it.each(["intent", "submitted"] as const)("refuses while the close dispute is %s and writes nothing", async (status) => {
+  it.each(["intent", "submitted", "confirmed"] as const)("refuses while the close dispute is %s and writes nothing", async (status) => {
     await closeOp(status);
     await expect(createSubmission(INPUT, CONTRIBUTOR, conn, reader(true))).rejects.toMatchObject({
       code: "CONFLICT",
       message: "campaign is closing",
     });
     expect(await conn.select().from(submissions)).toHaveLength(0);
+  });
+
+  it.each(["intent", "submitted"] as const)("accepts once a %s close is stale", async (status) => {
+    await closeOp(status, STALE_SUBMITTED_MS + 1_000);
+    await expect(createSubmission(INPUT, CONTRIBUTOR, conn, reader(true))).resolves.toMatchObject({ status: "pending" });
   });
 
   it("accepts again after the close failed and the campaign is still open", async () => {

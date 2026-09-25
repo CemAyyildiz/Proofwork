@@ -230,12 +230,10 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
   it("close confirms from the disputed close milestone and closes the campaign", async () => {
     await funded();
     const op = await prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
-    // Submitted while the funder signs: the confirmed close still rejects them.
-    await openSubmissions();
     const res = await confirmClose({ campaignId: CAMPAIGN, opId: op.opId, signedXdr: op.unsignedXdr }, { pubkey: FUNDER }, escrow, conn);
     expect(res.txHash).toBe(txHashOf(op.unsignedXdr));
     expect((await opRow(op.opId)).kind).toBe("dispute");
-    await expectClosed();
+    expect((await campaign()).closedAt).toBeInstanceOf(Date);
   });
 
   it("failed close whose tx later shows on chain: confirmed despite late submissions, conflict", async () => {

@@ -307,11 +307,11 @@ function releaseConfirmed(campaignId: string, conn: Db): OnConfirmed {
   };
 }
 
-/** Close the campaign and reject whatever is still open. */
 /**
- * Rejecting here is a fallback, not a review outcome: createSubmission refuses
- * new work while a dispute op is intent/submitted, and prepareClose refuses
- * while any submission is pending or appealed (R1b2).
+ * Close the campaign and reject whatever is still open. The rejection is a
+ * fallback, not a review outcome: createSubmission and requestAppeal refuse
+ * while closeInFlight, and prepareClose/confirmClose refuse while any
+ * submission is pending or appealed (R1b2).
  */
 function closeConfirmed(campaignId: string, conn: Db): OnConfirmed {
   return async () => {
@@ -481,8 +481,9 @@ export async function confirmClose(
   if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
   const op = await findOp(input.opId, input.campaignId, conn);
   if (op.kind !== "dispute") throw AppError.validation(`operation is a ${op.kind}, not a dispute`);
-  // An approve run may have started after the close was prepared.
-  if (leaseLive(c)) throw AppError.conflict("payout run in progress");
+  // An approve run or a submission may have started after the close was prepared.
+  const blocker = await closeBlocker(c, conn);
+  if (blocker) throw AppError.conflict(blocker);
   await assertPayoutsSettled(c, conn);
   const res = await submitOp({ ...input, expectedKind: "dispute", verify: closeVisible(escrow, c.escrowContractId) }, escrow, conn);
   await closeConfirmed(input.campaignId, conn)(res.op);

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { AppealButton } from "@/components/appeal-button";
 import { stageOf, timelineView, type Stage } from "@/components/contributor-state";
 import { Countdown } from "@/components/countdown";
-import { RemainderReturn } from "@/components/remainder-return";
+import { EscrowCard } from "@/components/escrow-card";
 import { Card } from "@/components/ui/card";
 import { cx } from "@/components/ui/cx";
 import { Eyebrow } from "@/components/ui/eyebrow";
@@ -17,7 +17,7 @@ import type { Decision } from "@/db/schema";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
 import { getEscrow } from "@/escrow";
 import { currentUser } from "@/lib/current-user";
-import { budgetMeter, formatDateShort, formatUsdc, truncateMiddle } from "@/lib/format";
+import { formatDateShort, formatUsdc, truncateMiddle } from "@/lib/format";
 import { log } from "@/lib/logger";
 import { mySubmission, publicCampaign, type MySubmission, type PublicCampaign } from "@/services/submission";
 
@@ -32,11 +32,6 @@ const STAGE_PILL: Record<Stage, { tone: PillTone; label: string }> = {
   ended: { tone: "wait", label: "Deadline passed" },
   unfunded: { tone: "wait", label: "Not funded yet" },
 };
-
-/** "95 USDC" → "95": the unit is set small beside the figure. */
-function figure(amount: string): string {
-  return formatUsdc(amount).replace(/ USDC$/, "");
-}
 
 /** Staggered rise-in on load; CSS only, final state under reduced motion. */
 function rise(i: number): { className: string; style: React.CSSProperties } {
@@ -154,85 +149,6 @@ function Meta({ label, children }: { label: string; children: ReactNode }) {
       <dt className="text-[13px] text-muted">{label}</dt>
       <dd className="mt-1.5 text-[26px] font-semibold tracking-[-0.03em]">{children}</dd>
     </div>
-  );
-}
-
-function EscrowCard({
-  contractId,
-  balance,
-  budget,
-  closed,
-  remainderTxHash,
-}: {
-  contractId: string | null;
-  balance: string | null;
-  budget: string;
-  closed: boolean;
-  remainderTxHash: string | null;
-}) {
-  const meter = budgetMeter(balance, budget);
-
-  return (
-    <Card glow className="overflow-hidden bg-linear-180 from-raised to-surface p-6 md:p-[26px]">
-      <div className="flex items-center justify-between gap-3">
-        <Eyebrow as="span">Escrow balance</Eyebrow>
-        {balance !== null ? (
-          <span className="inline-flex items-center gap-2 font-mono text-xs font-medium text-pass">
-            <span aria-hidden="true" className="h-[7px] w-[7px] animate-ping rounded-full bg-current" />
-            Live from Stellar
-          </span>
-        ) : null}
-      </div>
-
-      {!contractId ? (
-        <>
-          <p className="mt-4 text-[44px] font-bold leading-none tracking-[-0.04em] text-text-2">Not funded yet</p>
-          <p className="mt-3 text-sm text-muted">The funder has not deployed the escrow for this campaign.</p>
-        </>
-      ) : balance === null ? (
-        <p className="mt-4 text-lg font-semibold text-fail">Balance unavailable, check on-chain</p>
-      ) : (
-        <>
-          <p className="mt-3.5 text-[64px] font-semibold leading-none tracking-[-0.05em] md:text-[84px]">
-            {figure(balance)}
-            <small className="ml-[0.25em] text-[0.36em] font-medium tracking-[-0.01em] text-muted">USDC held</small>
-          </p>
-          {meter ? (
-            <>
-              <div
-                role="meter"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(meter.pct)}
-                aria-valuetext={meter.label}
-                aria-label="Budget left in escrow"
-                className="mt-5 h-2 overflow-hidden rounded-[4px] bg-white/5"
-              >
-                <div className="h-full origin-left animate-grow rounded-[4px] bg-accent" style={{ width: `${meter.pct}%` }} />
-              </div>
-              <p className="mt-2.5 text-[12.5px] text-muted">
-                {meter.label}
-              </p>
-            </>
-          ) : null}
-        </>
-      )}
-
-      <p className="mt-5 flex items-start gap-3 border-t border-line pt-[18px] text-[13.5px] leading-normal text-text-2">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="2" className="mt-0.5 shrink-0 stroke-accent" aria-hidden="true">
-          <rect x="4" y="10" width="16" height="11" rx="2.5" />
-          <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-        </svg>
-        Proofwork can&apos;t move this money. Only the funder releases payouts; only a neutral resolver can return what&apos;s left.
-      </p>
-      {contractId ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <span className="text-[13px] text-muted">Escrow contract</span>
-          <HashChip value={contractId} href={publicEnv.explorerAccountUrl(contractId)} />
-        </div>
-      ) : null}
-      {closed ? <RemainderReturn txHash={remainderTxHash} /> : null}
-    </Card>
   );
 }
 

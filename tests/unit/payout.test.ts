@@ -371,6 +371,20 @@ describe("prepareClose", () => {
     expect((await opsOf("dispute")).map((o) => o.status)).toEqual(["intent"]);
   });
 
+  it("confirm is refused when a submission arrived after the prepare, and it stays pending", async () => {
+    await passed(0);
+    const op = await closeIt();
+    await conn.insert(submissions).values({ id: "sub_late", shortId: "sl", campaignId: CAMPAIGN, contributorPubkey: "G_CL", workUrl: "https://x.com/a/status/8", status: "pending" });
+    const submit = vi.spyOn(escrow, "submit");
+    await expect(confirmClose({ campaignId: CAMPAIGN, opId: op.opId, signedXdr: op.unsignedXdr }, { pubkey: FUNDER }, escrow, conn)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringMatching(/^1 submission\(s\) still in review/),
+    });
+    expect(submit).not.toHaveBeenCalled();
+    expect((await conn.select().from(submissions).where(eq(submissions.id, "sub_late")))[0]?.status).toBe("pending");
+    expect((await conn.select().from(campaigns).where(eq(campaigns.id, CAMPAIGN)))[0]?.closedAt).toBeNull();
+  });
+
   it("confirm is refused while an approve run holds the lease", async () => {
     await passed(0);
     const op = await closeIt();

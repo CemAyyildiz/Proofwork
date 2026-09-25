@@ -11,6 +11,7 @@ import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { rolesFor } from "./auth";
+import { closeInFlight } from "./escrow-ops";
 
 /**
  * Blind review queue. The reviewer sees the work URL, a short id and the
@@ -156,6 +157,8 @@ export async function requestAppeal(submissionId: string, actor: { pubkey: strin
   const { s } = row;
   if (s.contributorPubkey !== actor.pubkey) throw AppError.forbidden("not your submission");
   if (row.closedAt) throw AppError.conflict("campaign is closed");
+  // The close's confirm would re-reject the appeal without a re-review.
+  if (await closeInFlight(s.campaignId, conn)) throw AppError.conflict("campaign is closing");
   if (s.status !== "rejected") throw AppError.conflict("only a rejected submission can be appealed");
   const count = (await conn.select({ n: sql<number>`count(*)::int` }).from(decisions).where(eq(decisions.submissionId, s.id)))[0]?.n ?? 0;
   if (count === 0) throw AppError.conflict("no decision to appeal");

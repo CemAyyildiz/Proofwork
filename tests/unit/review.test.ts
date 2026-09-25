@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
-import { campaigns, decisions, submissions } from "@/db/schema";
+import { campaigns, decisions, escrowOps, submissions } from "@/db/schema";
+import { STALE_SUBMITTED_MS } from "@/services/escrow-ops";
 import { requestAppeal } from "@/services/review";
 import { makeTestDb } from "./db";
 
@@ -80,6 +81,28 @@ describe("requestAppeal", () => {
     }) as typeof conn.select);
     await expect(appeal()).rejects.toMatchObject({ code: "CONFLICT" });
     expect(await status()).toBe("rejected");
+  });
+
+  it.each(["intent", "submitted"] as const)("refused while a %s close is in flight", async (opStatus) => {
+    await fail(1);
+    await conn.insert(escrowOps).values({ id: "op_close", campaignId: CAMPAIGN, kind: "dispute", idempotencyKey: "dispute-close:cmp_1", payload: {}, status: opStatus });
+    await expect(appeal()).rejects.toMatchObject({ code: "CONFLICT", message: "campaign is closing" });
+    expect(await status()).toBe("rejected");
+  });
+
+  it("allowed once an unsigned close is stale", async () => {
+    await fail(1);
+    await conn.insert(escrowOps).values({
+      id: "op_close",
+      campaignId: CAMPAIGN,
+      kind: "dispute",
+      idempotencyKey: "dispute-close:cmp_1",
+      payload: {},
+      status: "intent",
+      updatedAt: new Date(Date.now() - STALE_SUBMITTED_MS - 1_000),
+    });
+    await appeal();
+    expect(await status()).toBe("appealed");
   });
 
   it("refused without a decision to appeal", async () => {

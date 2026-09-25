@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RemainderReturn } from "@/components/remainder-return";
+import { EscrowCard } from "@/components/escrow-card";
 import type { Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions } from "@/db/schema";
 import { mySubmission, publicCampaign } from "@/services/submission";
@@ -68,17 +68,32 @@ describe("publicCampaign", () => {
   });
 });
 
-describe("closed campaign remainder", () => {
-  it("shows the remainder return with a stellar.expert link", () => {
-    const html = renderToStaticMarkup(createElement(RemainderReturn, { txHash: REMAINDER_TX }));
+describe("EscrowCard remainder", () => {
+  const card = (p: { closed: boolean; balance: string | null; remainderTxHash: string | null }) =>
+    renderToStaticMarkup(createElement(EscrowCard, { contractId: "CCONTRACT", budget: "100", ...p }));
+
+  it("links the recorded remainder tx on a closed campaign", () => {
+    const html = card({ closed: true, balance: "0", remainderTxHash: REMAINDER_TX });
     expect(html).toContain("Remainder returned to funder");
     expect(html).toContain(`href="https://stellar.expert/explorer/testnet/tx/${REMAINDER_TX}"`);
   });
 
-  it("shows the return as pending while no hash is recorded", () => {
-    const html = renderToStaticMarkup(createElement(RemainderReturn, { txHash: null }));
+  it("shows no remainder on a campaign that is not closed", () => {
+    const html = card({ closed: false, balance: "95", remainderTxHash: REMAINDER_TX });
+    expect(html).not.toContain("Remainder");
+    expect(html).not.toContain(REMAINDER_TX);
+  });
+
+  it("says nothing is left when a closed escrow is empty and has no hash", () => {
+    const html = card({ closed: true, balance: "0", remainderTxHash: null });
+    expect(html).toContain("Nothing left to return");
+    expect(html).not.toContain("Remainder return pending");
+  });
+
+  it("shows the return as pending while funds remain and no hash is recorded", () => {
+    const html = card({ closed: true, balance: "40", remainderTxHash: null });
     expect(html).toContain("Remainder return pending");
-    expect(html).not.toContain("stellar.expert");
+    expect(html).not.toContain("/tx/");
   });
 });
 
