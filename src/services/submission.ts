@@ -28,6 +28,8 @@ export interface PublicCampaign {
   escrowContractId: string | null;
   open: boolean;
   closedAt: Date | null;
+  /** Resolver's remainder return to the funder; set only once that withdraw is confirmed. */
+  remainderTxHash: string | null;
 }
 
 function isOpen(c: Campaign, now = new Date()): boolean {
@@ -48,6 +50,7 @@ export async function publicCampaign(slug: string, conn: Db = db): Promise<Publi
     escrowContractId: c.escrowContractId,
     open: isOpen(c),
     closedAt: c.closedAt,
+    remainderTxHash: c.remainderTxHash,
   };
 }
 

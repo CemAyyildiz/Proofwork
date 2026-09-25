@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { AppealButton } from "@/components/appeal-button";
 import { stageOf, timelineView, type Stage } from "@/components/contributor-state";
 import { Countdown } from "@/components/countdown";
+import { RemainderReturn } from "@/components/remainder-return";
 import { Card } from "@/components/ui/card";
 import { cx } from "@/components/ui/cx";
 import { Eyebrow } from "@/components/ui/eyebrow";
@@ -105,7 +106,7 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
           ) : null}
         </div>
         <div style={rise(3).style} className={rise(3).className}>
-          <EscrowCard contractId={c.escrowContractId} balance={balance} budget={c.budget} />
+          <EscrowCard contractId={c.escrowContractId} balance={balance} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
         </div>
       </div>
 
@@ -156,7 +157,19 @@ function Meta({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-function EscrowCard({ contractId, balance, budget }: { contractId: string | null; balance: string | null; budget: string }) {
+function EscrowCard({
+  contractId,
+  balance,
+  budget,
+  closed,
+  remainderTxHash,
+}: {
+  contractId: string | null;
+  balance: string | null;
+  budget: string;
+  closed: boolean;
+  remainderTxHash: string | null;
+}) {
   const meter = budgetMeter(balance, budget);
 
   return (
@@ -218,6 +231,7 @@ function EscrowCard({ contractId, balance, budget }: { contractId: string | null
           <HashChip value={contractId} href={publicEnv.explorerAccountUrl(contractId)} />
         </div>
       ) : null}
+      {closed ? <RemainderReturn txHash={remainderTxHash} /> : null}
     </Card>
   );
 }

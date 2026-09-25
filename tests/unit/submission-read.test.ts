@@ -1,4 +1,8 @@
+import { eq } from "drizzle-orm";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { RemainderReturn } from "@/components/remainder-return";
 import type { Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions } from "@/db/schema";
 import { mySubmission, publicCampaign } from "@/services/submission";
@@ -7,6 +11,7 @@ import { makeTestDb } from "./db";
 const CAMPAIGN = "cmp_1";
 const SUB = "sub_1";
 const CONTRIBUTOR = "G_C1";
+const REMAINDER_TX = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
 const RELEASE_TX = "360d69ee23f843dbb237bd1d7533f14b891ac47bb83fdd9d25bb62eecf20658e";
 
 let conn: Db;
@@ -52,6 +57,28 @@ describe("publicCampaign", () => {
   it("exposes the budget for the balance meter", async () => {
     const c = await publicCampaign("camp-1", conn);
     expect(c?.budget).toBe("100.0000000");
+  });
+
+  it("exposes no remainder tx until one is recorded", async () => {
+    expect((await publicCampaign("camp-1", conn))?.remainderTxHash).toBeNull();
+    await conn.update(campaigns).set({ closedAt: new Date(), remainderTxHash: REMAINDER_TX }).where(eq(campaigns.id, CAMPAIGN));
+    const c = await publicCampaign("camp-1", conn);
+    expect(c?.closedAt).not.toBeNull();
+    expect(c?.remainderTxHash).toBe(REMAINDER_TX);
+  });
+});
+
+describe("closed campaign remainder", () => {
+  it("shows the remainder return with a stellar.expert link", () => {
+    const html = renderToStaticMarkup(createElement(RemainderReturn, { txHash: REMAINDER_TX }));
+    expect(html).toContain("Remainder returned to funder");
+    expect(html).toContain(`href="https://stellar.expert/explorer/testnet/tx/${REMAINDER_TX}"`);
+  });
+
+  it("shows the return as pending while no hash is recorded", () => {
+    const html = renderToStaticMarkup(createElement(RemainderReturn, { txHash: null }));
+    expect(html).toContain("Remainder return pending");
+    expect(html).not.toContain("stellar.expert");
   });
 });
 
