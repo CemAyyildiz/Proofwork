@@ -7,9 +7,38 @@ export const dynamic = "force-dynamic";
 export default async function ReviewPage() {
   const user = await currentUser();
   if (!user) return <p className="text-neutral-600">Connect your wallet.</p>;
-  if (!user.roles.has("reviewer")) return <p className="text-neutral-600">Your wallet has no reviewer role.</p>;
 
-  const [queue, logs] = await Promise.all([reviewQueue(), reviewLogCampaigns(user)]);
+  // Campaign-scoped reviewers have no global role but may still download their campaigns' logs.
+  const logs = await reviewLogCampaigns(user);
+  const logSection =
+    logs.length > 0 ? (
+      <section className="space-y-2">
+        <h2 className="font-medium">Review logs</h2>
+        <ul className="space-y-1 text-sm">
+          {logs.map((c) => (
+            <li key={c.id}>
+              <a className="underline" href={`/api/campaigns/${encodeURIComponent(c.id)}/review-log`}>
+                Download review log
+              </a>{" "}
+              <span className="text-neutral-500">
+                {c.title} · {c.decisions} {c.decisions === 1 ? "decision" : "decisions"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    ) : null;
+
+  if (!user.roles.has("reviewer")) {
+    return (
+      <div className="space-y-6">
+        <p className="text-neutral-600">Your wallet has no reviewer role.</p>
+        {logSection}
+      </div>
+    );
+  }
+
+  const queue = await reviewQueue();
   return (
     <div className="space-y-6">
       <div>
@@ -28,23 +57,7 @@ export default async function ReviewPage() {
           ))}
         </div>
       )}
-      {logs.length > 0 ? (
-        <section className="space-y-2">
-          <h2 className="font-medium">Review logs</h2>
-          <ul className="space-y-1 text-sm">
-            {logs.map((c) => (
-              <li key={c.id}>
-                <a className="underline" href={`/api/campaigns/${encodeURIComponent(c.id)}/review-log`} download>
-                  Download review log
-                </a>{" "}
-                <span className="text-neutral-500">
-                  {c.title} · {c.decisions} {c.decisions === 1 ? "decision" : "decisions"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      {logSection}
     </div>
   );
 }

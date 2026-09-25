@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
+import { eq } from "drizzle-orm";
 import { campaigns, decisions, payouts, reviewTimes, roleGrants, submissions } from "@/db/schema";
 import { csvCell, toCsv } from "@/lib/csv";
 import { REVIEW_LOG_COLUMNS, reviewLog, reviewLogCampaigns } from "@/services/review";
+import { errorResponse } from "@/lib/http";
 import { makeTestDb } from "./db";
 
 const h = vi.hoisted(() => ({ db: undefined as unknown, user: null as { pubkey: string } | null }));
@@ -164,6 +166,30 @@ describe("reviewLog", () => {
     await expect(reviewLog(CAMPAIGN, { pubkey: "G_OTHER_FUNDER" }, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
+  it("a reviewer scoped to a different campaign is refused", async () => {
+    await conn.insert(campaigns).values({
+      id: "cmp_2",
+      slug: "camp-2",
+      title: "Other",
+      brief: "A brief long enough to pass validation.",
+      rewardAmount: "10",
+      budget: "100",
+      deadlineAt: new Date(Date.now() + 86_400_000),
+      funderPubkey: FUNDER,
+      disputeResolverPubkey: "G_DR",
+    });
+    await conn.insert(roleGrants).values({ pubkey: "G_SCOPED", role: "reviewer", campaignId: "cmp_2" });
+    await expect(reviewLog(CAMPAIGN, { pubkey: "G_SCOPED" }, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("contributor keys stay hidden from reviewers until the campaign closes; the funder always sees them", async () => {
+    const keys = async (pubkey: string) => (await reviewLog(CAMPAIGN, { pubkey }, conn)).rows.map((r) => r.contributor_pubkey);
+    expect(await keys(REVIEWER)).toEqual([null, null, null]);
+    expect(await keys(FUNDER)).toEqual(["G_C1", "G_C2", "G_C1"]);
+    await conn.update(campaigns).set({ closedAt: new Date() }).where(eq(campaigns.id, CAMPAIGN));
+    expect(await keys(REVIEWER)).toEqual(["G_C1", "G_C2", "G_C1"]);
+  });
+
   it("unknown campaign is NOT_FOUND", async () => {
     await expect(reviewLog("cmp_missing", { pubkey: REVIEWER }, conn)).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
@@ -173,6 +199,35 @@ describe("reviewLogCampaigns", () => {
   it("lists campaigns with decisions for a global reviewer, none for others", async () => {
     expect(await reviewLogCampaigns({ pubkey: REVIEWER }, conn)).toEqual([{ id: CAMPAIGN, slug: "camp-1", title: "Campaign", decisions: 3 }]);
     expect(await reviewLogCampaigns({ pubkey: "G_C1" }, conn)).toEqual([]);
+  });
+
+  it("a campaign-scoped reviewer sees only that campaign", async () => {
+    await conn.insert(campaigns).values({
+      id: "cmp_2",
+      slug: "camp-2",
+      title: "Other",
+      brief: "A brief long enough to pass validation.",
+      rewardAmount: "10",
+      budget: "100",
+      deadlineAt: new Date(Date.now() + 86_400_000),
+      funderPubkey: FUNDER,
+      disputeResolverPubkey: "G_DR",
+    });
+    await conn.insert(submissions).values({ id: "sub_3", shortId: "s3", campaignId: "cmp_2", contributorPubkey: "G_C3", workUrl: "https://x.com/c/status/3" });
+    await conn.insert(decisions).values({
+      id: "dec_d",
+      submissionId: "sub_3",
+      reviewerPubkey: REVIEWER,
+      outcome: "PASS",
+      reasonCode: "R00_PASS",
+      signals: ALL_PASS,
+      note: "Fine",
+      canonicalJson: "{}",
+      decisionHash: "hash_d",
+      ledgerKey: "pw:s3",
+    });
+    await conn.insert(roleGrants).values({ pubkey: "G_SCOPED", role: "reviewer", campaignId: "cmp_2" });
+    expect(await reviewLogCampaigns({ pubkey: "G_SCOPED" }, conn)).toEqual([{ id: "cmp_2", slug: "camp-2", title: "Other", decisions: 1 }]);
   });
 });
 
@@ -205,9 +260,11 @@ describe("GET /api/campaigns/[id]/review-log", () => {
     const res = await call(CAMPAIGN);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("text/csv; charset=utf-8");
-    expect(res.headers.get("content-disposition")).toBe("attachment; filename=review-log-camp-1.csv");
+    expect(res.headers.get("content-disposition")).toBe('attachment; filename="review-log-camp-1.csv"');
     expect(res.headers.get("cache-control")).toBe("no-store");
-    const lines = (await res.text()).trimEnd().split("\r\n");
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]); // UTF-8 BOM for Excel
+    const lines = new TextDecoder("utf-8", { ignoreBOM: false }).decode(bytes).trimEnd().split("\r\n");
     expect(lines[0]).toBe(REVIEW_LOG_COLUMNS.join(","));
     expect(lines).toHaveLength(4);
     expect(lines.filter((l) => l.startsWith("camp-1,s1,"))).toHaveLength(2);
@@ -232,5 +289,15 @@ describe("GET /api/campaigns/[id]/review-log", () => {
     expect((await call("cmp_missing")).status).toBe(404);
     expect((await call(CAMPAIGN, "?format=xlsx")).status).toBe(400);
     expect((await call("bad id!")).status).toBe(400);
+  });
+});
+
+describe("errorResponse", () => {
+  it("an unexpected error is a bare 500 that leaks nothing", async () => {
+    const res = errorResponse(new Error("db password xyz"));
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual({ error: "INTERNAL", message: "internal error" });
+    expect(text).not.toContain("xyz");
   });
 });

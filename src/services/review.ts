@@ -223,11 +223,14 @@ export const REVIEW_LOG_COLUMNS = [
 export type ReviewLogColumn = (typeof REVIEW_LOG_COLUMNS)[number];
 export type ReviewLogRow = Record<ReviewLogColumn, string | number | boolean | null>;
 
-/** Reviewer (global or for this campaign) or the campaign's own funder; anyone else is refused. */
-async function assertCanReadReviewLog(campaign: { id: string; funderPubkey: string }, actor: { pubkey: string }, conn: Db): Promise<void> {
+/**
+ * Reviewer (global or for this campaign) or the campaign's own funder; anyone
+ * else is refused. Returns whether the caller is that funder.
+ */
+async function assertCanReadReviewLog(campaign: { id: string; funderPubkey: string }, actor: { pubkey: string }, conn: Db): Promise<{ isFunder: boolean }> {
   const roles = await rolesFor(actor.pubkey, campaign.id, conn);
-  if (roles.has("reviewer")) return;
-  if (roles.has("funder") && campaign.funderPubkey === actor.pubkey) return;
+  const isFunder = roles.has("funder") && campaign.funderPubkey === actor.pubkey;
+  if (isFunder || roles.has("reviewer")) return { isFunder };
   throw AppError.forbidden("review log is for reviewers and the campaign funder");
 }
 
@@ -238,7 +241,9 @@ export async function reviewLog(
 ): Promise<{ campaign: { id: string; slug: string }; rows: ReviewLogRow[] }> {
   const c = (await conn.select().from(campaigns).where(eq(campaigns.id, campaignId)).limit(1))[0];
   if (!c) throw AppError.notFound("campaign");
-  await assertCanReadReviewLog(c, actor, conn);
+  const { isFunder } = await assertCanReadReviewLog(c, actor, conn);
+  // Review stays blind while the campaign is open: only the funder sees contributor keys before close.
+  const showContributor = isFunder || c.closedAt !== null;
 
   const found = await conn
     .select({ d: decisions, s: submissions, t: reviewTimes, p: payouts })
@@ -256,7 +261,7 @@ export async function reviewLog(
       campaign_slug: c.slug,
       submission_short_id: s.shortId,
       work_url: s.workUrl,
-      contributor_pubkey: s.contributorPubkey,
+      contributor_pubkey: showContributor ? s.contributorPubkey : null,
       decision_id: d.id,
       is_appeal: d.appealOf !== null,
       appeal_of: d.appealOf,

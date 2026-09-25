@@ -78,7 +78,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
           )}
           {rows.some((r) => r.decisionId) ? (
             <p className="text-sm">
-              <a className="underline" href={`/api/campaigns/${encodeURIComponent(c.id)}/review-log`} download>
+              <a className="underline" href={`/api/campaigns/${encodeURIComponent(c.id)}/review-log`}>
                 Download review log
               </a>
             </p>

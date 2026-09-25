@@ -27,11 +27,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     if (parsed.data.format === "json") {
       return Response.json(rows, { headers });
     }
-    return new Response(toCsv(REVIEW_LOG_COLUMNS, rows), {
+    // BOM so Excel reads the file as UTF-8 (Turkish characters in notes).
+    return new Response(`\uFEFF${toCsv(REVIEW_LOG_COLUMNS, rows)}`, {
       headers: {
         ...headers,
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename=review-log-${campaign.slug}.csv`,
+        "Content-Disposition": `attachment; filename="review-log-${campaign.slug}.csv"`,
       },
     });
   } catch (e) {
