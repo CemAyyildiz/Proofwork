@@ -43,3 +43,6 @@ tmp/
 *planted*.csv
 *review-log*.csv
 *second-reviewer*.csv
+
+# Vercel project link (local only)
+.vercel/
