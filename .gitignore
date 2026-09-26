@@ -46,3 +46,6 @@ tmp/
 
 # Vercel project link (local only)
 .vercel/
+
+# production secrets kept on this machine only
+.secrets/
