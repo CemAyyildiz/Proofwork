@@ -49,8 +49,25 @@ const schema = z.object({
 
 export type Env = z.infer<typeof schema>;
 
+type Source = Record<string, string | undefined>;
+
+/**
+ * The Vercel Marketplace Upstash integration injects its REST credentials as
+ * KV_REST_API_URL / KV_REST_API_TOKEN, marked sensitive, so they cannot be
+ * copied under our names. Use them when the UPSTASH_* pair is not set.
+ */
+export function withKvAliases(source: Source): Source {
+  const blank = (v: string | undefined) => v === undefined || v.trim() === "";
+  if (!blank(source.UPSTASH_REDIS_REST_URL) || !blank(source.UPSTASH_REDIS_REST_TOKEN)) return source;
+  return {
+    ...source,
+    UPSTASH_REDIS_REST_URL: source.KV_REST_API_URL,
+    UPSTASH_REDIS_REST_TOKEN: source.KV_REST_API_TOKEN,
+  };
+}
+
 function load(): Env {
-  const parsed = schema.safeParse(process.env);
+  const parsed = schema.safeParse(withKvAliases(process.env));
   if (!parsed.success) {
     const issues = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`Invalid environment:\n${issues}`);

@@ -39,6 +39,8 @@ Values are entered in the Vercel dashboard only, per scope. None of them is ever
 
 Never set on Vercel: `FUNDER_SECRET`, `DISPUTE_RESOLVER_SECRET`. They are used only by local scripts (`pnpm spike`, `pnpm escrow:close`) and must stay on the operator's machine.
 
+When the Upstash database comes from the Vercel Marketplace integration, it injects `KV_REST_API_URL` and `KV_REST_API_TOKEN` as sensitive variables, which cannot be read back to copy under the names above. `src/config/env.ts` falls back to that pair when neither `UPSTASH_REDIS_REST_*` value is set, so nothing needs to be duplicated.
+
 The schema treats the two Upstash variables as optional, and nothing checks them at build time. A deployment without them **builds and goes live**. It then fails on the first rate-limited request: the limiter throws `Upstash rate limiting is required in production` and wallet login answers 500. The smoke test's wallet login is the check that catches it. Preview deployments also run with `NODE_ENV=production`, so they need their own Upstash values too.
 
 After generating preview keys, run `pnpm accounts:prepare` with them in a local `.env` so the accounts exist on testnet and hold the USDC trustline.
