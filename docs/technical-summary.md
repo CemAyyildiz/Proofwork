@@ -32,7 +32,7 @@ One Trustless Work **multi-release** escrow per campaign.
 - Deployed with a single "campaign close" milestone (receiver = funder, 0.0000001 USDC), because v1 needs at least one milestone at deploy.
 - Funded once with the whole budget by the funder.
 - For every approved submission, one milestone is appended after funding (amount = reward, receiver = contributor wallet). Appending to a funded escrow was verified on testnet in the Week 1 spike ([escrow-cycle.md](evidence/escrow-cycle.md), step 3).
-- Roles: funder = release signer; platform admin key = platform address (appends milestones); platform ops key = service provider and approver (marks delivered, approves); a neutral key held for the Chapter Lead = dispute resolver. Approval moves no money. Only the funder's release signature pays a contributor, and that signature is the funder's final approval.
+- Roles: funder = release signer; platform admin key = platform address (appends milestones); platform ops key = service provider and approver (marks delivered, approves); a separate key = dispute resolver (held by the operator in Month 1, see Known limits). Approval moves no money. Only the funder's release signature pays a contributor, and that signature is the funder's final approval.
 - Trustless Work deducts a 0.3% protocol fee at release, on testnet too (1 USDC reward → 0.997 USDC received).
 
 ## Remainder return (AD-4)
@@ -58,7 +58,7 @@ The canonical JSON holds the submission and campaign reference, reviewer key, th
 
 ## Security model
 
-- **No custody.** The platform keys cannot move funds; release needs the funder's wallet, the remainder needs the dispute resolver.
+- **No custody by the app.** The platform keys cannot move funds; release needs the funder's wallet, the remainder needs the dispute resolver (see Known limits for who holds that key in Month 1).
 - **Money state comes from chain.** Every escrow write is recorded as intent → submitted → confirmed with an idempotency key, and confirmed only after the escrow is read back and shows the effect. A retry never submits a second transaction. Nothing is shown as paid from a database write alone.
 - **Wallet login.** Single-use signed nonce with expiry; httpOnly, Secure, SameSite=Lax session cookie; logout revokes server-side.
 - **Authorization** is checked in the service layer on every mutation against the caller's wallet, role and campaign ownership.
@@ -72,6 +72,7 @@ The canonical JSON holds the submission and campaign reference, reviewer key, th
 - **Reviewer is also the builder.** Mitigated by having a second person write and submit the planted fakes from separate accounts and keep the list outside the app, but not eliminated.
 - **Trustless Work v1 builds one transaction per release.** A campaign with N payouts needs N funder signatures.
 - **Manual close.** The remainder returns only when the funder closes and the resolver sweeps; there is no timer.
+- **The operator holds the dispute resolver key in Month 1.** `pnpm escrow:close` runs with `DISPUTE_RESOLVER_SECRET` from the operator's environment, not from a Chapter Lead wallet. The resolver chooses the destination of `withdraw-remaining-funds`; the script sends the balance to the escrow's funder, but the key itself could send it elsewhere. The sweep tx on stellar.expert shows where the remainder went.
 - **Testnet only.** Testnet USDC has no value; the server keys are sprint keys.
 - **X only, USDC only**, and the campaign is created and run by hand; this is not a self-service platform.
 

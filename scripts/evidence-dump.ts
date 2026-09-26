@@ -17,7 +17,9 @@ const argsSchema = z.object({
     .string({ error: "campaign slug is required" })
     .regex(/^[a-z0-9_-]{1,64}$/, "campaign slug must be 1-64 characters of a-z, 0-9, - or _"),
 });
-const envSchema = z.object({ DATABASE_URL: z.string().url("DATABASE_URL must be a postgres connection URL") });
+const envSchema = z.object({
+  DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/, error: "DATABASE_URL must be a postgres:// or postgresql:// URL" }),
+});
 
 const SITE_URL = "https://proofwork.online";
 const OUT = resolve(import.meta.dirname, "..", "docs", "evidence", "campaign.md");

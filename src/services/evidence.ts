@@ -5,6 +5,7 @@ import { publicEnv } from "@/config/public-env";
 import { AppError } from "@/lib/errors";
 import { formatUsdc, truncateMiddle } from "@/lib/format";
 import { idempotencyKey } from "@/lib/ids";
+import { approveKeyParts, deliverKeyParts } from "./op-keys";
 
 /**
  * Evidence dump for one campaign (SOW §6.1): every confirmed on-chain escrow
@@ -33,7 +34,8 @@ export interface EvidenceRow {
   /** Tx hash; "" when the op was reconciled from chain without its hash. */
   txHash: string;
   detail: string;
-  at: Date;
+  /** When the app last wrote the row; null when unknown. */
+  at: Date | null;
 }
 
 export interface EvidenceDecision {
@@ -51,8 +53,8 @@ export interface EvidenceDecision {
 export interface CampaignEvidence {
   campaign: Pick<Campaign, "slug" | "title" | "escrowContractId" | "budget" | "rewardAmount" | "fundedAt" | "closedAt">;
   ops: Map<EscrowOp["kind"], EvidenceRow[]>;
-  /** Ops that never confirmed (intent, submitted, failed): counted, not listed. */
-  unconfirmedOps: number;
+  /** Ops that never confirmed: counted, not listed. */
+  unconfirmed: { failedOrIntent: number; submitted: number };
   decisions: EvidenceDecision[];
 }
 
@@ -78,8 +80,8 @@ export async function loadCampaignEvidence(conn: Db, slug: string): Promise<Camp
   // Deliver and approve ops are keyed per submission; the key is a hash, so rebuild it to find the owner.
   const byKey = new Map<string, string>();
   for (const s of subs) {
-    byKey.set(idempotencyKey(["deliver", c.id, s.id]), contributor(s.shortId, s.contributorPubkey));
-    byKey.set(idempotencyKey(["approve", c.id, s.id]), contributor(s.shortId, s.contributorPubkey));
+    byKey.set(idempotencyKey(deliverKeyParts(c.id, s.id)), contributor(s.shortId, s.contributorPubkey));
+    byKey.set(idempotencyKey(approveKeyParts(c.id, s.id)), contributor(s.shortId, s.contributorPubkey));
   }
 
   const pays = await conn
@@ -93,11 +95,12 @@ export async function loadCampaignEvidence(conn: Db, slug: string): Promise<Camp
   const allOps = await conn.select().from(escrowOps).where(eq(escrowOps.campaignId, c.id)).orderBy(asc(escrowOps.updatedAt), asc(escrowOps.id));
   const ops = new Map<EscrowOp["kind"], EvidenceRow[]>();
   const push = (kind: EscrowOp["kind"], row: EvidenceRow) => ops.set(kind, [...(ops.get(kind) ?? []), row]);
-  let unconfirmedOps = 0;
+  const unconfirmed = { failedOrIntent: 0, submitted: 0 };
 
   for (const op of allOps) {
     if (op.status !== "confirmed") {
-      unconfirmedOps++;
+      if (op.status === "submitted") unconfirmed.submitted++;
+      else unconfirmed.failedOrIntent++;
       continue;
     }
     const txHash = op.txHash ?? "";
@@ -133,8 +136,9 @@ export async function loadCampaignEvidence(conn: Db, slug: string): Promise<Camp
   }
 
   // The remainder sweep runs outside the app (`pnpm escrow:close`) and lands on the campaign row.
-  if (c.remainderTxHash && !(ops.get("withdraw_remaining") ?? []).some((r) => r.txHash === c.remainderTxHash)) {
-    push("withdraw_remaining", { txHash: c.remainderTxHash, detail: "remaining balance → funder", at: c.closedAt ?? c.createdAt });
+  // Only when no op row exists, so a recovered op without its hash is not listed twice.
+  if (c.remainderTxHash && !ops.has("withdraw_remaining")) {
+    push("withdraw_remaining", { txHash: c.remainderTxHash, detail: "remaining balance → funder", at: c.closedAt });
   }
 
   const decs = await conn
@@ -155,7 +159,7 @@ export async function loadCampaignEvidence(conn: Db, slug: string): Promise<Camp
       closedAt: c.closedAt,
     },
     ops,
-    unconfirmedOps,
+    unconfirmed,
     decisions: decs.map(({ d }) => ({
       decisionId: d.id,
       shortId: subById.get(d.submissionId)?.shortId ?? "?",
@@ -176,14 +180,19 @@ function txCell(hash: string): string {
 }
 
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
-const cell = (s: string) => s.replace(/\|/g, "\\|");
+/** Makes any value safe inside a Markdown table cell or heading: one line, no table or link syntax. */
+export function cell(s: string): string {
+  return s
+    .replace(/\s*[\r\n]+\s*/g, " ")
+    .replace(/[\\`*_[\]|<>]/g, (ch) => `\\${ch}`);
+}
 
 export function renderCampaignEvidence(e: CampaignEvidence, opts: { siteUrl: string; generatedAt: Date }): string {
   const c = e.campaign;
   const out: string[] = [];
   out.push(`# Campaign evidence: ${cell(c.title)}`, "");
   out.push(
-    `Generated ${iso(opts.generatedAt)} by \`pnpm evidence:dump ${c.slug}\` from the app database. Network: Stellar testnet. Every hash links to stellar.expert.`,
+    `Generated ${iso(opts.generatedAt)} by \`pnpm evidence:dump ${c.slug}\`. Network: Stellar testnet. This page lists what the app recorded; it makes no chain read. Each hash links to stellar.expert, where the transaction can be checked on chain.`,
     "",
   );
   out.push("| | |", "|---|---|");
@@ -210,12 +219,15 @@ export function renderCampaignEvidence(e: CampaignEvidence, opts: { siteUrl: str
       out.push("None recorded.", "");
       continue;
     }
-    out.push("| # | Tx | Detail | Confirmed (UTC) |", "|---|---|---|---|");
-    rows.forEach((r, i) => out.push(`| ${i + 1} | ${txCell(r.txHash)} | ${cell(r.detail)} | ${iso(r.at)} |`));
+    out.push("| # | Tx | Detail | Recorded (UTC) |", "|---|---|---|---|");
+    rows.forEach((r, i) => out.push(`| ${i + 1} | ${txCell(r.txHash)} | ${cell(r.detail)} | ${r.at ? iso(r.at) : ""} |`));
     out.push("");
   }
-  if (e.unconfirmedOps > 0) {
-    out.push(`${e.unconfirmedOps} prepared op(s) never confirmed on chain (abandoned or failed) and are not listed.`, "");
+  if (e.unconfirmed.failedOrIntent > 0) {
+    out.push(`${e.unconfirmed.failedOrIntent} op(s) prepared or failed without a confirmed effect on chain; not listed.`, "");
+  }
+  if (e.unconfirmed.submitted > 0) {
+    out.push(`${e.unconfirmed.submitted} op(s) submitted but not yet confirmed; they may still land. Run the dump again once they settle.`, "");
   }
 
   out.push("## Decision records", "");
@@ -233,7 +245,7 @@ export function renderCampaignEvidence(e: CampaignEvidence, opts: { siteUrl: str
       const tx = d.txHash ? txCell(d.txHash) : "not committed";
       const verify = `[verify](${opts.siteUrl.replace(/\/+$/, "")}/verify/${d.decisionId})`;
       out.push(
-        `| ${d.shortId} | \`${d.ledgerKey}\` | ${d.round} | ${d.outcome} | ${d.reasonCode} | \`${truncateMiddle(d.decisionHash, 16, 0)}\` | ${tx} | ${verify} |`,
+        `| ${cell(d.shortId)} | ${cell(d.ledgerKey)} | ${d.round} | ${d.outcome} | ${d.reasonCode} | \`${truncateMiddle(d.decisionHash, 16, 0)}\` | ${tx} | ${verify} |`,
       );
     }
     out.push("");

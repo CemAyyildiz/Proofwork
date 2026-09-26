@@ -7,6 +7,7 @@ import type { EscrowMilestone, EscrowPort } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
+import { approveKeyParts, deliverKeyParts } from "./op-keys";
 import { campaignOwnedBy, findOp, prepareOp, recordServerOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
 
 /**
@@ -215,7 +216,7 @@ export async function approveForPayout(
               {
                 campaignId,
                 kind: "mark_delivered",
-                keyParts: ["deliver", campaignId, s.id],
+                keyParts: deliverKeyParts(campaignId, s.id),
                 run: async () => {
                   const [sub] = await escrow.markDelivered(contractId, [{ index: m.index, evidence: s.workUrl }]);
                   if (!sub) throw new AppError("ESCROW", "provider returned no transaction");
@@ -239,7 +240,7 @@ export async function approveForPayout(
               {
                 campaignId,
                 kind: "approve",
-                keyParts: ["approve", campaignId, s.id],
+                keyParts: approveKeyParts(campaignId, s.id),
                 run: async () => {
                   const [sub] = await escrow.approveMilestones(contractId, [m.index]);
                   if (!sub) throw new AppError("ESCROW", "provider returned no transaction");

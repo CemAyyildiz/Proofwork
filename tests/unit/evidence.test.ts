@@ -3,6 +3,7 @@ import type { Db } from "@/db/client";
 import { campaigns, decisions, escrowOps, payouts, submissions } from "@/db/schema";
 import { idempotencyKey } from "@/lib/ids";
 import { loadCampaignEvidence, NO_HASH, renderCampaignEvidence } from "@/services/evidence";
+import { approveKeyParts, deliverKeyParts } from "@/services/op-keys";
 import { makeTestDb } from "./db";
 
 const CAMPAIGN = "cmp_1";
@@ -33,7 +34,7 @@ beforeEach(async () => {
   await conn.insert(campaigns).values({
     id: CAMPAIGN,
     slug: "live-1",
-    title: "Live campaign",
+    title: "Live | campaign",
     brief: "Try the product and post about it.",
     rewardAmount: "10",
     budget: "100",
@@ -106,11 +107,12 @@ beforeEach(async () => {
   await op("fund", ["fund", CAMPAIGN], hex("f"));
   await op("append_milestones", ["append", CAMPAIGN, "sub_1"], hex("4"));
   // Recovered server op: effect seen on chain after a submit error, hash never returned.
-  await op("mark_delivered", ["deliver", CAMPAIGN, "sub_1"], "");
-  await op("approve", ["approve", CAMPAIGN, "sub_1"], hex("6"));
+  await op("mark_delivered", deliverKeyParts(CAMPAIGN, "sub_1"), "");
+  await op("approve", approveKeyParts(CAMPAIGN, "sub_1"), hex("6"));
   await op("release", ["release", CAMPAIGN, 1], hex("7"), { payload: { unsignedHash: hex("7"), milestoneIndex: 1 } });
   await op("dispute", ["dispute-close", CAMPAIGN], hex("8"));
   await op("release", ["release", CAMPAIGN, 2], null, { status: "failed", error: "boom" });
+  await op("release", ["release", CAMPAIGN, 3], null, { status: "submitted" });
 });
 
 afterEach(async () => {
@@ -122,10 +124,11 @@ describe("campaign evidence dump", () => {
     const e = await loadCampaignEvidence(conn, "live-1");
     const kinds = ["deploy", "fund", "append_milestones", "mark_delivered", "approve", "release", "dispute", "withdraw_remaining"] as const;
     for (const k of kinds) expect(e.ops.get(k), k).toHaveLength(1);
-    expect(e.unconfirmedOps).toBe(1);
+    expect(e.unconfirmed).toEqual({ failedOrIntent: 1, submitted: 1 });
+    expect(e.ops.get("mark_delivered")?.[0]?.detail).toBe("s1aaaaaa · GCN7…Y2M4");
     expect(e.ops.get("release")?.[0]?.detail).toBe("s1aaaaaa · GCN7…Y2M4 · 10 USDC · milestone 1");
     expect(e.ops.get("approve")?.[0]?.detail).toBe("s1aaaaaa · GCN7…Y2M4");
-    expect(e.ops.get("withdraw_remaining")?.[0]?.txHash).toBe(hex("e"));
+    expect(e.ops.get("withdraw_remaining")).toEqual([{ txHash: hex("e"), detail: "remaining balance → funder", at: new Date("2026-09-25T10:00:00Z") }]);
     expect(e.decisions.map((d) => [d.ledgerKey, d.round, d.outcome, d.reasonCode])).toEqual([
       ["pw:s1aaaaaa", "first", "FAIL", "R03_TASK"],
       ["pw:s2bbbbbb", "first", "FAIL", "R06_SPAM"],
@@ -142,13 +145,38 @@ describe("campaign evidence dump", () => {
       expect(md).toContain(`(https://stellar.expert/explorer/testnet/tx/${hex(c)})`);
     }
     expect(md).toContain(`| 1 | ${NO_HASH} | s1aaaaaa · GCN7…Y2M4 |`);
-    expect(md).toContain("| s2bbbbbb | `pw:s2bbbbbb` | first | FAIL | R06_SPAM | `3333333333333333…` | not committed | [verify](https://proofwork.online/verify/dec_3) |");
+    expect(md).toContain("| s2bbbbbb | pw:s2bbbbbb | first | FAIL | R06_SPAM | `3333333333333333…` | not committed | [verify](https://proofwork.online/verify/dec_3) |");
     expect(md).toContain(`https://stellar.expert/explorer/testnet/account/${CONTRACT}`);
-    expect(md).toContain("1 prepared op(s) never confirmed");
+    expect(md).toContain("1 op(s) prepared or failed without a confirmed effect on chain");
+    expect(md).toContain("1 op(s) submitted but not yet confirmed; they may still land");
+    expect(md).toContain("# Campaign evidence: Live \\| campaign\n");
+    expect(md).toContain("| # | Tx | Detail | Recorded (UTC) |");
+    // Headings the evidence index and README link to by anchor.
+    for (const h of [
+      "### Deploy escrow",
+      "### Fund budget",
+      "### Release reward (per contributor)",
+      "### Withdraw remainder to funder",
+      "## Decision records",
+    ]) {
+      expect(md).toContain(`\n${h}\n`);
+    }
     expect(md).not.toContain("x.com");
     expect(md).not.toContain(C1);
     expect(md).not.toContain(C2);
     expect(md).not.toMatch(/planted/i);
+  });
+
+  it("lists a recovered remainder op once, not again from the campaign row", async () => {
+    await op("withdraw_remaining", ["withdraw", CAMPAIGN], "");
+    const rows = (await loadCampaignEvidence(conn, "live-1")).ops.get("withdraw_remaining");
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]?.txHash).toBe("");
+  });
+
+  it("escapes table and link syntax in cells", async () => {
+    const { cell } = await import("@/services/evidence");
+    expect(cell("a|b `c` [d](e)\nf")).toBe("a\\|b \\`c\\` \\[d\\](e) f");
   });
 
   it("refuses an unknown slug", async () => {

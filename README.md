@@ -92,7 +92,7 @@ The verify page recomputes the hash in the browser. Compare it with the memo in 
 
 No code, no account, no wallet needed. Check one decision end to end:
 
-1. Open [docs/evidence/campaign.md](docs/evidence/campaign.md) and pick any row under **Decision records**. Click **verify**; it opens `https://proofwork.online/verify/<decision id>`.
+1. Open [docs/evidence/campaign.md](docs/evidence/campaign.md) (_generated after the live campaign_) and pick a row under **Decision records** whose **Tx** column has a link (a row marked "not committed" has no transaction to check). Click **verify**; it opens `https://proofwork.online/verify/<decision id>`.
 2. The verify page shows the canonical decision record and hashes it again in your browser. Wait for the seal "Matches the recorded hash" and note the 64-character hash under step 3.
 3. Click **Open transaction** (or the **Tx** link in `campaign.md`). stellar.expert opens the testnet transaction.
 4. On stellar.expert, check two things:
@@ -101,14 +101,14 @@ No code, no account, no wallet needed. Check one decision end to end:
 
 If both match, the decision you saw in the app is the one written to Stellar when it was made, and it has not been changed since.
 
-Worked example, from the Week 1 spike: tx [1be85aa3bc19…](https://stellar.expert/explorer/testnet/tx/1be85aa3bc199d8643aefe9c17b1f0ed97d8e7c05b863bb94ed541ac3a72d19e) carries memo hash `6a72919fdfbd4426a88b50a293779bede72201987328912e593acbffd721220f` (explorers that show the memo in base64 display `anKRn9+9RCaoi1Cik3eb7eciAZhzKJEuWTrL/9chIg8=`, the same bytes) and manage data `pw:spike001` = `v1|PASS|R00_PASS|6a72919fdfbd4426`. That hash is the SHA-256 of the canonical JSON printed in [docs/evidence/escrow-cycle.md](docs/evidence/escrow-cycle.md).
+Worked example, from the Week 1 spike: tx [1be85aa3bc19…](https://stellar.expert/explorer/testnet/tx/1be85aa3bc199d8643aefe9c17b1f0ed97d8e7c05b863bb94ed541ac3a72d19e) carries memo hash `6a72919fdfbd4426a88b50a293779bede72201987328912e593acbffd721220f` (explorers that show the memo in base64 display `anKRn9+9RCaoi1Cik3eb7eciAZhzKJEuWTrL/9chIg8=`, the same bytes) and manage data `pw:spike001` = `v1|PASS|R00_PASS|6a72919fdfbd4426` (base64: `djF8UEFTU3xSMDBfUEFTU3w2YTcyOTE5ZmRmYmQ0NDI2`). That hash is the SHA-256 of the canonical JSON printed in [docs/evidence/escrow-cycle.md](docs/evidence/escrow-cycle.md).
 
-Money moves are checked the same way: every deploy, fund, release and remainder transaction of the live campaign is listed with a stellar.expert link in [docs/evidence/campaign.md](docs/evidence/campaign.md).
+Money moves are checked the same way: every deploy, fund, release and remainder transaction of the live campaign is listed with a stellar.expert link in [docs/evidence/campaign.md](docs/evidence/campaign.md) (_generated after the live campaign_).
 
 Everything for the sprint review:
 
 - Evidence index, one row per SOW deliverable: [docs/evidence/README.md](docs/evidence/README.md)
-- Results table (catch rate, false-positive rate, sample size, weak signals): [docs/results.md](docs/results.md)
+- Results table (catch rate, false-positive rate, sample size, weak signals): [docs/results.md](docs/results.md) (_generated after the live campaign_)
 - Review rubric: [docs/rubric.md](docs/rubric.md)
 - Technical summary and known limits: [docs/technical-summary.md](docs/technical-summary.md)
 - Demo video: _link to be added_
