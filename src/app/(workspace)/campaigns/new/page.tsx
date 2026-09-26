@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { CampaignForm } from "@/components/campaign-form";
+import { env } from "@/config/env";
 import { requestNow } from "@/lib/clock";
 import { currentUser } from "@/lib/current-user";
 
@@ -16,7 +17,7 @@ export default async function NewCampaignPage() {
         You will sign two transactions after saving: one to deploy the escrow, one to move the budget into it. Rewards are
         paid net of the 0.3% Trustless Work protocol fee.
       </p>
-      <CampaignForm defaultDisputeResolver={process.env["DEFAULT_DISPUTE_RESOLVER_PUBKEY"] ?? ""} now={now} />
+      <CampaignForm defaultDisputeResolver={env.DEFAULT_DISPUTE_RESOLVER_PUBKEY ?? ""} now={now} />
     </div>
   );
 }

@@ -3,8 +3,9 @@ import { StrKey } from "@stellar/stellar-sdk";
 import { z } from "zod";
 
 /**
- * Server environment. Parsed once at import time; a missing or malformed
- * value crashes the process on boot rather than at first use.
+ * Server environment. Parsed once, on first access (see `env` below), so
+ * `next build` works without it; a missing or malformed value then throws on
+ * that first use instead of running with a bad config.
  *
  * Nothing in here is ever exposed to the client. The only client-visible
  * variables are the NEXT_PUBLIC_* ones in `public-env.ts`.
@@ -42,6 +43,8 @@ const schema = z.object({
 
   UPSTASH_REDIS_REST_URL: optional(z.string().url()),
   UPSTASH_REDIS_REST_TOKEN: optional(z.string().min(1)),
+
+  DEFAULT_DISPUTE_RESOLVER_PUBKEY: optional(publicKey),
 });
 
 export type Env = z.infer<typeof schema>;
