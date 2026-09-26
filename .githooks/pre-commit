@@ -30,11 +30,16 @@ if git diff --cached -U0 | grep -E '^\+' | grep -Ev '^\+\+\+' | grep -Eq \
   fail=1
 fi
 
-# Personal email must not land in the repo.
-if git diff --cached -U0 | grep -E '^\+' | grep -Eiq 'REDACTED|REDACTED'; then
-  echo "pre-commit: personal email address in staged changes." >&2
-  fail=1
-fi
+# Personal email must not land in the repo. Only SHA-256 hashes of the
+# lowercased addresses are stored here, so the hook itself does not leak them.
+blocked_email_hashes="4488f5bceb88c46aa16a24f05c64013431d2ef44a43b9a76fa17176647af942f 77872b0de5d70924e73b2a9deaad7586c1114d300e3f9c0d87156a9b2ab2ba4f"
+while IFS= read -r addr; do
+  [ -z "$addr" ] && continue
+  h="$(printf %s "$addr" | tr '[:upper:]' '[:lower:]' | shasum -a 256 | cut -c1-64)"
+  case " $blocked_email_hashes " in
+    *" $h "*) echo "pre-commit: personal email address in staged changes." >&2; fail=1 ;;
+  esac
+done < <(git diff --cached -U0 | grep -E '^\+' | grep -Ev '^\+\+\+' | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' | sort -u)
 
 
 # Type safety gate: never commit code that does not compile.
