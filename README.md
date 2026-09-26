@@ -71,6 +71,12 @@ Return a closed campaign's remainder with the resolver key:
 pnpm escrow:close C...CONTRACT
 ```
 
+Write every on-chain transaction and decision record of a campaign, with explorer links, to `docs/evidence/campaign.md` (reads `DATABASE_URL`):
+
+```bash
+pnpm evidence:dump <campaign-slug>
+```
+
 ## How a decision is verifiable
 
 Each decision is one classic Stellar transaction from the decision ledger account:
@@ -80,14 +86,33 @@ Each decision is one classic Stellar transaction from the decision ledger accoun
 
 The verify page recomputes the hash in the browser. Compare it with the memo in any explorer. No tooling required.
 
-Verify it yourself:
-
-- Any decision: `https://proofwork.online/verify/<decision id>`, linked from each decided submission on its campaign page.
-- Escrow cycle on testnet, every tx hash: [docs/evidence/escrow-cycle.md](docs/evidence/escrow-cycle.md)
-- Contributor wallet onboarding: [docs/evidence/onboarding.md](docs/evidence/onboarding.md)
-- Everything else recorded for the sprint: [docs/evidence/](docs/evidence/)
-
 [docs/rubric.md](docs/rubric.md) explains what each signal checks, what counts as pass or fail, and which reason code a failed submission gets.
+
+## Verify it yourself
+
+No code, no account, no wallet needed. Check one decision end to end:
+
+1. Open [docs/evidence/campaign.md](docs/evidence/campaign.md) and pick any row under **Decision records**. Click **verify**; it opens `https://proofwork.online/verify/<decision id>`.
+2. The verify page shows the canonical decision record and hashes it again in your browser. Wait for the seal "Matches the recorded hash" and note the 64-character hash under step 3.
+3. Click **Open transaction** (or the **Tx** link in `campaign.md`). stellar.expert opens the testnet transaction.
+4. On stellar.expert, check two things:
+   - the transaction **memo** (type hash) equals the hash from step 2;
+   - the **manage data** operation has the ledger key from `campaign.md` (`pw:<id>`, or `pw:<id>:a1` for a re-review) and a value `v1|<PASS or FAIL>|<reason code>|<first 16 characters of the same hash>`.
+
+If both match, the decision you saw in the app is the one written to Stellar when it was made, and it has not been changed since.
+
+Worked example, from the Week 1 spike: tx [1be85aa3bc19…](https://stellar.expert/explorer/testnet/tx/1be85aa3bc199d8643aefe9c17b1f0ed97d8e7c05b863bb94ed541ac3a72d19e) carries memo hash `6a72919fdfbd4426a88b50a293779bede72201987328912e593acbffd721220f` (explorers that show the memo in base64 display `anKRn9+9RCaoi1Cik3eb7eciAZhzKJEuWTrL/9chIg8=`, the same bytes) and manage data `pw:spike001` = `v1|PASS|R00_PASS|6a72919fdfbd4426`. That hash is the SHA-256 of the canonical JSON printed in [docs/evidence/escrow-cycle.md](docs/evidence/escrow-cycle.md).
+
+Money moves are checked the same way: every deploy, fund, release and remainder transaction of the live campaign is listed with a stellar.expert link in [docs/evidence/campaign.md](docs/evidence/campaign.md).
+
+Everything for the sprint review:
+
+- Evidence index, one row per SOW deliverable: [docs/evidence/README.md](docs/evidence/README.md)
+- Results table (catch rate, false-positive rate, sample size, weak signals): [docs/results.md](docs/results.md)
+- Review rubric: [docs/rubric.md](docs/rubric.md)
+- Technical summary and known limits: [docs/technical-summary.md](docs/technical-summary.md)
+- Demo video: _link to be added_
+- Week 1 escrow cycle: [docs/evidence/escrow-cycle.md](docs/evidence/escrow-cycle.md) · wallet onboarding: [docs/evidence/onboarding.md](docs/evidence/onboarding.md)
 
 ## Layout
 
@@ -100,9 +125,9 @@ src/ledger     canonical decision record + on-chain commit
 src/services   auth, campaign, escrow-ops, submission, review, payout
 src/app        routes: /campaigns (funder), /c/[slug] (contributor), /review, /verify/[id]
 src/wallet     browser wallet layer (Wallets Kit)
-scripts        key generation, account prep, spike, escrow close, role grant
+scripts        key generation, account prep, spike, escrow close, role grant, results, evidence dump
 tests/unit     no network
-docs/evidence  tx hashes, results table
+docs/evidence  evidence index, tx hashes per campaign and spike
 ```
 
 ## Security
