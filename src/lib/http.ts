@@ -42,6 +42,12 @@ export function errorResponse(e: unknown): Response {
   return NextResponse.json({ error: "INTERNAL", message: "internal error" }, { status: 500 });
 }
 
+/**
+ * Client IP for rate-limit keys. Safe on Vercel only: the platform overwrites
+ * x-forwarded-for with the connecting IP and sets x-real-ip to the same value,
+ * so a client cannot spoof it. Behind another proxy or bare `next start`,
+ * key on a header that proxy sets instead (see docs/deployment.md).
+ */
 export function clientIp(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");
   return (xff ? xff.split(",")[0]?.trim() : undefined) || req.headers.get("x-real-ip") || "unknown";

@@ -10,6 +10,8 @@ The platform never holds funds and never has release authority.
 
 Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet only.** One hand-run campaign; not a self-service platform.
 
+Live: **https://proofwork.online** (Stellar testnet). Hosting, environment and migration procedure: [docs/deployment.md](docs/deployment.md).
+
 ## How it works
 
 | Step | Who signs | What happens on-chain |
@@ -77,6 +79,13 @@ Each decision is one classic Stellar transaction from the decision ledger accoun
 - `memo_hash` = SHA-256 of the canonical decision JSON (stored in the database and shown on `/verify/<decision>`)
 
 The verify page recomputes the hash in the browser. Compare it with the memo in any explorer. No tooling required.
+
+Verify it yourself:
+
+- Any decision: `https://proofwork.online/verify/<decision id>`, linked from each decided submission on its campaign page.
+- Escrow cycle on testnet, every tx hash: [docs/evidence/escrow-cycle.md](docs/evidence/escrow-cycle.md)
+- Contributor wallet onboarding: [docs/evidence/onboarding.md](docs/evidence/onboarding.md)
+- Everything else recorded for the sprint: [docs/evidence/](docs/evidence/)
 
 [docs/rubric.md](docs/rubric.md) explains what each signal checks, what counts as pass or fail, and which reason code a failed submission gets.
 
