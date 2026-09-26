@@ -19,7 +19,8 @@
     "check": "pnpm typecheck && pnpm lint && pnpm test",
     "accounts:prepare": "node --env-file=.env --import tsx scripts/prepare-testnet-accounts.ts",
     "escrow:close": "node --env-file=.env --import tsx scripts/close-escrow.ts",
-    "role:grant": "node --env-file=.env --import tsx scripts/grant-role.ts"
+    "role:grant": "node --env-file=.env --import tsx scripts/grant-role.ts",
+    "results": "tsx scripts/results.ts"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.6.0",

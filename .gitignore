@@ -38,3 +38,7 @@ npm-debug.log*
 pnpm-debug.log*
 tmp/
 .cache/
+
+# results inputs (planted list, review log exports) — never committed
+/planted*.csv
+/*review-log*.csv
