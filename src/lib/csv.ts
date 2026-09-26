@@ -24,8 +24,8 @@ export function toCsv<K extends string>(columns: readonly K[], rows: ReadonlyArr
 /**
  * Minimal RFC 4180 CSV reader, the counterpart of `toCsv`. Accepts CRLF or LF,
  * quoted cells with embedded commas, quotes and newlines, and a leading UTF-8
- * BOM. Returns the header and one record per non-empty line keyed by header.
- * Throws on an unterminated quote or a row whose width differs from the header.
+ * BOM; whitespace-only lines are skipped. Returns the header and one record per non-empty line keyed by header.
+ * Throws on an unterminated quote, a duplicate column name, or a row whose width differs from the header.
  */
 export function parseCsv(text: string): { header: string[]; rows: Array<Record<string, string>> } {
   const src = text.startsWith("﻿") ? text.slice(1) : text;
@@ -71,12 +71,15 @@ export function parseCsv(text: string): { header: string[]; rows: Array<Record<s
     row.push(cell);
     records.push(row);
   }
-  const nonEmpty = records.filter((r) => !(r.length === 1 && r[0] === ""));
+  const nonEmpty = records.filter((r) => !(r.length === 1 && (r[0] as string).trim() === ""));
   const [header, ...body] = nonEmpty;
   if (!header) throw new Error("empty file");
+  const names = header.map((h) => h.trim());
+  const dup = names.find((h, j) => names.indexOf(h) !== j);
+  if (dup !== undefined) throw new Error(`duplicate column "${dup}"`);
   const rows = body.map((r, idx) => {
     if (r.length !== header.length) throw new Error(`data row ${idx + 1}: expected ${header.length} cells, found ${r.length}`);
-    return Object.fromEntries(header.map((h, j) => [h.trim(), r[j] as string]));
+    return Object.fromEntries(names.map((h, j) => [h, r[j] as string]));
   });
-  return { header: header.map((h) => h.trim()), rows };
+  return { header: names, rows };
 }

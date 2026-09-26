@@ -13,15 +13,18 @@ const GENUINE_FAIL: Signals = { ...ALL_PASS, account_genuine: false, task_done: 
 type Row = Record<(typeof REVIEW_LOG_COLUMNS)[number], CsvCell>;
 let clock = 0;
 
-function decision(shortId: string, signals: Signals | null, opts: { appealOf?: string; outcome?: "PASS" | "FAIL" } = {}): Row {
+const P = (i: number): string => `pqz${i}wkx`;
+const G = (i: number): string => `gqz${i}wkx`;
+
+function decision(shortId: string, signals: Signals, opts: { appealOf?: string; campaign?: string; workUrl?: string } = {}): Row {
   clock += 1;
-  const passCount = signals ? SIGNALS.filter((s) => signals[s.id]).length : 0;
-  const outcome = opts.outcome ?? (signals ? (passCount >= 4 ? "PASS" : "FAIL") : null);
-  const sig = Object.fromEntries(SIGNALS.map((s) => [`signal_${s.id}`, signals ? signals[s.id] : null]));
+  const passCount = SIGNALS.filter((s) => signals[s.id]).length;
+  const outcome = passCount >= 4 ? "PASS" : "FAIL";
+  const sig = Object.fromEntries(SIGNALS.map((s) => [`signal_${s.id}`, signals[s.id]]));
   return {
-    campaign_slug: "live-1",
+    campaign_slug: opts.campaign ?? "live-1",
     submission_short_id: shortId,
-    work_url: `https://x.com/user_${shortId}/status/${1000 + clock}`,
+    work_url: opts.workUrl ?? `https://x.com/user_${shortId}/status/${1000 + clock}`,
     contributor_pubkey: `G_${shortId}`,
     decision_id: `dec_${clock}`,
     is_appeal: opts.appealOf !== undefined,
@@ -59,12 +62,12 @@ function workedExample(): { log: Row[]; planted: Array<{ id: string; planted: bo
   const log: Row[] = [];
   const planted: Array<{ id: string; planted: boolean }> = [];
   for (let i = 0; i < 10; i += 1) {
-    log.push(decision(`p${i}`, i < 8 ? FARM_FAIL : ALL_PASS));
-    planted.push({ id: `p${i}`, planted: true });
+    log.push(decision(P(i), i < 8 ? FARM_FAIL : ALL_PASS));
+    planted.push({ id: P(i), planted: true });
   }
   for (let i = 0; i < 20; i += 1) {
-    log.push(decision(`g${i}`, i < 2 ? GENUINE_FAIL : ALL_PASS));
-    planted.push({ id: `g${i}`, planted: false });
+    log.push(decision(G(i), i < 2 ? GENUINE_FAIL : ALL_PASS));
+    planted.push({ id: G(i), planted: false });
   }
   return { log, planted };
 }
@@ -79,6 +82,14 @@ describe("parseCsv", () => {
     expect(() => parseCsv("a,b\n1\n")).toThrow(/expected 2 cells/);
     expect(() => parseCsv('a\n"open\n')).toThrow(/unterminated/);
   });
+
+  it("rejects duplicate column names after trimming", () => {
+    expect(() => parseCsv("planted, planted\ntrue,false\n")).toThrow(/duplicate column "planted"/);
+  });
+
+  it("skips whitespace-only lines", () => {
+    expect(parseCsv("a,b\n1,2\n   \n\t\n3,4\n").rows).toEqual([{ a: "1", b: "2" }, { a: "3", b: "4" }]);
+  });
 });
 
 describe("score — worked example", () => {
@@ -92,10 +103,10 @@ describe("score — worked example", () => {
     expect(rate(m.blind.genuine.failed, m.blind.genuine.total)).toBe("10% (2/20)");
 
     const byId = Object.fromEntries(m.signals.map((s) => [s.id, s]));
-    expect(byId["not_spam"]).toMatchObject({ planted: { falseCount: 8, known: 10 }, genuine: { falseCount: 0, known: 20 }, weak: false });
-    expect(byId["task_done"]?.separation).toBeCloseTo(0.7);
-    expect(byId["follows_brief"]).toMatchObject({ planted: { falseCount: 0, known: 10 }, genuine: { falseCount: 2, known: 20 }, weak: true });
-    expect(byId["single_account"]).toMatchObject({ separation: 0, weak: true });
+    expect(byId["not_spam"]).toMatchObject({ planted: { falseCount: 8, known: 10 }, genuine: { falseCount: 0, known: 20 }, status: "separates" });
+    expect(byId["task_done"]?.separationPp).toBe(70);
+    expect(byId["follows_brief"]).toMatchObject({ planted: { falseCount: 0, known: 10 }, genuine: { falseCount: 2, known: 20 }, status: "inverted" });
+    expect(byId["single_account"]).toMatchObject({ separationPp: 0, status: "weak" });
 
     const md = renderResults(m);
     expect(md).toContain("| Catch rate | 80% (8/10) |");
@@ -104,62 +115,110 @@ describe("score — worked example", () => {
     expect(md).toContain("**Catch rate** = planted FAIL / planted total.");
     expect(md).toContain("**False-positive rate** = genuine FAIL / genuine total.");
     expect(md).toContain("| Not spam / farming | 80% (8/10) | 0% (0/20) | +80 pp | no |");
-    expect(md).toContain("| Follows the brief | 0% (0/10) | 10% (2/20) | -10 pp | **weak** |");
+    expect(md).toContain("| Follows the brief | 0% (0/10) | 10% (2/20) | -10 pp | **inverted** |");
+    expect(md).toContain("| Single-account check | 0% (0/10) | 0% (0/20) | 0 pp | **weak** |");
     expect(md).toContain(HONESTY_NOTE);
   });
 
-  it("never writes contributor data (work URLs, pubkeys) into the output", () => {
+  it("never writes a submission id or contributor data into the output", () => {
     const { log, planted } = workedExample();
-    const md = renderResults(score(parseReviewLog(exportCsv(log)), parsePlanted(plantedCsv(planted))));
-    expect(md).not.toMatch(/x\.com|G_p0|G_g0|HYPERLINK/);
+    const first = decision(G(5), GENUINE_FAIL);
+    log.push(first, decision(G(5), ALL_PASS, { appealOf: String(first.decision_id) }));
+    const rows = parseReviewLog(exportCsv(log));
+    const md = renderResults(
+      score(rows, parsePlanted(plantedCsv([...planted, { id: "unknwn9x", planted: true }])), parseSecond(exportCsv(log))),
+    );
+    for (const r of rows) expect(md).not.toContain(r.shortId);
+    expect(md).not.toContain("unknwn9x");
+    expect(md).not.toMatch(/x\.com|G_pqz|G_gqz|HYPERLINK|dec_/);
+  });
+
+  it("treats an exact 20 pp split (3/10 vs 2/20) as separating, not weak", () => {
+    const TASK_FAIL: Signals = { ...ALL_PASS, task_done: false };
+    const log = [
+      ...Array.from({ length: 10 }, (_, i) => decision(P(i), i < 3 ? TASK_FAIL : ALL_PASS)),
+      ...Array.from({ length: 20 }, (_, i) => decision(G(i), i < 2 ? TASK_FAIL : ALL_PASS)),
+    ];
+    const planted = Array.from({ length: 10 }, (_, i) => ({ id: P(i), planted: true }));
+    const task = score(parseReviewLog(exportCsv(log)), parsePlanted(plantedCsv(planted))).signals.find((s) => s.id === "task_done");
+    expect(task).toMatchObject({ separationPp: 20, status: "separates" });
   });
 });
 
 describe("score — edge cases", () => {
-  it("lists an unmatched planted row and excludes it from the rates", () => {
-    const log = [decision("p0", FARM_FAIL), decision("g0", ALL_PASS)];
-    const m = score(parseReviewLog(exportCsv(log)), parsePlanted(plantedCsv([{ id: "p0", planted: true }, { id: "zz9", planted: true }])));
-    expect(m.unmatchedPlanted).toEqual([{ row: 2, shortId: "zz9", planted: true }]);
+  it("counts unmatched planted rows as not reviewed and excludes them from the rates", () => {
+    const log = [decision(P(0), FARM_FAIL), decision(G(0), ALL_PASS)];
+    const planted = [
+      { id: P(0), planted: true },
+      { id: P(1), planted: true },
+      { id: G(7), planted: false },
+    ];
+    const m = score(parseReviewLog(exportCsv(log)), parsePlanted(plantedCsv(planted)));
+    expect(m.unmatchedPlanted).toEqual([
+      { row: 2, planted: true },
+      { row: 3, planted: false },
+    ]);
+    expect(m.plantedNotReviewed).toBe(1);
+    expect(m.genuineListedUnmatched).toBe(1);
     expect(m.blind.planted).toEqual({ failed: 1, total: 1 });
-    expect(renderResults(m)).toContain("planted but never submitted/decided");
+    expect(m.genuineUnlisted).toBe(1);
+    const md = renderResults(m);
+    expect(md).toContain("| Not reviewed (planted but never submitted/decided) | 1 |");
+    expect(md).toContain("| Listed genuine, no matching submission | 1 |");
   });
 
   it("matches the planted list on work_url, x.com and twitter.com alike", () => {
-    const row = decision("p0", FARM_FAIL);
+    const row = decision(P(0), FARM_FAIL);
     const url = String(row.work_url).replace("https://x.com", "https://twitter.com") + "?s=20";
     const planted = parsePlanted(toCsv(["work_url", "planted"] as const, [{ work_url: url, planted: "TRUE" }]));
     expect(score(parseReviewLog(exportCsv([row])), planted).blind.planted).toEqual({ failed: 1, total: 1 });
   });
 
-  it("counts a submission without a decision as not reviewed", () => {
-    const log = [decision("p0", null), decision("g0", ALL_PASS)];
-    const m = score(parseReviewLog(exportCsv(log)), parsePlanted(plantedCsv([{ id: "p0", planted: true }])));
-    expect(m.notReviewed).toEqual({ planted: 1, genuine: 0 });
-    expect(m.sampleSize).toBe(1);
-    expect(m.genuineUnlisted).toBe(1);
+  it("refuses a planted row whose short id and work_url point to different submissions", () => {
+    const a = decision(P(0), FARM_FAIL);
+    const b = decision(G(0), ALL_PASS);
+    const planted = parsePlanted(toCsv(["submission_short_id", "work_url", "planted"] as const, [{ submission_short_id: P(0), work_url: b.work_url, planted: "true" }]));
+    expect(() => score(parseReviewLog(exportCsv([a, b])), planted)).toThrow(/point to different submissions/);
   });
 
-  it("uses the pre-appeal decision as the blind verdict and reports the overturn", () => {
-    const first = decision("g0", GENUINE_FAIL);
-    const appeal = decision("g0", ALL_PASS, { appealOf: String(first.decision_id) });
-    const m = score(parseReviewLog(exportCsv([appeal, first])), parsePlanted(plantedCsv([{ id: "g0", planted: false }])));
+  it("refuses a work_url shared by two submissions", () => {
+    const url = "https://x.com/dup/status/1";
+    const log = parseReviewLog(exportCsv([decision(P(0), FARM_FAIL, { workUrl: url }), decision(G(0), ALL_PASS, { workUrl: url })]));
+    const planted = parsePlanted(toCsv(["work_url", "planted"] as const, [{ work_url: url, planted: "true" }]));
+    expect(() => score(log, planted)).toThrow(/matches 2 submissions/);
+  });
+
+  it("uses the pre-appeal decision as the blind verdict and counts the overturn per group", () => {
+    const first = decision(G(0), GENUINE_FAIL);
+    const appeal = decision(G(0), ALL_PASS, { appealOf: String(first.decision_id) });
+    const m = score(parseReviewLog(exportCsv([appeal, first])), parsePlanted(plantedCsv([{ id: G(0), planted: false }])));
     expect(m.blind.genuine).toEqual({ failed: 1, total: 1 });
     expect(m.final.genuine).toEqual({ failed: 0, total: 1 });
-    expect(m.appeals).toEqual([{ shortId: "g0", group: "genuine", blind: "FAIL", final: "PASS" }]);
-    expect(renderResults(m)).toContain("| `g0` | genuine | FAIL | PASS | yes |");
+    expect(m.appeals).toEqual({ planted: { appealed: 0, overturned: 0 }, genuine: { appealed: 1, overturned: 1 } });
+    expect(renderResults(m)).toContain("| Genuine | 1 | 1 |");
+  });
+
+  it("refuses a submission with only appeal decisions", () => {
+    const log = parseReviewLog(exportCsv([decision(G(0), ALL_PASS, { appealOf: "dec_x" })]));
+    expect(() => score(log, [])).toThrow(/only appeal decisions/);
+  });
+
+  it("refuses a log that mixes campaigns", () => {
+    const log = parseReviewLog(exportCsv([decision(P(0), FARM_FAIL), decision(G(0), ALL_PASS, { campaign: "other" })]));
+    expect(() => score(log, [])).toThrow(/2 campaigns/);
   });
 
   it("shows n/a (0) instead of dividing by zero", () => {
-    const m = score(parseReviewLog(exportCsv([decision("g0", ALL_PASS)])), []);
+    const m = score(parseReviewLog(exportCsv([decision(G(0), ALL_PASS)])), []);
     const md = renderResults(m);
     expect(md).toContain("| Catch rate | n/a (0) |");
-    expect(m.signals.every((s) => s.separation === null && s.weak)).toBe(true);
+    expect(m.signals.every((s) => s.separationPp === null && s.status === "no data")).toBe(true);
     expect(renderResults(score([], []))).toContain("| False-positive rate | n/a (0) |");
   });
 
   it("refuses a submission listed as both planted and genuine", () => {
-    const log = parseReviewLog(exportCsv([decision("p0", FARM_FAIL)]));
-    expect(() => score(log, parsePlanted(plantedCsv([{ id: "p0", planted: true }, { id: "p0", planted: false }])))).toThrow(ResultsInputError);
+    const log = parseReviewLog(exportCsv([decision(P(0), FARM_FAIL)]));
+    expect(() => score(log, parsePlanted(plantedCsv([{ id: P(0), planted: true }, { id: P(0), planted: false }])))).toThrow(ResultsInputError);
   });
 });
 
@@ -169,15 +228,7 @@ describe("parsing errors", () => {
   });
 
   it("rejects a malformed planted value with the zod message and the row", () => {
-    const err = (() => {
-      try {
-        parsePlanted("submission_short_id,planted\nabc,maybe\n");
-      } catch (e) {
-        return e;
-      }
-    })();
-    expect(err).toBeInstanceOf(ResultsInputError);
-    expect(String((err as Error).message)).toMatch(/planted list: data row 1: .*planted/s);
+    expect(() => parsePlanted("submission_short_id,planted\nabc,maybe\n")).toThrow(/planted list: data row 1: .*planted/s);
   });
 
   it("requires an id column in the planted list", () => {
@@ -185,36 +236,45 @@ describe("parsing errors", () => {
   });
 
   it("rejects a bad outcome in the review log", () => {
-    const bad = exportCsv([decision("g0", ALL_PASS)]).replace(",PASS,", ",MAYBE,");
+    const bad = exportCsv([decision(G(0), ALL_PASS)]).replace(",PASS,", ",MAYBE,");
     expect(() => parseReviewLog(bad)).toThrow(/data row 1/);
+  });
+
+  it("rejects a decided_at that is not an ISO datetime", () => {
+    const row = decision(G(0), ALL_PASS);
+    const bad = exportCsv([row]).replace(String(row.decided_at), "20 Sep 2026");
+    expect(() => parseReviewLog(bad)).toThrow(/data row 1: .*decided_at/s);
   });
 });
 
 describe("second reviewer", () => {
   it("reports agreement and Cohen's kappa on the overlap", () => {
     const { log, planted } = workedExample();
-    // Second reviewer agrees on p0..p7 (FAIL) and g2..g9 (PASS), disagrees on p8 and g0.
+    // Second reviewer agrees on P0..P7 (FAIL) and G2..G9 (PASS), disagrees on P8 and G0.
     const second = [
-      ...Array.from({ length: 8 }, (_, i) => ({ submission_short_id: `p${i}`, outcome: "FAIL" })),
-      { submission_short_id: "p8", outcome: "FAIL" },
-      { submission_short_id: "g0", outcome: "PASS" },
-      ...Array.from({ length: 8 }, (_, i) => ({ submission_short_id: `g${i + 2}`, outcome: "PASS" })),
+      ...Array.from({ length: 8 }, (_, i) => ({ submission_short_id: P(i), outcome: "FAIL" })),
+      { submission_short_id: P(8), outcome: " fail " },
+      { submission_short_id: G(0), outcome: "pass" },
+      ...Array.from({ length: 8 }, (_, i) => ({ submission_short_id: G(i + 2), outcome: "PASS" })),
+      { submission_short_id: G(2), outcome: "PASS" },
       { submission_short_id: "nope", outcome: "PASS" },
     ];
     const m = score(parseReviewLog(exportCsv(log)), parsePlanted(plantedCsv(planted)), parseSecond(toCsv(["submission_short_id", "outcome"] as const, second)));
-    // First reviewer on the 18 overlapping: FAIL = p0..p7 + g0 = 9, PASS = 9. Second: FAIL = 9, PASS = 9. Agree 16/18.
-    expect(m.agreement).toMatchObject({ n: 18, agree: 16, unmatched: 1 });
+    // First reviewer on the 18 overlapping: FAIL = P0..P7 + G0 = 9, PASS = 9. Second: FAIL = 9, PASS = 9. Agree 16/18.
+    expect(m.agreement).toMatchObject({ n: 18, agree: 16, unmatched: 1, duplicates: 1 });
     // po = 16/18, pe = 0.5 → κ = (0.8889 - 0.5) / 0.5 = 0.7778
     expect(m.agreement?.kappa).toBeCloseTo(0.7778, 3);
-    expect(renderResults(m)).toContain("| Cohen's κ | 0.78 (n=18) |");
+    const md = renderResults(m);
+    expect(md).toContain("| Cohen's κ | 0.78 (n=18) |");
+    expect(md).toContain("| Duplicate second-reviewer rows (ignored) | 1 |");
   });
 
   it("accepts a review log export as the second-reviewer file, skipping appeals", () => {
-    const first = decision("g0", GENUINE_FAIL);
-    const appeal = decision("g0", ALL_PASS, { appealOf: String(first.decision_id) });
+    const first = decision(G(0), GENUINE_FAIL);
+    const appeal = decision(G(0), ALL_PASS, { appealOf: String(first.decision_id) });
     const text = exportCsv([first, appeal]);
     expect(parseSecond(text)).toHaveLength(1);
     const m = score(parseReviewLog(text), [], parseSecond(text));
-    expect(m.agreement).toMatchObject({ n: 1, agree: 1, kappa: null });
+    expect(m.agreement).toMatchObject({ n: 1, agree: 1, kappa: null, duplicates: 0 });
   });
 });

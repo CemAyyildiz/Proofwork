@@ -16,9 +16,10 @@ export const HONESTY_NOTE =
 
 /**
  * A signal is "weak" when the share of planted submissions failing it is less
- * than this many points above the share of genuine submissions failing it.
+ * than this many percentage points above the share of genuine submissions
+ * failing it (compared on the rounded value that is displayed).
  */
-export const WEAK_SEPARATION = 0.2;
+export const WEAK_SEPARATION_PP = 20;
 
 export class ResultsInputError extends Error {
   override readonly name = "ResultsInputError";
@@ -32,7 +33,7 @@ export interface LogRow {
   campaign: string;
   isAppeal: boolean;
   decidedAt: string;
-  outcome: Outcome | null;
+  outcome: Outcome;
   signals: Record<SignalId, boolean | null>;
 }
 
@@ -55,7 +56,13 @@ export interface SecondRow {
 
 const bool = z.enum(["true", "false"]).transform((v) => v === "true");
 const optionalBool = z.enum(["true", "false", ""]).transform((v) => (v === "" ? null : v === "true"));
-const optionalOutcome = z.enum(["PASS", "FAIL", ""]).transform((v): Outcome | null => (v === "" ? null : v));
+const outcome = z.enum(["PASS", "FAIL"]);
+const optionalOutcome = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .pipe(z.enum(["PASS", "FAIL", ""]))
+  .transform((v): Outcome | null => (v === "" ? null : v));
 const optionalId = z
   .string()
   .optional()
@@ -64,12 +71,12 @@ const optionalId = z
 const signalShape = Object.fromEntries(SIGNALS.map((s) => [`signal_${s.id}`, optionalBool])) as Record<SignalColumn, typeof optionalBool>;
 
 const logRowSchema = z.object({
-  campaign_slug: z.string(),
+  campaign_slug: z.string().trim().min(1),
   submission_short_id: z.string().trim().min(1),
   work_url: z.string(),
   is_appeal: bool,
-  decided_at: z.string(),
-  outcome: optionalOutcome,
+  decided_at: z.iso.datetime(),
+  outcome,
   ...signalShape,
 });
 
@@ -177,42 +184,53 @@ export interface Count {
   total: number;
 }
 
+/** separates: >= WEAK_SEPARATION_PP; weak: 0..below it; inverted: fails genuine more than planted. */
+export type SignalStatus = "separates" | "weak" | "inverted" | "no data";
+
 export interface SignalResult {
   id: SignalId;
   label: string;
   planted: { falseCount: number; known: number };
   genuine: { falseCount: number; known: number };
-  /** Planted false share minus genuine false share; null when either side has no data. */
-  separation: number | null;
-  weak: boolean;
+  /** Planted fail share minus genuine fail share in percentage points, rounded to 0.1; null without data. */
+  separationPp: number | null;
+  status: SignalStatus;
 }
 
 export interface Metrics {
-  campaigns: string[];
+  campaign: string | null;
   submissionsInLog: number;
   sampleSize: number;
   blind: Record<Group, Count>;
   final: Record<Group, Count>;
-  notReviewed: Record<Group, number>;
+  /** planted=true rows matching no submission in the log: planted but never submitted/decided. */
+  plantedNotReviewed: number;
+  /** planted=false rows matching no submission in the log. */
+  genuineListedUnmatched: number;
   /** Genuine submissions that were simply absent from the planted list. */
   genuineUnlisted: number;
-  appeals: Array<{ shortId: string; group: Group; blind: Outcome; final: Outcome }>;
+  appeals: Record<Group, { appealed: number; overturned: number }>;
   signals: SignalResult[];
-  unmatchedPlanted: Array<{ row: number; shortId: string | null; planted: boolean }>;
+  /** For the CLI's stderr only; never rendered into the committed doc. */
+  unmatchedPlanted: Array<{ row: number; planted: boolean }>;
   agreement: null | {
     n: number;
     agree: number;
     kappa: number | null;
     unmatched: number;
+    duplicates: number;
   };
 }
 
 interface Submission {
   shortId: string;
-  decided: LogRow[];
-  blind: LogRow | null;
-  final: LogRow | null;
+  decisions: LogRow[];
+  blind: LogRow;
+  final: LogRow;
+  appealed: boolean;
 }
+
+type Lookup = (id: { shortId: string | null; workUrl: string | null }, label: string) => Submission | null;
 
 function urlKey(url: string): string {
   try {
@@ -223,26 +241,36 @@ function urlKey(url: string): string {
   }
 }
 
-function buildSubmissions(log: LogRow[]): { subs: Submission[]; lookup: (id: { shortId: string | null; workUrl: string | null }) => Submission | null } {
+function buildSubmissions(log: LogRow[]): { subs: Submission[]; lookup: Lookup } {
+  const grouped = new Map<string, LogRow[]>();
+  for (const r of log) grouped.set(r.shortId, [...(grouped.get(r.shortId) ?? []), r]);
+
   const byShort = new Map<string, Submission>();
-  const byUrl = new Map<string, Submission>();
-  for (const r of log) {
-    let s = byShort.get(r.shortId);
-    if (!s) {
-      s = { shortId: r.shortId, decided: [], blind: null, final: null };
-      byShort.set(r.shortId, s);
+  const byUrl = new Map<string, Submission[]>();
+  for (const [shortId, rows] of grouped) {
+    // Stable sort on parsed time; keeps export order on ties.
+    const decisions = [...rows].sort((a, b) => Date.parse(a.decidedAt) - Date.parse(b.decidedAt));
+    const blind = decisions.find((d) => !d.isAppeal);
+    if (!blind) throw new ResultsInputError(`review log: submission ${shortId} has only appeal decisions`);
+    const final = decisions[decisions.length - 1] as LogRow; // non-empty: contains `blind`
+    const s: Submission = { shortId, decisions, blind, final, appealed: decisions.some((d) => d.isAppeal) };
+    byShort.set(shortId, s);
+    for (const key of new Set(rows.map((r) => r.workUrl.trim()).filter((u) => u !== "").map(urlKey))) {
+      byUrl.set(key, [...(byUrl.get(key) ?? []), s]);
     }
-    if (r.workUrl.trim() !== "") byUrl.set(urlKey(r.workUrl), s);
-    if (r.outcome !== null) s.decided.push(r);
   }
-  for (const s of byShort.values()) {
-    // ISO timestamps sort lexically; stable sort keeps export order on ties.
-    s.decided.sort((a, b) => (a.decidedAt < b.decidedAt ? -1 : a.decidedAt > b.decidedAt ? 1 : 0));
-    s.blind = s.decided.find((d) => !d.isAppeal) ?? s.decided[0] ?? null;
-    s.final = s.decided[s.decided.length - 1] ?? null;
-  }
-  const lookup = (id: { shortId: string | null; workUrl: string | null }): Submission | null =>
-    (id.shortId !== null ? byShort.get(id.shortId) : undefined) ?? (id.workUrl !== null ? byUrl.get(urlKey(id.workUrl)) : undefined) ?? null;
+
+  const lookup: Lookup = (id, label) => {
+    const byS = id.shortId !== null ? byShort.get(id.shortId) : undefined;
+    let byU: Submission | undefined;
+    if (id.workUrl !== null) {
+      const hits = byUrl.get(urlKey(id.workUrl)) ?? [];
+      if (hits.length > 1) throw new ResultsInputError(`${label}: work_url matches ${hits.length} submissions in the review log`);
+      byU = hits[0];
+    }
+    if (byS && byU && byS !== byU) throw new ResultsInputError(`${label}: submission_short_id and work_url point to different submissions`);
+    return byS ?? byU ?? null;
+  };
   return { subs: [...byShort.values()], lookup };
 }
 
@@ -256,29 +284,35 @@ function kappa(pairs: Array<[Outcome, Outcome]>): number | null {
   return pe === 1 ? null : (po - pe) / (1 - pe);
 }
 
+function signalStatus(pp: number | null): SignalStatus {
+  if (pp === null) return "no data";
+  if (pp < 0) return "inverted";
+  return pp < WEAK_SEPARATION_PP ? "weak" : "separates";
+}
+
 export function score(log: LogRow[], planted: PlantedRow[], second?: SecondRow[]): Metrics {
+  const campaigns = [...new Set(log.map((r) => r.campaign))];
+  if (campaigns.length > 1) throw new ResultsInputError(`review log: rows from ${campaigns.length} campaigns; score one campaign at a time`);
   const { subs, lookup } = buildSubmissions(log);
 
   const groupOf = new Map<Submission, Group>();
   const unmatchedPlanted: Metrics["unmatchedPlanted"] = [];
   for (const p of planted) {
-    const s = lookup(p);
+    const label = `planted list: data row ${p.row}`;
+    const s = lookup(p, label);
     if (!s) {
-      unmatchedPlanted.push({ row: p.row, shortId: p.shortId, planted: p.planted });
+      unmatchedPlanted.push({ row: p.row, planted: p.planted });
       continue;
     }
     const g: Group = p.planted ? "planted" : "genuine";
     const prev = groupOf.get(s);
-    if (prev !== undefined && prev !== g) {
-      throw new ResultsInputError(`planted list: data row ${p.row}: submission ${s.shortId} is listed as both planted and genuine`);
-    }
+    if (prev !== undefined && prev !== g) throw new ResultsInputError(`${label}: submission is listed as both planted and genuine`);
     groupOf.set(s, g);
   }
 
   const blind: Record<Group, Count> = { planted: { failed: 0, total: 0 }, genuine: { failed: 0, total: 0 } };
   const final: Record<Group, Count> = { planted: { failed: 0, total: 0 }, genuine: { failed: 0, total: 0 } };
-  const notReviewed: Record<Group, number> = { planted: 0, genuine: 0 };
-  const appeals: Metrics["appeals"] = [];
+  const appeals: Metrics["appeals"] = { planted: { appealed: 0, overturned: 0 }, genuine: { appealed: 0, overturned: 0 } };
   const sig = new Map<SignalId, Record<Group, { falseCount: number; known: number }>>(
     SIGNALS.map((s) => [s.id, { planted: { falseCount: 0, known: 0 }, genuine: { falseCount: 0, known: 0 } }]),
   );
@@ -287,17 +321,14 @@ export function score(log: LogRow[], planted: PlantedRow[], second?: SecondRow[]
   for (const s of subs) {
     const listed = groupOf.get(s);
     const g: Group = listed ?? "genuine";
-    if (!s.blind || !s.final) {
-      notReviewed[g] += 1;
-      continue;
-    }
     if (listed === undefined) genuineUnlisted += 1;
     blind[g].total += 1;
     if (s.blind.outcome === "FAIL") blind[g].failed += 1;
     final[g].total += 1;
     if (s.final.outcome === "FAIL") final[g].failed += 1;
-    if (s.decided.length > 1 && s.blind.outcome !== null && s.final.outcome !== null) {
-      appeals.push({ shortId: s.shortId, group: g, blind: s.blind.outcome, final: s.final.outcome });
+    if (s.appealed) {
+      appeals[g].appealed += 1;
+      if (s.final.outcome !== s.blind.outcome) appeals[g].overturned += 1;
     }
     for (const x of SIGNALS) {
       const v = s.blind.signals[x.id];
@@ -310,9 +341,9 @@ export function score(log: LogRow[], planted: PlantedRow[], second?: SecondRow[]
 
   const signals: SignalResult[] = SIGNALS.map((x) => {
     const b = sig.get(x.id) as Record<Group, { falseCount: number; known: number }>;
-    const separation =
-      b.planted.known > 0 && b.genuine.known > 0 ? b.planted.falseCount / b.planted.known - b.genuine.falseCount / b.genuine.known : null;
-    return { id: x.id, label: x.label, planted: b.planted, genuine: b.genuine, separation, weak: separation === null || separation < WEAK_SEPARATION };
+    const raw = b.planted.known > 0 && b.genuine.known > 0 ? b.planted.falseCount / b.planted.known - b.genuine.falseCount / b.genuine.known : null;
+    const separationPp = raw === null ? null : Math.round(raw * 1000) / 10;
+    return { id: x.id, label: x.label, planted: b.planted, genuine: b.genuine, separationPp, status: signalStatus(separationPp) };
   });
 
   let agreement: Metrics["agreement"] = null;
@@ -320,25 +351,29 @@ export function score(log: LogRow[], planted: PlantedRow[], second?: SecondRow[]
     const pairs: Array<[Outcome, Outcome]> = [];
     const seen = new Set<Submission>();
     let unmatched = 0;
+    let duplicates = 0;
     for (const r of second) {
-      const s = lookup(r);
-      if (!s || !s.blind || s.blind.outcome === null || seen.has(s)) {
+      const s = lookup(r, `second reviewer: data row ${r.row}`);
+      if (!s) {
         unmatched += 1;
-        continue;
+      } else if (seen.has(s)) {
+        duplicates += 1;
+      } else {
+        seen.add(s);
+        pairs.push([s.blind.outcome, r.outcome]);
       }
-      seen.add(s);
-      pairs.push([s.blind.outcome, r.outcome]);
     }
-    agreement = { n: pairs.length, agree: pairs.filter(([a, b]) => a === b).length, kappa: kappa(pairs), unmatched };
+    agreement = { n: pairs.length, agree: pairs.filter(([a, b]) => a === b).length, kappa: kappa(pairs), unmatched, duplicates };
   }
 
   return {
-    campaigns: [...new Set(log.map((r) => r.campaign).filter((c) => c !== ""))].sort(),
+    campaign: campaigns[0] ?? null,
     submissionsInLog: subs.length,
     sampleSize: blind.planted.total + blind.genuine.total,
     blind,
     final,
-    notReviewed,
+    plantedNotReviewed: unmatchedPlanted.filter((u) => u.planted).length,
+    genuineListedUnmatched: unmatchedPlanted.filter((u) => !u.planted).length,
     genuineUnlisted,
     appeals,
     signals,
@@ -358,17 +393,26 @@ export function rate(num: number, den: number): string {
   return den === 0 ? "n/a (0)" : `${pct(num / den)} (${num}/${den})`;
 }
 
-function points(sep: number | null): string {
-  if (sep === null) return "n/a";
-  const pp = Math.round(sep * 1000) / 10;
+function points(pp: number | null): string {
+  if (pp === null) return "n/a";
   return `${pp > 0 ? "+" : ""}${pp} pp`;
 }
 
+const STATUS_LABEL: Record<SignalStatus, string> = {
+  separates: "no",
+  weak: "**weak**",
+  inverted: "**inverted**",
+  "no data": "**weak** (no data)",
+};
+
+/**
+ * Aggregate Markdown only. No submission id, URL or key is ever written: a
+ * per-submission line next to planted/genuine would publish the plant list.
+ */
 export function renderResults(m: Metrics): string {
   const L: string[] = [];
-  const campaigns = m.campaigns.length > 0 ? m.campaigns.map((c) => `\`${c}\``).join(", ") : "(none)";
   L.push("# Results — rubric catch rate and false-positive rate", "");
-  L.push(`Campaign: ${campaigns}. Generated by \`pnpm results\` from the exported review log joined with the planted list, which is kept outside the app and the repository.`, "");
+  L.push(`Campaign: ${m.campaign ? `\`${m.campaign}\`` : "(none)"}. Generated by \`pnpm results\` from the exported review log joined with the planted list, which is kept outside the app and the repository.`, "");
   L.push(HONESTY_NOTE, "");
 
   L.push("## Headline (blind verdict)", "");
@@ -378,35 +422,32 @@ export function renderResults(m: Metrics): string {
   L.push(`| False-positive rate | ${rate(m.blind.genuine.failed, m.blind.genuine.total)} |`);
   L.push(`| Planted passed (missed) | ${m.blind.planted.total - m.blind.planted.failed} |`);
   L.push(`| Genuine passed | ${m.blind.genuine.total - m.blind.genuine.failed} |`);
-  L.push(`| Not reviewed (no decision) | ${m.notReviewed.planted + m.notReviewed.genuine} (${m.notReviewed.planted} planted, ${m.notReviewed.genuine} genuine) |`, "");
+  L.push(`| Not reviewed (planted but never submitted/decided) | ${m.plantedNotReviewed} |`);
+  L.push(`| Listed genuine, no matching submission | ${m.genuineListedUnmatched} |`, "");
 
   L.push("Definitions:", "");
   L.push("- **Catch rate** = planted FAIL / planted total.");
   L.push("- **False-positive rate** = genuine FAIL / genuine total.");
   L.push("- Both use the reviewer's first (pre-appeal) decision on each submission: the blind verdict. The post-appeal outcome is reported separately below.");
-  L.push("- Submissions with no decision are excluded from every rate and counted under \"not reviewed\".");
+  L.push("- Planted-list rows that match no decided submission in the review log are excluded from every rate; planted ones are counted under \"not reviewed\".");
   L.push(`- A submission is genuine unless the planted list marks it planted (${m.genuineUnlisted} genuine submission(s) were not listed at all).`, "");
 
   L.push("## After appeals", "");
   L.push("| Metric | Blind verdict | After appeals |", "|---|---|---|");
   L.push(`| Catch rate | ${rate(m.blind.planted.failed, m.blind.planted.total)} | ${rate(m.final.planted.failed, m.final.planted.total)} |`);
   L.push(`| False-positive rate | ${rate(m.blind.genuine.failed, m.blind.genuine.total)} | ${rate(m.final.genuine.failed, m.final.genuine.total)} |`, "");
-  if (m.appeals.length === 0) {
-    L.push("No submission was re-reviewed.", "");
-  } else {
-    L.push("| Submission | Group | Blind verdict | After appeal | Overturned |", "|---|---|---|---|---|");
-    for (const a of m.appeals) L.push(`| \`${a.shortId}\` | ${a.group} | ${a.blind} | ${a.final} | ${a.blind !== a.final ? "yes" : "no"} |`);
-    L.push("");
-  }
+  L.push("| Group | Appealed | Overturned |", "|---|---|---|");
+  L.push(`| Planted | ${m.appeals.planted.appealed} | ${m.appeals.planted.overturned} |`);
+  L.push(`| Genuine | ${m.appeals.genuine.appealed} | ${m.appeals.genuine.overturned} |`, "");
 
   L.push("## Per-signal breakdown (blind verdict)", "");
   L.push("How often each rubric signal was answered \"no\" (failed) on planted versus genuine submissions. Separation = planted fail share minus genuine fail share.", "");
   L.push("| Signal | Failed on planted | Failed on genuine | Separation | Weak |", "|---|---|---|---|---|");
   for (const s of m.signals) {
-    L.push(`| ${s.label} | ${rate(s.planted.falseCount, s.planted.known)} | ${rate(s.genuine.falseCount, s.genuine.known)} | ${points(s.separation)} | ${s.weak ? "**weak**" : "no"} |`);
+    L.push(`| ${s.label} | ${rate(s.planted.falseCount, s.planted.known)} | ${rate(s.genuine.falseCount, s.genuine.known)} | ${points(s.separationPp)} | ${STATUS_LABEL[s.status]} |`);
   }
   L.push("");
-  L.push(`A signal is **weak** when its separation is below ${WEAK_SEPARATION * 100} percentage points, or when either group has no data: it rarely tells planted and genuine submissions apart.`, "");
+  L.push(`A signal is **weak** when its separation is below ${WEAK_SEPARATION_PP} percentage points, or when either group has no data: it rarely tells planted and genuine submissions apart. It is **inverted** when the separation is negative: it fails genuine submissions more often than planted ones.`, "");
 
   if (m.agreement) {
     const a = m.agreement;
@@ -415,17 +456,9 @@ export function renderResults(m: Metrics): string {
     L.push(`| Overlap (n) | ${a.n} |`);
     L.push(`| Same outcome | ${rate(a.agree, a.n)} |`);
     L.push(`| Cohen's κ | ${a.kappa === null ? "n/a" : (Math.round(a.kappa * 100) / 100).toFixed(2)} (n=${a.n}) |`);
-    L.push(`| Second-reviewer rows not matched to a decided submission | ${a.unmatched} |`, "");
+    L.push(`| Second-reviewer rows not matched to a submission | ${a.unmatched} |`);
+    L.push(`| Duplicate second-reviewer rows (ignored) | ${a.duplicates} |`, "");
     L.push("Compared against the first reviewer's blind verdict on the overlapping submissions.", "");
-  }
-
-  if (m.unmatchedPlanted.length > 0) {
-    L.push("## Warnings", "");
-    L.push("Rows in the planted list that match no submission in the review log (planted but never submitted/decided). They are excluded from every rate.", "");
-    for (const u of m.unmatchedPlanted) {
-      L.push(`- Planted list row ${u.row}${u.shortId ? ` (\`${u.shortId}\`)` : ""}: planted=${u.planted}`);
-    }
-    L.push("");
   }
 
   L.push("## Limits", "");

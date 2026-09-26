@@ -24,9 +24,12 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+// pnpm runs scripts from the package root; resolve relative paths from where the caller typed them.
+const CALLER_CWD = process.env["INIT_CWD"] ?? process.cwd();
+
 function read(path: string): string {
   try {
-    return readFileSync(path, "utf8");
+    return readFileSync(resolve(CALLER_CWD, path), "utf8");
   } catch (e) {
     fail(`cannot read ${path}: ${e instanceof Error ? e.message : String(e)}`);
   }
