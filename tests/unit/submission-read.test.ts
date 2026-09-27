@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EscrowCard } from "@/components/escrow-card";
 import type { Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions } from "@/db/schema";
-import { mySubmission, publicCampaign } from "@/services/submission";
+import { listPublicCampaigns, mySubmission, publicCampaign } from "@/services/submission";
 import { makeTestDb } from "./db";
 
 const CAMPAIGN = "cmp_1";
@@ -132,5 +132,31 @@ describe("mySubmission payout", () => {
     await decided("PASS");
     await conn.insert(payouts).values({ id: "pay_1", submissionId: SUB, milestoneIndex: 1, amount: "5", status: "released", releaseTxHash: RELEASE_TX });
     expect(await mySubmission(CAMPAIGN, "G_OTHER", conn)).toBeNull();
+  });
+});
+
+describe("listPublicCampaigns", () => {
+  const base = {
+    brief: "A brief long enough to pass validation.",
+    rewardAmount: "5",
+    budget: "100",
+    funderPubkey: "G_FUNDER",
+    disputeResolverPubkey: "G_DR",
+  };
+
+  it("lists funded campaigns only, open ones first", async () => {
+    const day = 86_400_000;
+    await conn.insert(campaigns).values([
+      { ...base, id: "cmp_closed", slug: "closed", title: "Closed", deadlineAt: new Date(Date.now() + day), fundedAt: new Date(), closedAt: new Date(), createdAt: new Date(Date.now() + 2000) },
+      { ...base, id: "cmp_open", slug: "open", title: "Open", deadlineAt: new Date(Date.now() + day), fundedAt: new Date(), createdAt: new Date(Date.now() + 1000) },
+    ]);
+    const list = await listPublicCampaigns(conn);
+    expect(list.map((c) => c.slug)).toEqual(["open", "closed"]);
+    expect(list[0]?.open).toBe(true);
+    expect(list.map((c) => c.slug)).not.toContain("camp-1");
+  });
+
+  it("is empty when nothing is funded", async () => {
+    expect(await listPublicCampaigns(conn)).toEqual([]);
   });
 });

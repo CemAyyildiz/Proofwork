@@ -21,14 +21,12 @@ export default async function PublicLayout({ children }: { children: React.React
                 <Logo />
               </span>
             </Link>
-            {user ? (
-              <WorkspaceNav
-                funder={user.roles.has("funder")}
-                reviewer={user.roles.has("reviewer")}
-                variant="top"
-                showPublic={false}
-              />
-            ) : null}
+            <WorkspaceNav
+              funder={user?.roles.has("funder") ?? false}
+              reviewer={user?.roles.has("reviewer") ?? false}
+              variant="top"
+              showPublic={false}
+            />
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <TestnetBadge />

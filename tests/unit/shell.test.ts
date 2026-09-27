@@ -95,8 +95,9 @@ describe("workspace shell", () => {
 });
 
 describe("public shell", () => {
-  it("shows no role links when signed out", async () => {
+  it("shows no role links, only Explore, when signed out", async () => {
     const html = await renderPublic();
+    expect(html).toContain('href="/explore"');
     expect(html).not.toContain('href="/campaigns"');
     expect(html).not.toContain('href="/review"');
     expect(html).toContain("Connect wallet");
@@ -106,7 +107,7 @@ describe("public shell", () => {
   it("sends a signed-out visitor on the landing page into the app instead of asking for a wallet", async () => {
     nav.pathname = "/";
     const html = await renderPublic();
-    expect(html).toMatch(/<a href="\/campaigns"[^>]*>Launch app/);
+    expect(html).toMatch(/<a href="\/explore"[^>]*>Launch app/);
     expect(html).not.toContain("Connect wallet");
   });
 
@@ -125,10 +126,10 @@ describe("public shell", () => {
     expect(html).not.toContain(">Home<");
   });
 
-  it("shows no nav links for a wallet with zero roles", async () => {
+  it("shows only Explore for a wallet with zero roles", async () => {
     session.user = { pubkey: WALLET, roles: new Set() };
     const html = await renderPublic();
-    expect(html).not.toContain("<nav");
+    expect(html).toContain('href="/explore"');
     expect(html).not.toContain('href="/campaigns"');
     expect(html).not.toContain('href="/review"');
   });

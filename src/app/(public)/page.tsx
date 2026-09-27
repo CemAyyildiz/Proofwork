@@ -111,7 +111,7 @@ export default async function Home() {
     </Magnetic>
   ) : (
     <Magnetic>
-      <Link href="/campaigns" className={buttonClasses("primary")}>
+      <Link href="/explore" className={buttonClasses("primary")}>
         Launch app <span aria-hidden="true">→</span>
       </Link>
     </Magnetic>

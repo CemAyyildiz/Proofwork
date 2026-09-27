@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type Payout, type Submission } from "@/db/schema";
 import { env } from "@/config/env";
@@ -39,7 +39,21 @@ function isOpen(c: Campaign, now = new Date()): boolean {
 
 export async function publicCampaign(slug: string, conn: Db = db): Promise<PublicCampaign | null> {
   const c = (await conn.select().from(campaigns).where(eq(campaigns.slug, slug)).limit(1))[0];
-  if (!c) return null;
+  return c ? toPublic(c) : null;
+}
+
+/**
+ * Every funded campaign, open ones first, newest first within each group.
+ * Drafts and escrows that were never funded are not listed; their pages stay
+ * reachable by link only.
+ */
+export async function listPublicCampaigns(conn: Db = db, now = new Date()): Promise<PublicCampaign[]> {
+  const rows = await conn.select().from(campaigns).where(isNotNull(campaigns.fundedAt)).orderBy(desc(campaigns.createdAt));
+  const listed = rows.map((c) => toPublic(c, now));
+  return [...listed.filter((c) => c.open), ...listed.filter((c) => !c.open)];
+}
+
+function toPublic(c: Campaign, now = new Date()): PublicCampaign {
   return {
     id: c.id,
     slug: c.slug,
@@ -49,7 +63,7 @@ export async function publicCampaign(slug: string, conn: Db = db): Promise<Publi
     budget: c.budget,
     deadlineAt: c.deadlineAt,
     escrowContractId: c.escrowContractId,
-    open: isOpen(c),
+    open: isOpen(c, now),
     closedAt: c.closedAt,
     remainderTxHash: c.remainderTxHash,
   };

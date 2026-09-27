@@ -52,6 +52,18 @@ const REVIEW: NavItem = {
   ),
 };
 
+const EXPLORE: NavItem = {
+  href: "/explore",
+  label: "Explore",
+  match: (p) => p === "/explore" || p.startsWith("/c/"),
+  icon: (
+    <svg {...iconProps}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M15.5 8.5l-2 5-5 2 2-5z" />
+    </svg>
+  ),
+};
+
 const HOME: NavItem = {
   href: "/",
   label: "Home",
@@ -70,14 +82,14 @@ export interface WorkspaceNavProps {
   reviewer: boolean;
   /** "side" is the ≥ lg rail with group headings; "top" is the compact row for narrow screens and the public bar. */
   variant: "side" | "top";
-  /** Include the Public group (Home). Off in the public top bar, where the logo already links home. */
+  /** Include Home in the Public group. Off in the public top bar, where the logo already links home. */
   showPublic?: boolean;
 }
 
 export function WorkspaceNav({ funder, reviewer, variant, showPublic = true }: WorkspaceNavProps) {
   const pathname = usePathname();
   const workspace = [funder ? CAMPAIGNS : null, reviewer ? REVIEW : null].filter((i): i is NavItem => i !== null);
-  const pub = showPublic ? [HOME] : [];
+  const pub = showPublic ? [EXPLORE, HOME] : [EXPLORE];
 
   if (variant === "top") {
     const items = [...workspace, ...pub];
