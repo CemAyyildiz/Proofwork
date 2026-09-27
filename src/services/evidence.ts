@@ -198,7 +198,7 @@ export function renderCampaignEvidence(e: CampaignEvidence, opts: { siteUrl: str
   out.push("| | |", "|---|---|");
   out.push(`| Campaign | \`${c.slug}\` |`);
   out.push(
-    `| Escrow contract | ${c.escrowContractId ? `[\`${c.escrowContractId}\`](${publicEnv.explorerAccountUrl(c.escrowContractId)})` : "not deployed"} |`,
+    `| Escrow contract | ${c.escrowContractId ? `[\`${c.escrowContractId}\`](${publicEnv.explorerContractUrl(c.escrowContractId)})` : "not deployed"} |`,
   );
   out.push(`| Budget | ${formatUsdc(c.budget)} |`);
   out.push(`| Reward per approved submission | ${formatUsdc(c.rewardAmount)} |`);

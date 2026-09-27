@@ -10,4 +10,5 @@ export const publicEnv = {
   usdcIssuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
   explorerTxUrl: (hash: string) => `https://stellar.expert/explorer/testnet/tx/${hash}`,
   explorerAccountUrl: (account: string) => `https://stellar.expert/explorer/testnet/account/${account}`,
+  explorerContractUrl: (contractId: string) => `https://stellar.expert/explorer/testnet/contract/${contractId}`,
 } as const;

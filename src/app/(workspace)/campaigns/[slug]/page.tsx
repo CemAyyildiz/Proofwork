@@ -52,7 +52,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
         {c.escrowContractId ? (
           <p className="text-sm">
             Contract{" "}
-            <a className="underline" href={publicEnv.explorerAccountUrl(c.escrowContractId)} target="_blank" rel="noreferrer">
+            <a className="underline" href={publicEnv.explorerContractUrl(c.escrowContractId)} target="_blank" rel="noreferrer">
               <code className="text-xs">{c.escrowContractId.slice(0, 10)}…{c.escrowContractId.slice(-6)}</code>
             </a>
           </p>

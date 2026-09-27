@@ -160,3 +160,12 @@ describe("listPublicCampaigns", () => {
     expect(await listPublicCampaigns(conn)).toEqual([]);
   });
 });
+
+describe("EscrowCard contract link", () => {
+  it("opens the escrow as a contract, not an account, on stellar.expert", () => {
+    const id = "CAKY7IVEOMTTHJSOG7ELG4V762TKGWQDMOR5C57DSFXHHPHYXNB2ITPI";
+    const html = renderToStaticMarkup(createElement(EscrowCard, { contractId: id, balance: "15", budget: "15", closed: false, remainderTxHash: null }));
+    expect(html).toContain(`https://stellar.expert/explorer/testnet/contract/${id}`);
+    expect(html).not.toContain("/account/");
+  });
+});

@@ -81,7 +81,7 @@ export function EscrowCard({
       {contractId ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <span className="text-[13px] text-muted">Escrow contract</span>
-          <HashChip value={contractId} href={publicEnv.explorerAccountUrl(contractId)} />
+          <HashChip value={contractId} href={publicEnv.explorerContractUrl(contractId)} />
         </div>
       ) : null}
       {closed ? <RemainderReturn txHash={remainderTxHash} balance={balance} /> : null}

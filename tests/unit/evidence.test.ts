@@ -146,7 +146,7 @@ describe("campaign evidence dump", () => {
     }
     expect(md).toContain(`| 1 | ${NO_HASH} | s1aaaaaa · GCN7…Y2M4 |`);
     expect(md).toContain("| s2bbbbbb | pw:s2bbbbbb | first | FAIL | R06_SPAM | `3333333333333333…` | not committed | [verify](https://proofwork.online/verify/dec_3) |");
-    expect(md).toContain(`https://stellar.expert/explorer/testnet/account/${CONTRACT}`);
+    expect(md).toContain(`https://stellar.expert/explorer/testnet/contract/${CONTRACT}`);
     expect(md).toContain("1 op(s) prepared or failed without a confirmed effect on chain");
     expect(md).toContain("1 op(s) submitted but not yet confirmed; they may still land");
     expect(md).toContain("# Campaign evidence: Live \\| campaign\n");
