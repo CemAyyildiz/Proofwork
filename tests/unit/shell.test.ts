@@ -103,6 +103,20 @@ describe("public shell", () => {
     expect(html).toContain("page body");
   });
 
+  it("sends a signed-out visitor on the landing page into the app instead of asking for a wallet", async () => {
+    nav.pathname = "/";
+    const html = await renderPublic();
+    expect(html).toMatch(/<a href="\/campaigns"[^>]*>Launch app/);
+    expect(html).not.toContain("Connect wallet");
+  });
+
+  it("keeps Connect wallet on a campaign page so a contributor can sign in there", async () => {
+    nav.pathname = "/c/try-proofwork";
+    const html = await renderPublic();
+    expect(html).toContain("Connect wallet");
+    expect(html).not.toContain("Launch app");
+  });
+
   it("shows only Review, and no Home item, for a reviewer", async () => {
     session.user = { pubkey: WALLET, roles: new Set(["reviewer"]) };
     const html = await renderPublic();

@@ -10,7 +10,6 @@ import { EVIDENCE_TXS } from "@/components/landing/evidence";
 import { buttonClasses } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
 import { LogoMark } from "@/components/ui/logo";
-import { WalletButton } from "@/components/wallet-button";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
 import { currentUser } from "@/lib/current-user";
 import { truncateMiddle } from "@/lib/format";
@@ -98,23 +97,25 @@ const FACTS: ReadonlyArray<{ value: number; label: string; accent?: boolean }> =
 
 export default async function Home() {
   const user = await currentUser();
-  const cta = !user ? (
-    <Magnetic>
-      <WalletButton pubkey={null} />
-    </Magnetic>
-  ) : user.roles.has("funder") ? (
+  const cta = user?.roles.has("funder") ? (
     <Magnetic>
       <Link href="/campaigns" className={buttonClasses("primary")}>
         Open your campaigns <span aria-hidden="true">→</span>
       </Link>
     </Magnetic>
-  ) : user.roles.has("reviewer") ? (
+  ) : user?.roles.has("reviewer") ? (
     <Magnetic>
       <Link href="/review" className={buttonClasses("primary")}>
         Open the review queue <span aria-hidden="true">→</span>
       </Link>
     </Magnetic>
-  ) : null;
+  ) : (
+    <Magnetic>
+      <Link href="/campaigns" className={buttonClasses("primary")}>
+        Launch app <span aria-hidden="true">→</span>
+      </Link>
+    </Magnetic>
+  );
 
   return (
     <div className="-mt-10">

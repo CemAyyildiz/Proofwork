@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { SignedOut } from "@/components/signed-out";
 import { currentUser } from "@/lib/current-user";
 import { formatDate, formatUsdc } from "@/lib/format";
 import { listCampaignsForFunder } from "@/services/campaign";
@@ -7,7 +9,9 @@ export const dynamic = "force-dynamic";
 
 export default async function CampaignsPage() {
   const user = await currentUser();
-  if (!user) return <p className="text-neutral-600">Connect your wallet to see your campaigns.</p>;
+  if (!user) return <SignedOut />;
+  // "Launch app" lands here; a reviewer-only wallet belongs in the queue.
+  if (!user.roles.has("funder") && user.roles.has("reviewer")) redirect("/review");
   if (!user.roles.has("funder")) return <p className="text-neutral-600">Your wallet has no funder role. Ask the operator to grant one.</p>;
 
   const rows = await listCampaignsForFunder(user.pubkey);

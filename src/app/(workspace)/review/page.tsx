@@ -1,4 +1,5 @@
 import { ReviewCard } from "@/components/review-card";
+import { SignedOut } from "@/components/signed-out";
 import { currentUser } from "@/lib/current-user";
 import { reviewLogCampaigns, reviewQueue } from "@/services/review";
 
@@ -6,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ReviewPage() {
   const user = await currentUser();
-  if (!user) return <p className="text-neutral-600">Connect your wallet.</p>;
+  if (!user) return <SignedOut />;
 
   // Campaign-scoped reviewers have no global role but may still download their campaigns' logs.
   const logs = await reviewLogCampaigns(user);
