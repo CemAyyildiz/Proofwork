@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { stageOf, type Stage } from "@/components/contributor-state";
 import { Card } from "@/components/ui/card";
@@ -7,6 +8,11 @@ import { formatDateShort, formatUsdc } from "@/lib/format";
 import { listPublicCampaigns } from "@/services/submission";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Open bounties",
+  description: "Escrow-funded bounties on Stellar testnet. Do the task, get reviewed by a person, get paid in USDC.",
+};
 
 const STAGE_PILL: Record<Stage, { tone: PillTone; label: string }> = {
   open: { tone: "pass", label: "Open" },

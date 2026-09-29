@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { HashCheck } from "@/components/hash-check";
@@ -12,6 +13,11 @@ import { formatDateShort } from "@/lib/format";
 import { getDecision } from "@/services/review";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Decision record",
+  description: "A review decision on Proofwork, checkable against its hash on Stellar testnet.",
+};
 
 /** Staggered rise-in on load; CSS only, final state under reduced motion. */
 function rise(i: number): React.CSSProperties {

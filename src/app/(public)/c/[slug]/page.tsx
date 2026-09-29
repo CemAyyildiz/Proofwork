@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Suspense, type ReactNode } from "react";
+import type { Metadata } from "next";
+import { cache, Suspense, type ReactNode } from "react";
 import { AppealButton } from "@/components/appeal-button";
 import { stageOf, timelineView, type Stage } from "@/components/contributor-state";
 import { Countdown } from "@/components/countdown";
@@ -42,10 +43,25 @@ function rise(i: number): { className: string; style: React.CSSProperties } {
   return { className: "animate-reveal", style: { animationDelay: `${i * 80}ms` } };
 }
 
+/** One read per request, shared by the metadata and the page. */
+const campaignFor = cache((slug: string) => publicCampaign(slug));
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const c = await campaignFor((await params).slug);
+  if (!c) return { title: "Campaign not found" };
+  const description = `${formatUsdc(c.rewardAmount)} (testnet) per approved post, reviewed by a person, paid from escrow on Stellar.`;
+  return {
+    title: c.title,
+    description,
+    openGraph: { title: c.title, description, type: "website" },
+    twitter: { title: c.title, description },
+  };
+}
+
 /** Contributor-facing campaign page: brief, live escrow balance, submit, own status. */
 export default async function ContributorCampaignPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const c = await publicCampaign(slug);
+  const c = await campaignFor(slug);
   if (!c) notFound();
 
   const user = await currentUser();
