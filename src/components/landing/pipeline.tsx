@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { publicEnv } from "@/config/public-env";
 import { SIGNALS } from "@/domain/rubric";
 import { cx } from "@/components/ui/cx";
-import { Eyebrow } from "@/components/ui/eyebrow";
 import { HashChip } from "@/components/ui/hash-chip";
 import { useMediaQuery, useReducedMotion } from "@/components/use-reduced-motion";
 import { SPIKE_CONTRACT, SPIKE_FUND, SPIKE_LEDGER_VALUE, SPIKE_RECORD, SPIKE_RELEASE } from "./evidence";
@@ -159,9 +158,9 @@ const SCENES: ReactNode[] = [
           @
         </span>
         <span className="text-[13px] text-muted">A contributor&apos;s post</span>
-        <Eyebrow as="span" className="text-[10.5px]">
-          Illustration
-        </Eyebrow>
+        <span className="rounded-full border border-accent-line bg-accent-soft px-2 py-0.5 font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-accent">
+          Example
+        </span>
       </div>
       <svg width="18" height="18" viewBox="0 0 24 24" className="fill-text" aria-hidden="true">
         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />

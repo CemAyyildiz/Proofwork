@@ -15,6 +15,12 @@ const STAGE_PILL: Record<Stage, { tone: PillTone; label: string }> = {
   unfunded: { tone: "wait", label: "Not funded yet" },
 };
 
+const HOW = [
+  { title: "Do the task", body: "Read the brief and post on X. No wallet needed to look around." },
+  { title: "Submit the link", body: "Connect a Stellar testnet wallet and paste your post's link." },
+  { title: "Get reviewed and paid", body: "A person scores it; a pass is paid from escrow in testnet USDC." },
+] as const;
+
 /** Public campaign directory: no wallet needed to browse; one is asked for only on submit. */
 export default async function ExplorePage() {
   const list = await listPublicCampaigns();
@@ -27,6 +33,16 @@ export default async function ExplorePage() {
         Every campaign here is funded into escrow on Stellar testnet before it opens. Pick one, do the task, and connect a wallet
         only when you submit.
       </p>
+
+      <ol className="mt-8 grid gap-3 text-sm sm:grid-cols-3">
+        {HOW.map((step, i) => (
+          <li key={step.title} className="rounded-lg border border-line bg-surface px-4 py-3.5">
+            <span className="font-mono text-[11px] font-medium tracking-[0.1em] text-muted">{String(i + 1).padStart(2, "0")}</span>
+            <p className="mt-1 font-semibold">{step.title}</p>
+            <p className="mt-1 text-[13px] leading-normal text-text-2">{step.body}</p>
+          </li>
+        ))}
+      </ol>
 
       {list.length === 0 ? (
         <Card className="mt-10 p-8 text-center">

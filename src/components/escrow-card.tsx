@@ -13,12 +13,15 @@ function figure(amount: string): string {
 export function EscrowCard({
   contractId,
   balance,
+  loading = false,
   budget,
   closed,
   remainderTxHash,
 }: {
   contractId: string | null;
   balance: string | null;
+  /** The live read is still in flight: a placeholder, not "unavailable". */
+  loading?: boolean;
   budget: string;
   closed: boolean;
   remainderTxHash: string | null;
@@ -42,6 +45,12 @@ export function EscrowCard({
           <p className="mt-4 text-[44px] font-bold leading-none tracking-[-0.04em] text-text-2">Not funded yet</p>
           <p className="mt-3 text-sm text-muted">The funder has not deployed the escrow for this campaign.</p>
         </>
+      ) : loading ? (
+        <div aria-busy="true" className="mt-3.5 animate-pulse">
+          <span className="sr-only">Reading escrow balance from Stellar…</span>
+          <div className="h-16 w-40 rounded-lg bg-white/5 md:h-[84px]" />
+          <div className="mt-5 h-2 rounded-[4px] bg-white/5" />
+        </div>
       ) : balance === null ? (
         <p className="mt-4 text-lg font-semibold text-fail">Balance unavailable, check on-chain</p>
       ) : (

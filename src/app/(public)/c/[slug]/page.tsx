@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { AppealButton } from "@/components/appeal-button";
 import { stageOf, timelineView, type Stage } from "@/components/contributor-state";
 import { Countdown } from "@/components/countdown";
 import { EscrowCard } from "@/components/escrow-card";
+import { buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cx } from "@/components/ui/cx";
 import { Eyebrow } from "@/components/ui/eyebrow";
@@ -47,18 +48,6 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
   const c = await publicCampaign(slug);
   if (!c) notFound();
 
-  let balance: string | null = null;
-  if (c.escrowContractId) {
-    try {
-      // Capped so a slow Trustless Work read can't stall the page; the card shows "unavailable".
-      const read = getEscrow().getEscrow(c.escrowContractId);
-      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("balance read timed out")), BALANCE_TIMEOUT_MS));
-      balance = (await Promise.race([read, timeout])).balance;
-    } catch (e) {
-      log.warn("escrow balance read failed", { slug, err: e instanceof Error ? e.message : String(e) });
-    }
-  }
-
   const user = await currentUser();
   const mine = user ? await mySubmission(c.id, user.pubkey) : null;
   const stage = stageOf(c);
@@ -84,6 +73,7 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
           <dl style={rise(2).style} className={cx("mt-7 flex flex-wrap gap-x-7 gap-y-4", rise(2).className)}>
             <Meta label="Reward">
               <span className="text-accent">{formatUsdc(c.rewardAmount)}</span>
+              <span className="ml-2 align-middle font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted">testnet</span>
             </Meta>
             {stage === "open" ? (
               <Meta label="Closes in">
@@ -102,17 +92,24 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
           </dl>
           {stage === "open" ? (
             <p style={rise(2).style} className={cx("mt-3 text-[13px] text-muted", rise(2).className)}>
-              Per approved submission, net of the 0.3% protocol fee. Closes {formatDateShort(c.deadlineAt)}.
+              Per approved submission, net of the 0.3% protocol fee. Testnet USDC, not real money. Closes{" "}
+              {formatDateShort(c.deadlineAt)}.
             </p>
           ) : null}
         </div>
         <div style={rise(3).style} className={rise(3).className}>
-          <EscrowCard contractId={c.escrowContractId} balance={balance} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
+          {c.escrowContractId ? (
+            <Suspense fallback={<EscrowCard contractId={c.escrowContractId} balance={null} loading budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />}>
+              <LiveEscrowCard slug={slug} contractId={c.escrowContractId} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
+            </Suspense>
+          ) : (
+            <EscrowCard contractId={null} balance={null} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
+          )}
         </div>
       </div>
 
       <div className="mt-12 grid items-start gap-10 lg:mt-[72px] lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-12">
-        <aside className="lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1" aria-label="Your submission">
+        <aside id="submit" className="scroll-mt-24 lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1" aria-label="Your submission">
           <Card style={rise(4).style} className={cx("p-6", rise(4).className)}>
             <SubmissionPanel c={c} stage={stage} signedIn={user !== null} pubkey={user?.pubkey ?? null} mine={mine} />
           </Card>
@@ -145,8 +142,39 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
           </section>
         </div>
       </div>
+
+      {stage === "open" && !mine ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-canvas/90 px-[18px] pb-[max(12px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-[16px] lg:hidden">
+          <a href="#submit" className={cx(buttonClasses("primary"), "w-full")}>
+            Submit your post · {formatUsdc(c.rewardAmount)}
+          </a>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+/** Streams in after the page: the balance is a live Trustless Work read, capped so it can't hang. */
+async function LiveEscrowCard({
+  slug,
+  contractId,
+  ...rest
+}: {
+  slug: string;
+  contractId: string;
+  budget: string;
+  closed: boolean;
+  remainderTxHash: string | null;
+}) {
+  let balance: string | null = null;
+  try {
+    const read = getEscrow().getEscrow(contractId);
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("balance read timed out")), BALANCE_TIMEOUT_MS));
+    balance = (await Promise.race([read, timeout])).balance;
+  } catch (e) {
+    log.warn("escrow balance read failed", { slug, err: e instanceof Error ? e.message : String(e) });
+  }
+  return <EscrowCard contractId={contractId} balance={balance} {...rest} />;
 }
 
 function Meta({ label, children }: { label: string; children: ReactNode }) {
@@ -202,12 +230,19 @@ function SubmissionPanel({
           activates it on testnet and adds USDC before you submit.
         </p>
         <WalletButton pubkey={null} className="mt-4" />
-        <p className="mt-3 text-[12.5px] text-muted">
-          No wallet yet?{" "}
-          <a href={FREIGHTER_URL} target="_blank" rel="noreferrer" className="rounded-sm font-medium text-accent hover:underline">
-            Install Freighter ↗
-          </a>
-        </p>
+        <div className="mt-5 rounded-lg border border-line bg-sunken p-4">
+          <p className="text-[13px] font-semibold">First time? About a minute:</p>
+          <ol className="mt-2.5 list-decimal space-y-1.5 pl-5 text-[13px] leading-normal text-text-2 marker:font-mono marker:text-muted">
+            <li>
+              <a href={FREIGHTER_URL} target="_blank" rel="noreferrer" className="rounded-sm font-medium text-accent hover:underline">
+                Install Freighter ↗
+              </a>{" "}
+              and create a wallet.
+            </li>
+            <li>In Freighter settings, switch the network to Testnet.</li>
+            <li>Come back to this tab and press Connect wallet.</li>
+          </ol>
+        </div>
       </>
     );
   }
