@@ -54,7 +54,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     title: c.title,
     description,
     openGraph: { title: c.title, description, type: "website" },
-    twitter: { title: c.title, description },
+    twitter: { card: "summary_large_image", title: c.title, description },
   };
 }
 
