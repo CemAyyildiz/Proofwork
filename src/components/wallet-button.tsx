@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { publicEnv } from "@/config/public-env";
 import { shortKey } from "@/lib/format";
-import { login, logout } from "@/wallet/kit";
+import { login, logout, WalletCancelled } from "@/wallet/kit";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
 
@@ -40,7 +40,7 @@ export function WalletButton({
       await action();
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "wallet error");
+      if (!(e instanceof WalletCancelled)) setError(e instanceof Error ? e.message : "wallet error");
     } finally {
       setBusy(false);
     }
@@ -114,7 +114,7 @@ export function WalletButton({
             aria-label={`Wallet ${pubkey}`}
             title={pubkey}
             onClick={() => setOpen((o) => !o)}
-            className="flex h-[38px] items-center gap-2.5 rounded-full border border-line-strong bg-surface pl-[5px] pr-3 font-mono text-[13px] font-medium text-text transition-colors duration-200 hover:bg-raised disabled:opacity-50"
+            className="flex h-11 items-center md:h-[38px] gap-2.5 rounded-full border border-line-strong bg-surface pl-[5px] pr-3 font-mono text-[13px] font-medium text-text transition-colors duration-200 hover:bg-raised disabled:opacity-50"
           >
             <span aria-hidden="true" className="avatar-gradient h-7 w-7 rounded-full" />
             <span aria-hidden="true">{busy ? "Disconnecting…" : shortKey(pubkey)}</span>
