@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { cache, Suspense, type ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { AppealButton } from "@/components/appeal-button";
 import { stageOf, timelineView, type Stage } from "@/components/contributor-state";
 import { Countdown } from "@/components/countdown";
@@ -14,6 +14,7 @@ import { HashChip } from "@/components/ui/hash-chip";
 import { Pill, type PillTone } from "@/components/ui/pill";
 import { WalletButton } from "@/components/wallet-button";
 import { WalletOnboarding } from "@/components/wallet-onboarding";
+import { campaignFor } from "./campaign";
 import { publicEnv } from "@/config/public-env";
 import type { Decision } from "@/db/schema";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
@@ -21,7 +22,7 @@ import { getEscrow } from "@/escrow";
 import { currentUser } from "@/lib/current-user";
 import { formatDateShort, formatUsdc, truncateMiddle } from "@/lib/format";
 import { log } from "@/lib/logger";
-import { mySubmission, publicCampaign, type MySubmission, type PublicCampaign } from "@/services/submission";
+import { mySubmission, type MySubmission, type PublicCampaign } from "@/services/submission";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +44,6 @@ function rise(i: number): { className: string; style: React.CSSProperties } {
   return { className: "animate-reveal", style: { animationDelay: `${i * 80}ms` } };
 }
 
-/** One read per request, shared by the metadata and the page. */
-const campaignFor = cache((slug: string) => publicCampaign(slug));
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const c = await campaignFor((await params).slug);
