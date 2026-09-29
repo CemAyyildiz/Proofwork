@@ -78,7 +78,7 @@ export function HashChip({ value, head = 6, tail = 6, href, className }: HashChi
       <button
         type="button"
         onClick={onCopy}
-        className="inline-flex h-6 min-w-6 items-center justify-center rounded-[5px] px-1 text-muted opacity-70 transition-opacity duration-150 hover:bg-white/5 hover:text-text hover:opacity-100 focus-visible:opacity-100"
+        className="relative inline-flex h-6 min-w-6 items-center after:absolute after:-inset-2.5 after:content-[''] justify-center rounded-[5px] px-1 text-muted opacity-70 transition-opacity duration-150 hover:bg-white/5 hover:text-text hover:opacity-100 focus-visible:opacity-100"
       >
         {copy === "idle" ? (
           <>

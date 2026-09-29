@@ -138,7 +138,7 @@ function NavLink({ item, active, compact = false }: { item: NavItem; active: boo
       aria-current={active ? "page" : undefined}
       className={cx(
         "flex items-center rounded-[10px] text-sm font-medium transition-colors duration-200",
-        compact ? "h-9 shrink-0 gap-2 px-3" : "gap-[11px] px-2.5 py-[9px]",
+        compact ? "h-11 md:h-9 shrink-0 gap-2 px-3" : "gap-[11px] px-2.5 py-[9px]",
         active
           ? "bg-white/5 text-text shadow-[inset_0_0_0_1px_var(--color-line)]"
           : "text-muted hover:bg-white/3 hover:text-text",

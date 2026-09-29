@@ -13,7 +13,7 @@ export default async function PublicLayout({ children }: { children: React.React
       <header className="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur-[16px]">
         <div className="flex h-16 items-center justify-between gap-4 px-[18px] md:px-10">
           <div className="flex min-w-0 items-center gap-3 md:gap-6">
-            <Link href="/" className="rounded-sm" aria-label="Proofwork home">
+            <Link href="/" className="inline-flex min-h-11 min-w-11 items-center rounded-sm" aria-label="Proofwork home">
               <span className="sm:hidden">
                 <Logo wordmark={false} />
               </span>
@@ -29,7 +29,9 @@ export default async function PublicLayout({ children }: { children: React.React
             />
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <TestnetBadge />
+            <span className="hidden sm:contents">
+              <TestnetBadge />
+            </span>
             <HeaderAction pubkey={user?.pubkey ?? null} />
           </div>
         </div>

@@ -32,7 +32,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
         <header className="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur-[16px] lg:hidden">
           <div className="flex h-16 items-center justify-between gap-3 px-[18px] md:px-10">
             <div className="flex min-w-0 items-center gap-3">
-              <Link href="/" className="rounded-sm" aria-label="Proofwork home">
+              <Link href="/" className="inline-flex min-h-11 min-w-11 items-center rounded-sm" aria-label="Proofwork home">
                 <span className="sm:hidden">
                   <Logo wordmark={false} />
                 </span>
