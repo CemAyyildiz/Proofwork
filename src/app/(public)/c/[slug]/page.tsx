@@ -26,6 +26,9 @@ export const dynamic = "force-dynamic";
 /** Freighter's own site; the Wallets Kit modal links it too when the extension is missing. */
 const FREIGHTER_URL = "https://www.freighter.app";
 
+/** Longest the page waits on the live escrow balance before rendering without it. */
+const BALANCE_TIMEOUT_MS = 4_000;
+
 const STAGE_PILL: Record<Stage, { tone: PillTone; label: string }> = {
   open: { tone: "pass", label: "Open" },
   closed: { tone: "wait", label: "Closed" },
@@ -47,7 +50,10 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
   let balance: string | null = null;
   if (c.escrowContractId) {
     try {
-      balance = (await getEscrow().getEscrow(c.escrowContractId)).balance;
+      // Capped so a slow Trustless Work read can't stall the page; the card shows "unavailable".
+      const read = getEscrow().getEscrow(c.escrowContractId);
+      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error("balance read timed out")), BALANCE_TIMEOUT_MS));
+      balance = (await Promise.race([read, timeout])).balance;
     } catch (e) {
       log.warn("escrow balance read failed", { slug, err: e instanceof Error ? e.message : String(e) });
     }
