@@ -253,7 +253,7 @@ export default async function Home() {
             </div>
           </Reveal>
           <Reveal delay={80} className="min-w-0">
-            <div id="verify" className="h-full scroll-mt-24 rounded-xxl border border-line bg-surface p-6 md:p-8">
+            <div id="verify" className="h-full scroll-mt-28 rounded-xxl border border-line bg-surface p-6 md:p-8">
               <h3 className="text-[26px] font-semibold tracking-[-0.035em]">
                 Don&apos;t trust us. <span className={serif}>Check.</span>
               </h3>
