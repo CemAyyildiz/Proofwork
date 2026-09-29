@@ -34,16 +34,6 @@ export default async function ExplorePage() {
         only when you submit.
       </p>
 
-      <ol className="mt-8 grid gap-3 text-sm sm:grid-cols-3">
-        {HOW.map((step, i) => (
-          <li key={step.title} className="rounded-lg border border-line bg-surface px-4 py-3.5">
-            <span className="font-mono text-[11px] font-medium tracking-[0.1em] text-muted">{String(i + 1).padStart(2, "0")}</span>
-            <p className="mt-1 font-semibold">{step.title}</p>
-            <p className="mt-1 text-[13px] leading-normal text-text-2">{step.body}</p>
-          </li>
-        ))}
-      </ol>
-
       {list.length === 0 ? (
         <Card className="mt-10 p-8 text-center">
           <p className="text-lg font-semibold tracking-[-0.02em]">No live campaigns yet.</p>
@@ -86,6 +76,15 @@ export default async function ExplorePage() {
           })}
         </ul>
       )}
+      <ol className="mt-10 grid gap-3 text-sm sm:grid-cols-3">
+        {HOW.map((step, i) => (
+          <li key={step.title} className="rounded-lg border border-line bg-surface px-4 py-3.5">
+            <span className="font-mono text-[11px] font-medium tracking-[0.1em] text-muted">{String(i + 1).padStart(2, "0")}</span>
+            <p className="mt-1 font-semibold">{step.title}</p>
+            <p className="mt-1 text-[13px] leading-normal text-text-2">{step.body}</p>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
