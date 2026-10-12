@@ -36,6 +36,7 @@ Values are entered in the Vercel dashboard only, per scope. None of them is ever
 | `UPSTASH_REDIS_REST_URL` | production Upstash database (see below) | preview Upstash database |
 | `UPSTASH_REDIS_REST_TOKEN` | production Upstash database (see below) | preview Upstash database |
 | `DEFAULT_DISPUTE_RESOLVER_PUBKEY` | optional, public key (`G...`) only | optional |
+| `PUBLIC_FUNDING_SOURCES` | optional, comma-separated public keys (`G...`) of faucets besides Friendbot; wallets they created are not flagged for sharing a funding source | same |
 
 Never set on Vercel: `FUNDER_SECRET`, `DISPUTE_RESOLVER_SECRET`. They are used only by local scripts (`pnpm spike`, `pnpm escrow:close`) and must stay on the operator's machine.
 

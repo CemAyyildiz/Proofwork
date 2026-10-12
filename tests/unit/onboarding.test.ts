@@ -2,7 +2,7 @@ import { Keypair, Networks, Operation, TransactionBuilder, type Transaction } fr
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { onboardingView } from "@/components/contributor-state";
 import { env } from "@/config/env";
-import { horizonTrustlineReader } from "@/services/submission";
+import { horizonFundingSourceReader, horizonTrustlineReader } from "@/services/submission";
 import {
   OnboardingError,
   buildChangeTrustXdr,
@@ -10,6 +10,7 @@ import {
   hasUsdcTrustline,
   isSignatureRejection,
   readAccount,
+  readFundingSource,
   submitSignedXdr,
 } from "@/wallet/onboarding";
 import { fakeFetch } from "./fake-fetch";
@@ -18,6 +19,21 @@ const ADDR = "GCDSL5MRXQ44BWITRLP23BUUKH3OA4ITCLYAMNDDASH4BGONXKWY2NX5";
 const ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 const HORIZON = "https://horizon-testnet.stellar.org";
 const HASH = "a".repeat(64);
+const FRIENDBOT = "GAIH3ULLFQ4DGSECF2AR555KZ4KNDGEKN4AFI4SU2M7B43MGK3QJZNSR";
+const OPS_URL = `${HORIZON}/accounts/${ADDR}/operations?order=asc&limit=1`;
+
+/** Horizon's operations page, trimmed to the fields a first record carries. */
+const operations = (...records: Array<Record<string, unknown>>) => ({ _links: {}, _embedded: { records } });
+const createdBy = (funder: string, account = ADDR) => ({
+  id: "20970147757953025",
+  type: "create_account",
+  type_i: 0,
+  transaction_successful: true,
+  source_account: funder,
+  starting_balance: "10000.0000000",
+  funder,
+  account,
+});
 
 const xlm = { asset_type: "native", balance: "10000.0000000" };
 const usdc = (issuer = ISSUER) => ({ asset_type: "credit_alphanum4", asset_code: "USDC", asset_issuer: issuer, balance: "0" });
@@ -80,6 +96,57 @@ describe("readAccount", () => {
   });
 });
 
+describe("readFundingSource", () => {
+  it("returns the funder of the account's create_account, read as its first operation", async () => {
+    const { cfg, seen } = horizonReplying(200, operations(createdBy(ISSUER)));
+    expect(await readFundingSource(ADDR, cfg)).toBe(ISSUER);
+    expect(seen).toEqual([OPS_URL]);
+  });
+
+  it("reports Friendbot's account even when a minion account sent the transaction", async () => {
+    const minion = "GCKFBEIYV2U22IO2BJ4KVJOIP7XPWQGQFKKWXR6DOSJBV7STMAQSMTGG";
+    const { cfg } = horizonReplying(200, operations({ ...createdBy(FRIENDBOT), source_account: minion }));
+    expect(await readFundingSource(ADDR, cfg)).toBe(FRIENDBOT);
+  });
+
+  it("is unknown when the first operation is not a create_account", async () => {
+    const payment = { type: "payment", from: ISSUER, to: ADDR, amount: "5.0000000" };
+    expect(await readFundingSource(ADDR, horizonReplying(200, operations(payment)).cfg)).toBeNull();
+  });
+
+  it("is unknown when Horizon holds no operation for the account", async () => {
+    expect(await readFundingSource(ADDR, horizonReplying(200, operations()).cfg)).toBeNull();
+  });
+
+  it("is unknown when the create_account is for another account or names no usable funder", async () => {
+    const other = "GCKFBEIYV2U22IO2BJ4KVJOIP7XPWQGQFKKWXR6DOSJBV7STMAQSMTGG";
+    expect(await readFundingSource(ADDR, horizonReplying(200, operations(createdBy(ISSUER, other))).cfg)).toBeNull();
+    expect(await readFundingSource(ADDR, horizonReplying(200, operations({ type: "create_account", account: ADDR })).cfg)).toBeNull();
+    expect(await readFundingSource(ADDR, horizonReplying(200, operations(createdBy("not-an-address"))).cfg)).toBeNull();
+  });
+
+  it("throws unreachable on a non-200, a garbage body or no answer", async () => {
+    for (const status of [404, 429, 503]) {
+      await expect(readFundingSource(ADDR, horizonReplying(status, {}).cfg)).rejects.toMatchObject({ kind: "unreachable" });
+    }
+    await expect(readFundingSource(ADDR, horizonReplying(200, { nope: true }).cfg)).rejects.toMatchObject({ kind: "unreachable" });
+    const timedOut = {
+      horizonUrl: HORIZON,
+      fetch: (async () => {
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      }) as typeof fetch,
+    };
+    await expect(readFundingSource(ADDR, timedOut)).rejects.toMatchObject({ kind: "unreachable" });
+  });
+
+  it("refuses anything that is not a G-address before building a URL", async () => {
+    const { cfg, seen } = horizonReplying(200, operations());
+    await expect(readFundingSource("../../evil", cfg)).rejects.toMatchObject({ kind: "rejected" });
+    await expect(readFundingSource(`${ADDR}/../x`, cfg)).rejects.toMatchObject({ kind: "rejected" });
+    expect(seen).toEqual([]);
+  });
+});
+
 describe("hasUsdcTrustline", () => {
   it("maps the account state to the server gate's boolean", async () => {
     expect(await hasUsdcTrustline(ADDR, horizonReplying(404, {}).cfg)).toBe(false);
@@ -88,13 +155,13 @@ describe("hasUsdcTrustline", () => {
   });
 });
 
-describe("horizonTrustlineReader", () => {
+describe("default Horizon readers", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
 
-  it("reads the configured Horizon host and matches the configured USDC issuer", async () => {
+  function stubServerEnv(): void {
     vi.stubEnv("DATABASE_URL", "postgres://u:p@localhost/db");
     vi.stubEnv("STELLAR_NETWORK", "testnet");
     vi.stubEnv("TW_API_KEY", "k".repeat(16));
@@ -103,6 +170,10 @@ describe("horizonTrustlineReader", () => {
     vi.stubEnv("PLATFORM_OPS_SECRET", Keypair.random().secret());
     vi.stubEnv("DECISION_LEDGER_SECRET", Keypair.random().secret());
     vi.stubEnv("SESSION_SECRET", "s".repeat(43));
+  }
+
+  it("reads the configured Horizon host and matches the configured USDC issuer", async () => {
+    stubServerEnv();
     const seen: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -113,6 +184,20 @@ describe("horizonTrustlineReader", () => {
     );
     expect(await horizonTrustlineReader(ADDR)).toBe(true);
     expect(seen).toEqual([`${env.HORIZON_URL}/accounts/${ADDR}`]);
+  });
+
+  it("reads the funding source from the configured Horizon host, with the wallet as the only variable", async () => {
+    stubServerEnv();
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch((url) => {
+        seen.push(url);
+        return { status: 200, body: operations(createdBy(FRIENDBOT)) };
+      }),
+    );
+    expect(await horizonFundingSourceReader(ADDR)).toBe(FRIENDBOT);
+    expect(seen).toEqual([`${env.HORIZON_URL}/accounts/${ADDR}/operations?order=asc&limit=1`]);
   });
 });
 

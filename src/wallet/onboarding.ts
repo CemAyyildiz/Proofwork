@@ -4,8 +4,9 @@ import { z } from "zod";
  * Contributor wallet onboarding against Horizon testnet: read the account,
  * fund it with Friendbot, open the USDC trustline. Isomorphic on purpose: the
  * browser drives the flow, and the server reuses `readAccount` to refuse a
- * submission from a wallet that cannot be paid. No key ever passes through
- * here; the contributor's own wallet signs the trustline.
+ * submission from a wallet that cannot be paid and `readFundingSource` to
+ * record which account created it. No key ever passes through here; the
+ * contributor's own wallet signs the trustline.
  *
  * Hosts come from config, never from user input. The only interpolated value
  * is a public key, checked against the G-address shape first.
@@ -81,6 +82,31 @@ export async function readAccount(address: string, cfg: HorizonConfig): Promise<
   if (res.status === 404) return { kind: "no-account" };
   if (!res.ok) throw new OnboardingError("unreachable", `Horizon answered ${res.status}`);
   return classifyAccount(await res.json().catch(() => null), cfg.usdcIssuer);
+}
+
+const firstOperationSchema = z.object({
+  _embedded: z.object({
+    records: z.array(z.object({ type: z.string(), funder: z.string().optional(), account: z.string().optional() })),
+  }),
+});
+
+/**
+ * The account that created `address`, from the first operation in its history,
+ * or null when Horizon holds no creation record for it (first operation is not
+ * this account's `create_account`, or history starts later). One Horizon read;
+ * any failure throws `unreachable`.
+ */
+export async function readFundingSource(address: string, cfg: Pick<HorizonConfig, "horizonUrl" | "fetch">): Promise<string | null> {
+  checkAddress(address);
+  const res = await call(cfg.fetch ?? fetch, `${cfg.horizonUrl}/accounts/${address}/operations?order=asc&limit=1`, {
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) throw new OnboardingError("unreachable", `Horizon answered ${res.status}`);
+  const parsed = firstOperationSchema.safeParse(await res.json().catch(() => null));
+  if (!parsed.success) throw new OnboardingError("unreachable", "unexpected operations response from Horizon");
+  const first = parsed.data._embedded.records[0];
+  if (!first || first.type !== "create_account" || first.account !== address) return null;
+  return first.funder !== undefined && G_ADDRESS.test(first.funder) ? first.funder : null;
 }
 
 /** Server-side gate helper: true only when the account exists and trusts USDC. */

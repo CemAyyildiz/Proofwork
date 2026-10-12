@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { campaigns, decisions, payouts, reviewTimes, roleGrants, submissions } from "@/db/schema";
-import { csvCell, toCsv } from "@/lib/csv";
+import { csvCell, parseCsv, toCsv } from "@/lib/csv";
 import { REVIEW_LOG_COLUMNS, reviewLog, reviewLogCampaigns } from "@/services/review";
 import { errorResponse } from "@/lib/http";
 import { makeTestDb } from "./db";
@@ -103,8 +103,8 @@ beforeEach(async () => {
     },
   ]);
   await conn.insert(reviewTimes).values([
-    { decisionId: "dec_a", secondsTotal: 90, secondsPerSignal: {}, blind: true },
-    { decisionId: "dec_b", secondsTotal: 120, secondsPerSignal: {}, blind: true },
+    { decisionId: "dec_a", secondsTotal: 90, secondsPerSignal: {}, blind: true, sharedFundingCount: 2 },
+    { decisionId: "dec_b", secondsTotal: 120, secondsPerSignal: {}, blind: true, sharedFundingCount: 0 },
   ]);
   await conn.insert(payouts).values({ id: "pay_1", submissionId: "sub_1", milestoneIndex: 1, amount: "10", status: "released", releaseTxHash: "tx_rel" });
 });
@@ -149,6 +149,18 @@ describe("reviewLog", () => {
     const { rows } = await reviewLog(CAMPAIGN, { pubkey: REVIEWER }, conn);
     for (const r of rows) expect(Object.keys(r).sort()).toEqual([...REVIEW_LOG_COLUMNS].sort());
     expect(REVIEW_LOG_COLUMNS.some((c) => /plant|genuine_flag|fake/i.test(c))).toBe(false);
+  });
+
+  it("shared_funding_count is the count stored with the decision: warned, checked without a link, or empty", async () => {
+    await conn.insert(reviewTimes).values({ decisionId: "dec_c", secondsTotal: 30, secondsPerSignal: {}, blind: true });
+    const { rows } = await reviewLog(CAMPAIGN, { pubkey: REVIEWER }, conn);
+    expect(REVIEW_LOG_COLUMNS).toContain("shared_funding_count");
+    expect(Object.fromEntries(rows.map((r) => [r.decision_id, r.shared_funding_count]))).toEqual({ dec_a: 2, dec_b: 0, dec_c: null });
+  });
+
+  it("a decision without a review-time row exports an empty shared_funding_count", async () => {
+    const { rows } = await reviewLog(CAMPAIGN, { pubkey: REVIEWER }, conn);
+    expect(rows.find((r) => r.decision_id === "dec_c")?.shared_funding_count).toBeNull();
   });
 
   it("the campaign funder may export", async () => {
@@ -270,6 +282,8 @@ describe("GET /api/campaigns/[id]/review-log", () => {
     expect(lines.filter((l) => l.startsWith("camp-1,s1,"))).toHaveLength(2);
     expect(lines.join("\n")).toContain("https://stellar.expert/explorer/testnet/tx/tx_b");
     expect(lines.join("\n")).toContain(`"'=HYPERLINK(""http://evil"")"`);
+    // dec_a warned with 2, dec_c has no review-time row, dec_b was checked without a link.
+    expect(parseCsv(new TextDecoder().decode(bytes)).rows.map((r) => r["shared_funding_count"])).toEqual(["2", "", "0"]);
   });
 
   it("?format=json returns the same rows as a JSON array", async () => {

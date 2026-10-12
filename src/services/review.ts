@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, notExists, sql } from "
 import { z } from "zod";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, payouts, reviewTimes, roleGrants, submissions, type Decision, type Submission } from "@/db/schema";
+import { publicFundingSources } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import { evaluate, reasonCodeSchema, SIGNALS, signalsSchema, validateReason, type SignalId } from "@/domain/rubric";
 import type { DecisionLedger } from "@/ledger/decision-ledger";
@@ -27,9 +28,64 @@ export interface QueueItem {
   status: Submission["status"];
   campaign: { id: string; slug: string; title: string; brief: string };
   priorDecision: Decision | null;
+  /**
+   * Other submissions in the same campaign linked to this one by funding
+   * source; null when this wallet's source was not checked. A count only:
+   * no address and no id of a linked submission ever reaches the reviewer.
+   */
+  sharedFundingCount: number | null;
 }
 
-export async function reviewQueue(conn: Db = db): Promise<QueueItem[]> {
+/** What the link rule needs from a submission row. */
+export type FundingLinkRow = Pick<Submission, "id" | "campaignId" | "contributorPubkey" | "fundingSource">;
+
+/**
+ * Two submissions are linked when the same non-public account created both
+ * wallets, or one wallet created the other. Callers pass rows of one campaign
+ * whose sources are known.
+ */
+function fundingLinked(a: FundingLinkRow, b: FundingLinkRow, publicSources: ReadonlySet<string>): boolean {
+  const shared = (source: string | null, other: string | null): boolean => source !== null && source === other && !publicSources.has(source);
+  return shared(a.fundingSource, b.fundingSource) || shared(a.fundingSource, b.contributorPubkey) || shared(b.fundingSource, a.contributorPubkey);
+}
+
+/**
+ * Shared-funding count per submission id: how many other submissions of the
+ * same campaign it is linked to. Null when the submission's own source is
+ * unknown ("not checked"); such a row is never counted for another one either.
+ * Rows of different campaigns are never compared.
+ */
+export function sharedFundingCounts(rows: readonly FundingLinkRow[], publicSources: ReadonlySet<string>): Map<string, number | null> {
+  const checkedByCampaign = new Map<string, FundingLinkRow[]>();
+  for (const r of rows) {
+    if (r.fundingSource === null) continue;
+    const group = checkedByCampaign.get(r.campaignId);
+    if (group) group.push(r);
+    else checkedByCampaign.set(r.campaignId, [r]);
+  }
+  const counts = new Map<string, number | null>();
+  for (const r of rows) {
+    if (r.fundingSource === null) {
+      counts.set(r.id, null);
+      continue;
+    }
+    const peers = checkedByCampaign.get(r.campaignId) ?? [];
+    counts.set(r.id, peers.filter((other) => other.id !== r.id && fundingLinked(r, other, publicSources)).length);
+  }
+  return counts;
+}
+
+/** Link counts for every submission of the given campaigns, decided ones included. */
+async function campaignFundingCounts(campaignIds: string[], publicSources: ReadonlySet<string>, conn: Db): Promise<Map<string, number | null>> {
+  if (campaignIds.length === 0) return new Map();
+  const rows = await conn
+    .select({ id: submissions.id, campaignId: submissions.campaignId, contributorPubkey: submissions.contributorPubkey, fundingSource: submissions.fundingSource })
+    .from(submissions)
+    .where(inArray(submissions.campaignId, campaignIds));
+  return sharedFundingCounts(rows, publicSources);
+}
+
+export async function reviewQueue(conn: Db = db, publicSources: ReadonlySet<string> = publicFundingSources()): Promise<QueueItem[]> {
   const rows = await conn
     .select({ s: submissions, c: campaigns })
     .from(submissions)
@@ -44,6 +100,8 @@ export async function reviewQueue(conn: Db = db): Promise<QueueItem[]> {
   const priorBySub = new Map<string, Decision>();
   for (const d of priors) if (!priorBySub.has(d.submissionId)) priorBySub.set(d.submissionId, d);
 
+  const shared = await campaignFundingCounts([...new Set(rows.map((r) => r.c.id))], publicSources, conn);
+
   return rows.map((r) => ({
     submissionId: r.s.id,
     shortId: r.s.shortId,
@@ -52,6 +110,7 @@ export async function reviewQueue(conn: Db = db): Promise<QueueItem[]> {
     status: r.s.status,
     campaign: { id: r.c.id, slug: r.c.slug, title: r.c.title, brief: r.c.brief },
     priorDecision: priorBySub.get(r.s.id) ?? null,
+    sharedFundingCount: shared.get(r.s.id) ?? null,
   }));
 }
 
@@ -70,12 +129,17 @@ export type DecideInput = z.infer<typeof decideSchema>;
  * write fails the decision row is still stored with tx_hash null and the
  * error is surfaced; `retryCommit` can finish it. The submission status
  * only advances once the on-chain reference exists (AD-9).
+ *
+ * The shared-funding count the reviewer was warned with is stored beside the
+ * review time. It is not part of the record that is hashed and committed, and
+ * nothing here derives a signal, outcome or reason from it.
  */
 export async function decide(
   input: DecideInput,
   actor: { pubkey: string },
   ledger: DecisionLedger,
   conn: Db = db,
+  publicSources: ReadonlySet<string> = publicFundingSources(),
 ): Promise<Decision> {
   const reason = validateReason(input.signals, input.reasonCode);
   if (!reason.ok) throw AppError.validation(reason.message);
@@ -99,6 +163,9 @@ export async function decide(
   const isAppeal = row.s.status === "appealed";
   if (isAppeal && !prior) throw AppError.conflict("appealed submission has no prior decision");
   if (!isAppeal && prior) throw AppError.conflict("submission already decided");
+
+  // Read before the chain write, so a failed read cannot strand a committed decision without its row.
+  const sharedFundingCount = (await campaignFundingCounts([row.c.id], publicSources, conn)).get(row.s.id) ?? null;
 
   const record: DecisionRecord = {
     v: 1,
@@ -133,7 +200,9 @@ export async function decide(
       decidedAt: new Date(record.decidedAt),
     })
     .returning();
-  await conn.insert(reviewTimes).values({ decisionId: id, secondsTotal: input.secondsTotal, secondsPerSignal: input.secondsPerSignal, blind: true });
+  await conn
+    .insert(reviewTimes)
+    .values({ decisionId: id, secondsTotal: input.secondsTotal, secondsPerSignal: input.secondsPerSignal, blind: true, sharedFundingCount });
   await conn
     .update(submissions)
     .set({ status: outcome === "PASS" ? "decided" : "rejected" })
@@ -196,6 +265,9 @@ export async function getDecision(id: string, conn: Db = db) {
  * re-reviews included, ordered by decision time. Column names are shared by
  * the CSV and JSON forms. There is no planted/genuine column: that list never
  * enters the app and is joined to this export offline (AD-10).
+ *
+ * `shared_funding_count` is the warning shown when the decision was made:
+ * above 0 the card warned, 0 it did not, empty the source was not checked.
  */
 export const REVIEW_LOG_COLUMNS = [
   "campaign_slug",
@@ -218,6 +290,7 @@ export const REVIEW_LOG_COLUMNS = [
   "decided_at",
   "review_seconds",
   "blind",
+  "shared_funding_count",
   "submission_status",
   "payout_status",
   "release_tx_hash",
@@ -281,6 +354,7 @@ export async function reviewLog(
       decided_at: d.decidedAt.toISOString(),
       review_seconds: t?.secondsTotal ?? null,
       blind: t?.blind ?? null,
+      shared_funding_count: t?.sharedFundingCount ?? null,
       submission_status: s.status,
       payout_status: p?.status ?? null,
       release_tx_hash: p?.releaseTxHash ?? null,

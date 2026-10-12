@@ -7,7 +7,7 @@ import { canonicalizeSubmissionUrl, submissionUrlSchema } from "@/domain/submiss
 import { AppError } from "@/lib/errors";
 import { newId, newShortId } from "@/lib/ids";
 import { log } from "@/lib/logger";
-import { hasUsdcTrustline } from "@/wallet/onboarding";
+import { hasUsdcTrustline, readFundingSource } from "@/wallet/onboarding";
 import { closeInFlight } from "./escrow-ops";
 
 /** Answers whether a wallet can receive USDC. Injected so unit tests need no network. */
@@ -16,6 +16,13 @@ export type TrustlineReader = (pubkey: string) => Promise<boolean>;
 /** Default reader: one Horizon read against the configured testnet host. */
 export const horizonTrustlineReader: TrustlineReader = (pubkey) =>
   hasUsdcTrustline(pubkey, { horizonUrl: env.HORIZON_URL, usdcIssuer: env.USDC_ISSUER });
+
+/** Answers which account created a wallet, or null when Horizon has no creation record. Injected like `TrustlineReader`. */
+export type FundingSourceReader = (pubkey: string) => Promise<string | null>;
+
+/** Default reader: one Horizon read against the configured testnet host. */
+export const horizonFundingSourceReader: FundingSourceReader = (pubkey) =>
+  readFundingSource(pubkey, { horizonUrl: env.HORIZON_URL });
 
 export interface PublicCampaign {
   id: string;
@@ -74,6 +81,7 @@ export async function createSubmission(
   actor: { pubkey: string },
   conn: Db = db,
   trustline: TrustlineReader = horizonTrustlineReader,
+  fundingSource: FundingSourceReader = horizonFundingSourceReader,
 ): Promise<Submission> {
   const c = (await conn.select().from(campaigns).where(eq(campaigns.slug, input.campaignSlug)).limit(1))[0];
   if (!c) throw AppError.notFound("campaign");
@@ -110,9 +118,18 @@ export async function createSubmission(
   }
   if (!canReceive) throw AppError.conflict("wallet needs a USDC trustline");
 
+  // The source only feeds a reviewer warning, so a failed lookup never costs
+  // the contributor their submission: it stays unknown and the card says so.
+  let source: string | null = null;
+  try {
+    source = await fundingSource(actor.pubkey);
+  } catch (e) {
+    log.warn("funding source lookup failed", { err: e instanceof Error ? e.message : String(e) });
+  }
+
   const [row] = await conn
     .insert(submissions)
-    .values({ id: newId("sub"), shortId: newShortId(), campaignId: c.id, contributorPubkey: actor.pubkey, workUrl: url })
+    .values({ id: newId("sub"), shortId: newShortId(), campaignId: c.id, contributorPubkey: actor.pubkey, workUrl: url, fundingSource: source })
     .returning();
   return row as Submission;
 }

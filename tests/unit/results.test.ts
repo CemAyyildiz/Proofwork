@@ -42,6 +42,7 @@ function decision(shortId: string, signals: Signals, opts: { appealOf?: string; 
     decided_at: new Date(Date.UTC(2026, 8, 20, 0, 0, clock)).toISOString(),
     review_seconds: 42,
     blind: true,
+    shared_funding_count: clock % 3 === 0 ? null : clock % 3,
     submission_status: outcome === "PASS" ? "decided" : "rejected",
     payout_status: null,
     release_tx_hash: null,
@@ -219,6 +220,23 @@ describe("score — edge cases", () => {
   it("refuses a submission listed as both planted and genuine", () => {
     const log = parseReviewLog(exportCsv([decision(P(0), FARM_FAIL)]));
     expect(() => score(log, parsePlanted(plantedCsv([{ id: P(0), planted: true }, { id: P(0), planted: false }])))).toThrow(ResultsInputError);
+  });
+});
+
+describe("review log columns", () => {
+  it("reads an export that carries shared_funding_count, with a count or an empty cell", () => {
+    const csv = exportCsv([decision(P(0), FARM_FAIL), decision(G(0), ALL_PASS), decision(G(1), ALL_PASS)]);
+    const { header, rows } = parseCsv(csv);
+    expect(header).toContain("shared_funding_count");
+    expect(new Set(rows.map((r) => r["shared_funding_count"]))).toEqual(new Set(["", "1", "2"]));
+    expect(parseReviewLog(csv).map((r) => r.shortId)).toEqual([P(0), G(0), G(1)]);
+  });
+
+  it("still reads a Month 1 export that has no shared_funding_count column", () => {
+    const month1 = REVIEW_LOG_COLUMNS.filter((c) => c !== "shared_funding_count");
+    const csv = `\uFEFF${toCsv(month1, [decision(G(0), ALL_PASS)])}`;
+    expect(parseCsv(csv).header).not.toContain("shared_funding_count");
+    expect(parseReviewLog(csv)).toHaveLength(1);
   });
 });
 

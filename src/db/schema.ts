@@ -94,6 +94,12 @@ export const submissions = pgTable(
       .references(() => campaigns.id),
     contributorPubkey: text("contributor_pubkey").notNull(),
     workUrl: text("work_url").notNull(),
+    /**
+     * Account that created the contributor's wallet, as Horizon reported it at
+     * submission. Stored raw (Friendbot included) so the public-source list
+     * applies at read time. Null = not looked up or no creation record.
+     */
+    fundingSource: text("funding_source"),
     status: submissionStatus("status").notNull().default("pending"),
     submittedAt: createdAt(),
   },
@@ -201,6 +207,12 @@ export const reviewTimes = pgTable("review_time", {
   secondsTotal: integer("seconds_total").notNull(),
   secondsPerSignal: jsonb("seconds_per_signal").$type<Record<string, number>>().notNull(),
   blind: boolean("blind").notNull().default(true),
+  /**
+   * Shared-funding warning the reviewer was shown: other submissions in the
+   * campaign linked by funding source when the decision was made. 0 = checked,
+   * no link. Null = source not checked, or decided before the warning existed.
+   */
+  sharedFundingCount: integer("shared_funding_count"),
 });
 
 export type Campaign = typeof campaigns.$inferSelect;

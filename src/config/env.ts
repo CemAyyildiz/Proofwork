@@ -19,6 +19,19 @@ const publicKey = z
   .string()
   .refine((v) => StrKey.isValidEd25519PublicKey(v), "must be a Stellar public key (G...)");
 
+/** Comma-separated G-addresses; every entry must be a valid public key. */
+const publicKeyList = z
+  .string()
+  .transform((v) => v.split(",").map((part) => part.trim()).filter((part) => part !== ""))
+  .pipe(z.array(publicKey));
+
+/**
+ * Friendbot's testnet account: the `funder` Horizon reports for every wallet
+ * Friendbot creates, even when a minion account is the transaction source.
+ * Read back on testnet 2026-10-12, see docs/evidence/funding-source.md.
+ */
+export const FRIENDBOT_ACCOUNT = "GAIH3ULLFQ4DGSECF2AR555KZ4KNDGEKN4AFI4SU2M7B43MGK3QJZNSR";
+
 /** `.env` templates leave optional values as empty strings; treat those as unset. */
 const optional = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), inner.optional());
@@ -45,6 +58,9 @@ const schema = z.object({
   UPSTASH_REDIS_REST_TOKEN: optional(z.string().min(1)),
 
   DEFAULT_DISPUTE_RESOLVER_PUBKEY: optional(publicKey),
+
+  /** Faucets besides Friendbot whose wallets must not be linked by funding source. */
+  PUBLIC_FUNDING_SOURCES: optional(publicKeyList),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -92,3 +108,12 @@ export const env: Env = new Proxy({} as Env, {
     return cached[prop as keyof Env];
   },
 });
+
+/**
+ * Accounts anyone can get a wallet from, so sharing one says nothing about who
+ * is behind it: Friendbot always, plus the configured faucets. Configuration
+ * only; never built from user input.
+ */
+export function publicFundingSources(): ReadonlySet<string> {
+  return new Set([FRIENDBOT_ACCOUNT, ...(env.PUBLIC_FUNDING_SOURCES ?? [])]);
+}

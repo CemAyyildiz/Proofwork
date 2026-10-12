@@ -12,6 +12,8 @@ interface Item {
   status: string;
   campaign: { slug: string; title: string; brief: string };
   priorDecision: { outcome: string; reasonCode: string; note: string } | null;
+  /** Other submissions in the campaign linked by funding source; null = not checked. */
+  sharedFundingCount: number | null;
 }
 
 /** Wall-clock bookkeeping kept outside render so the component stays pure. */
@@ -29,6 +31,7 @@ class ReviewClock {
   }
 }
 
+/** Every signal starts passing on every card. A funding warning informs the reviewer and never presets an answer. */
 const initial = (): Signals => ({
   account_genuine: true,
   content_original: true,
@@ -117,6 +120,16 @@ export function ReviewCard({ item }: { item: Item }) {
       {item.priorDecision ? (
         <p className="rounded bg-amber-50 p-2 text-xs">
           First pass: {item.priorDecision.outcome} ({item.priorDecision.reasonCode}) — {item.priorDecision.note}
+        </p>
+      ) : null}
+      {item.sharedFundingCount === null ? (
+        <p className="text-xs text-neutral-500">Funding source not checked.</p>
+      ) : item.sharedFundingCount > 0 ? (
+        <p role="note" className="rounded bg-amber-50 p-2 text-xs text-amber-900">
+          <strong>Shared funding source:</strong>{" "}
+          {`${item.sharedFundingCount} other ${item.sharedFundingCount === 1 ? "submission" : "submissions"} in this campaign.`} The wallets were
+          first funded by the same account, or one funded the other. Weigh it under the single-account check; no signal has been
+          changed.
         </p>
       ) : null}
 

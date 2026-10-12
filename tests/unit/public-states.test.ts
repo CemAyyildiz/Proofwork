@@ -96,7 +96,7 @@ describe("stageOf", () => {
 });
 
 function submission(status: Submission["status"]): Submission {
-  return { id: "sub_1", shortId: "s1", campaignId: "cmp_1", contributorPubkey: "G_C1", workUrl: "https://x.com/a/status/1", status, submittedAt: new Date(NOW) };
+  return { id: "sub_1", shortId: "s1", campaignId: "cmp_1", contributorPubkey: "G_C1", workUrl: "https://x.com/a/status/1", fundingSource: null, status, submittedAt: new Date(NOW) };
 }
 
 function decision(id: string, outcome: "PASS" | "FAIL", txHash: string | null): Decision {
