@@ -56,6 +56,17 @@ One classic Stellar transaction per decision, from a dedicated decision ledger a
 
 The canonical JSON holds the submission and campaign reference, reviewer key, the six signal answers, outcome, reason code, the hash of the decision it re-reviews (if any) and the timestamp, with keys in a fixed order. It is stored with the decision and shown on `/verify/<decision id>`, where the browser hashes it again with WebCrypto. Anyone can compare that hash with the transaction memo on stellar.expert. The decision is written when it is made, not batched at close. Reason codes: `R00_PASS`, `R01_ACCOUNT`, `R02_ORIGINAL`, `R03_TASK`, `R04_BRIEF`, `R05_MULTI`, `R06_SPAM` ([rubric](rubric.md)).
 
+## Shared funding source warning
+
+The rubric asks whether one person is behind several accounts. To give the reviewer something to judge that by, the app records which Stellar account created each submitting wallet and warns when submissions in the same campaign are linked.
+
+- **Capture.** When a submission is accepted, the server reads the first operation of the contributor's wallet from Horizon (`/accounts/<wallet>/operations?order=asc&limit=1`) and stores the `funder` of its `create_account`. The host comes from config and the session wallet's public key is the only variable in the URL. If the read fails or the account has no creation record, the submission is still accepted and the source stays unknown.
+- **Link rule.** Two submissions are linked when they are in the same campaign and either both wallets were created by the same account, or one wallet created the other. Public sources never link: Friendbot's testnet account is always excluded, and more faucets can be listed in `PUBLIC_FUNDING_SOURCES`. The raw creator is stored and the exclusion is applied when the queue is read, so adding a faucet clears earlier warnings without touching data. Submissions with an unknown source are shown as "Funding source not checked" and are never counted as a link. Nothing is compared across campaigns.
+- **What the reviewer sees.** A count only: "Shared funding source: N other submissions in this campaign". No wallet address, no source address and no ID of a linked submission reaches the queue. The warning informs and decides nothing: all six signals start as they do on any other card, and no outcome or reason code is derived from it.
+- **What is kept.** The count shown at decision time is stored beside the review time and exported as `shared_funding_count` in the review log (above 0: warned; 0: checked, no link; empty: not checked). It is not part of the canonical decision JSON, so decision hashes and the on-chain record format are unchanged and Month 1 decisions verify as before.
+
+Read back on testnet in [funding-source.md](evidence/funding-source.md).
+
 ## Security model
 
 - **No custody by the app.** The platform keys cannot move funds; release needs the funder's wallet, the remainder needs the dispute resolver (see Known limits for who holds that key in Month 1).
@@ -64,7 +75,7 @@ The canonical JSON holds the submission and campaign reference, reviewer key, th
 - **Authorization** is checked in the service layer on every mutation against the caller's wallet, role and campaign ownership.
 - **Input.** Every route and server action validates with zod. Submission URLs must be `https://x.com/<handle>/status/<id>` (or twitter.com); the server never fetches them.
 - **Secrets** live only in server environment, validated at startup, never logged and never in the client bundle. Security headers (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none) on every response; public write endpoints are rate limited.
-- **Blind review.** The queue shows no contributor identity beyond the post URL, in a stable non-chronological order. The list of planted fakes was never stored in the app database; it was joined to the exported review log only after scoring ([results](results.md)).
+- **Blind review.** The queue shows no contributor identity beyond the post URL, in a stable non-chronological order. The shared-funding warning adds a count, never an address. The list of planted fakes was never stored in the app database; it was joined to the exported review log only after scoring ([results](results.md)).
 
 ## Known limits
 
@@ -74,6 +85,7 @@ The canonical JSON holds the submission and campaign reference, reviewer key, th
 - **Manual close.** The remainder returns only when the funder closes and the resolver sweeps; there is no timer.
 - **The operator holds the dispute resolver key in Month 1.** `pnpm escrow:close` runs with `DISPUTE_RESOLVER_SECRET` from the operator's environment, not from a Chapter Lead wallet. The resolver chooses the destination of `withdraw-remaining-funds`; the script sends the balance to the escrow's funder, but the key itself could send it elsewhere. The sweep tx on stellar.expert shows where the remainder went.
 - **Testnet only.** Testnet USDC has no value; the server keys are sprint keys.
+- **The funding warning is a hint.** It sees only the account that created a wallet. Unrelated wallets created by the same exchange, or by a faucet that is not on the public list, are flagged together; wallets one person funds through separate intermediate accounts are not; and a wallet whose first Horizon record is not its creation is not checked at all.
 - **X only, USDC only**, and the campaign is created and run by hand; this is not a self-service platform.
 
 ## Month 2 next steps
