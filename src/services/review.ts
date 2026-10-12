@@ -121,6 +121,8 @@ export const decideSchema = z.object({
   note: z.string().trim().min(3).max(1000),
   secondsTotal: z.number().int().min(0).max(24 * 3600),
   secondsPerSignal: z.record(z.string(), z.number().int().min(0)).default({}),
+  /** The shared-funding count the card rendered with; null or missing = it showed "not checked". Bounded to fit the column. */
+  sharedFundingCount: z.number().int().min(0).max(100_000).nullable().default(null),
 });
 export type DecideInput = z.infer<typeof decideSchema>;
 
@@ -130,16 +132,17 @@ export type DecideInput = z.infer<typeof decideSchema>;
  * error is surfaced; `retryCommit` can finish it. The submission status
  * only advances once the on-chain reference exists (AD-9).
  *
- * The shared-funding count the reviewer was warned with is stored beside the
- * review time. It is not part of the record that is hashed and committed, and
- * nothing here derives a signal, outcome or reason from it.
+ * The shared-funding count is the one the card rendered with, posted with the
+ * decision and stored beside the review time as given: it is not recomputed
+ * here, so the log states what the reviewer saw. It is not part of the record
+ * that is hashed and committed, and nothing here derives a signal, outcome or
+ * reason from it.
  */
 export async function decide(
   input: DecideInput,
   actor: { pubkey: string },
   ledger: DecisionLedger,
   conn: Db = db,
-  publicSources: ReadonlySet<string> = publicFundingSources(),
 ): Promise<Decision> {
   const reason = validateReason(input.signals, input.reasonCode);
   if (!reason.ok) throw AppError.validation(reason.message);
@@ -163,9 +166,6 @@ export async function decide(
   const isAppeal = row.s.status === "appealed";
   if (isAppeal && !prior) throw AppError.conflict("appealed submission has no prior decision");
   if (!isAppeal && prior) throw AppError.conflict("submission already decided");
-
-  // Read before the chain write, so a failed read cannot strand a committed decision without its row.
-  const sharedFundingCount = (await campaignFundingCounts([row.c.id], publicSources, conn)).get(row.s.id) ?? null;
 
   const record: DecisionRecord = {
     v: 1,
@@ -202,7 +202,7 @@ export async function decide(
     .returning();
   await conn
     .insert(reviewTimes)
-    .values({ decisionId: id, secondsTotal: input.secondsTotal, secondsPerSignal: input.secondsPerSignal, blind: true, sharedFundingCount });
+    .values({ decisionId: id, secondsTotal: input.secondsTotal, secondsPerSignal: input.secondsPerSignal, blind: true, sharedFundingCount: input.sharedFundingCount });
   await conn
     .update(submissions)
     .set({ status: outcome === "PASS" ? "decided" : "rejected" })
@@ -266,8 +266,8 @@ export async function getDecision(id: string, conn: Db = db) {
  * the CSV and JSON forms. There is no planted/genuine column: that list never
  * enters the app and is joined to this export offline (AD-10).
  *
- * `shared_funding_count` is the warning shown when the decision was made:
- * above 0 the card warned, 0 it did not, empty the source was not checked.
+ * `shared_funding_count` is the count the review card showed for the decision:
+ * above 0 the card warned, 0 no link was found, empty the source was not checked.
  */
 export const REVIEW_LOG_COLUMNS = [
   "campaign_slug",

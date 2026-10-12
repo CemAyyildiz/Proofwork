@@ -124,7 +124,7 @@ export async function createSubmission(
   try {
     source = await fundingSource(actor.pubkey);
   } catch (e) {
-    log.warn("funding source lookup failed", { err: e instanceof Error ? e.message : String(e) });
+    log.warn("funding source lookup failed", { campaign: c.slug, wallet: actor.pubkey, err: e instanceof Error ? e.message : String(e) });
   }
 
   const [row] = await conn

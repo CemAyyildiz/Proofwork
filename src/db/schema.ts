@@ -208,9 +208,9 @@ export const reviewTimes = pgTable("review_time", {
   secondsPerSignal: jsonb("seconds_per_signal").$type<Record<string, number>>().notNull(),
   blind: boolean("blind").notNull().default(true),
   /**
-   * Shared-funding warning the reviewer was shown: other submissions in the
-   * campaign linked by funding source when the decision was made. 0 = checked,
-   * no link. Null = source not checked, or decided before the warning existed.
+   * Shared-funding count the review card showed, posted with the decision:
+   * other submissions in the campaign linked by funding source. 0 = checked,
+   * no link found. Null = source not checked, or decided before the warning existed.
    */
   sharedFundingCount: integer("shared_funding_count"),
 });

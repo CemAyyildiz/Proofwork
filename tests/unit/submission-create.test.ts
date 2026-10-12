@@ -122,7 +122,7 @@ describe("createSubmission funding source", () => {
     const s = await createSubmission(INPUT, CONTRIBUTOR, conn, reader(true), down);
     expect(s).toMatchObject({ status: "pending", fundingSource: null });
     expect(await conn.select().from(submissions)).toHaveLength(1);
-    expect(warn).toHaveBeenCalledWith("funding source lookup failed", { err: "Horizon answered 503" });
+    expect(warn).toHaveBeenCalledWith("funding source lookup failed", { campaign: "camp-1", wallet: CONTRIBUTOR.pubkey, err: "Horizon answered 503" });
   });
 
   it("stores an unknown source when the account has no creation record", async () => {

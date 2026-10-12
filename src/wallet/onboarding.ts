@@ -25,6 +25,8 @@ export interface HorizonConfig {
 
 /** Horizon reads and Friendbot give up after this long; the caller shows a retry. */
 const TIMEOUT_MS = 10_000;
+/** The funding source only feeds a reviewer hint, so its read gives up sooner than one a submission depends on. */
+const FUNDING_SOURCE_TIMEOUT_MS = 4_000;
 /** Horizon's synchronous submit waits for ledger close, which can take far longer than a read. */
 const SUBMIT_TIMEOUT_MS = 60_000;
 
@@ -98,9 +100,12 @@ const firstOperationSchema = z.object({
  */
 export async function readFundingSource(address: string, cfg: Pick<HorizonConfig, "horizonUrl" | "fetch">): Promise<string | null> {
   checkAddress(address);
-  const res = await call(cfg.fetch ?? fetch, `${cfg.horizonUrl}/accounts/${address}/operations?order=asc&limit=1`, {
-    headers: { accept: "application/json" },
-  });
+  const res = await call(
+    cfg.fetch ?? fetch,
+    `${cfg.horizonUrl}/accounts/${address}/operations?order=asc&limit=1`,
+    { headers: { accept: "application/json" } },
+    FUNDING_SOURCE_TIMEOUT_MS,
+  );
   if (!res.ok) throw new OnboardingError("unreachable", `Horizon answered ${res.status}`);
   const parsed = firstOperationSchema.safeParse(await res.json().catch(() => null));
   if (!parsed.success) throw new OnboardingError("unreachable", "unexpected operations response from Horizon");

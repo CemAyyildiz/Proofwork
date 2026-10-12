@@ -79,6 +79,8 @@ export function ReviewCard({ item }: { item: Item }) {
           note,
           secondsTotal: clock.current?.totalSeconds() ?? 0,
           secondsPerSignal: clock.current?.perSignal ?? {},
+          // What this card showed, so the log records the warning the reviewer saw.
+          sharedFundingCount: item.sharedFundingCount,
         }),
       });
       const json = (await res.json()) as { outcome?: string; txHash?: string | null; message?: string };

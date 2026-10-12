@@ -16,7 +16,7 @@ import { canonicalJson, decisionHash, ledgerKey } from "@/ledger/canonical";
 import type { DecisionLedger } from "@/ledger/decision-ledger";
 import { parseCsv, toCsv } from "@/lib/csv";
 import { log } from "@/lib/logger";
-import { decide, getDecision, REVIEW_LOG_COLUMNS, reviewLog, reviewQueue, sharedFundingCounts, type FundingLinkRow } from "@/services/review";
+import { decide, decideSchema, getDecision, REVIEW_LOG_COLUMNS, reviewLog, reviewQueue, sharedFundingCounts, type FundingLinkRow } from "@/services/review";
 import { createSubmission } from "@/services/submission";
 import { makeTestDb } from "./db";
 
@@ -134,14 +134,14 @@ async function shown(publicSources: ReadonlySet<string> = PUBLIC): Promise<Map<s
   return new Map((await reviewQueue(conn, publicSources)).map((q) => [q.submissionId, q.sharedFundingCount]));
 }
 
-async function pass(submissionId: string, ledger: DecisionLedger = new FakeLedger(), publicSources: ReadonlySet<string> = PUBLIC) {
-  return decide(
-    { submissionId, signals: ALL_PASS, reasonCode: "R00_PASS", note: "Looks fine", secondsTotal: 30, secondsPerSignal: {} },
-    REVIEWER,
-    ledger,
-    conn,
-    publicSources,
-  );
+/**
+ * Decides as the card does: posts the count the card rendered with. `shown` is
+ * that count when the test read the queue itself; otherwise the queue is read now.
+ */
+async function pass(submissionId: string, opts: { ledger?: DecisionLedger; shown?: number | null; publicSources?: ReadonlySet<string> } = {}) {
+  const sharedFundingCount = "shown" in opts ? opts.shown : (await shown(opts.publicSources)).get(submissionId);
+  const body = { submissionId, signals: ALL_PASS, reasonCode: "R00_PASS", note: "Looks fine", secondsTotal: 30, secondsPerSignal: {}, sharedFundingCount };
+  return decide(decideSchema.parse(body), REVIEWER, opts.ledger ?? new FakeLedger(), conn);
 }
 
 async function storedCount(decisionId: string): Promise<number | null | undefined> {
@@ -158,7 +158,37 @@ describe("review queue and decision", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     await close();
+  });
+
+  /** The queue as production reads it: no set passed, so the list comes from the environment. */
+  async function shownUnderEnv(publicFundingSources?: string): Promise<Map<string, number | null>> {
+    // The environment is parsed once per module instance, so each call loads its own.
+    vi.resetModules();
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@localhost/db");
+    vi.stubEnv("STELLAR_NETWORK", "testnet");
+    vi.stubEnv("TW_API_KEY", "k".repeat(16));
+    // Throwaway seeds generated per run: the env schema needs three distinct valid ones.
+    vi.stubEnv("PLATFORM_ADMIN_SECRET", Keypair.random().secret());
+    vi.stubEnv("PLATFORM_OPS_SECRET", Keypair.random().secret());
+    vi.stubEnv("DECISION_LEDGER_SECRET", Keypair.random().secret());
+    vi.stubEnv("SESSION_SECRET", "s".repeat(43));
+    if (publicFundingSources !== undefined) vi.stubEnv("PUBLIC_FUNDING_SOURCES", publicFundingSources);
+    const fresh = await import("@/services/review");
+    return new Map((await fresh.reviewQueue(conn)).map((q) => [q.submissionId, q.sharedFundingCount]));
+  }
+
+  it("default public sources: Friendbot-created wallets are not linked, a private creator still is", async () => {
+    const [b, c, d, e] = [await submit(B, FRIENDBOT), await submit(C, FRIENDBOT), await submit(D, A), await submit(E, A)];
+    const seen = await shownUnderEnv();
+    expect([seen.get(b), seen.get(c), seen.get(d), seen.get(e)]).toEqual([0, 0, 1, 1]);
+  });
+
+  it("default public sources: a creator listed in PUBLIC_FUNDING_SOURCES links nothing", async () => {
+    const [b, c] = [await submit(B, A), await submit(C, A)];
+    const seen = await shownUnderEnv(A);
+    expect([seen.get(b), seen.get(c)]).toEqual([0, 0]);
   });
 
   it("shared source: both cards carry 1 and each decision stores 1", async () => {
@@ -192,7 +222,7 @@ describe("review queue and decision", () => {
   it("lookup fails: submission accepted, card not checked, stored count null, warning logged", async () => {
     const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
     const [b, c, d] = [await submit(B, new Error("Horizon answered 504")), await submit(C, A), await submit(D, A)];
-    expect(warn).toHaveBeenCalledWith("funding source lookup failed", { err: "Horizon answered 504" });
+    expect(warn).toHaveBeenCalledWith("funding source lookup failed", { campaign: "camp-1", wallet: B, err: "Horizon answered 504" });
     const seen = await shown();
     expect([seen.get(b), seen.get(c), seen.get(d)]).toEqual([null, 1, 1]);
     expect(await storedCount((await pass(b)).id)).toBeNull();
@@ -208,7 +238,7 @@ describe("review queue and decision", () => {
     const [b, c] = [await submit(B, A), await submit(C, A)];
     const seen = await shown(new Set([FRIENDBOT, A]));
     expect([seen.get(b), seen.get(c)]).toEqual([0, 0]);
-    expect(await storedCount((await pass(b, new FakeLedger(), new Set([FRIENDBOT, A]))).id)).toBe(0);
+    expect(await storedCount((await pass(b, { publicSources: new Set([FRIENDBOT, A]) })).id)).toBe(0);
   });
 
   it("counts a linked submission that was already decided", async () => {
@@ -219,13 +249,40 @@ describe("review queue and decision", () => {
     expect(seen.get(c)).toBe(1);
   });
 
-  it("the stored count is what was shown at decision time; a later submission does not rewrite it", async () => {
+  it("a later submission does not rewrite the count stored with an earlier decision", async () => {
     const b = await submit(B, A);
     const d = await pass(b);
     await submit(C, A);
     expect(await storedCount(d.id)).toBe(0);
     const { rows } = await reviewLog("cmp_1", REVIEWER, conn);
     expect(rows.map((r) => r.shared_funding_count)).toEqual([0]);
+  });
+
+  it("stores the count the card showed, not a fresh one: a linked submission arriving before the decision changes nothing", async () => {
+    const b = await submit(B, A);
+    const onCard = (await shown()).get(b) ?? null;
+    expect(onCard).toBe(0);
+    // The reviewer still has the card open when a linked submission comes in.
+    await submit(C, A);
+    expect((await shown()).get(b)).toBe(1);
+    const d = await pass(b, { shown: onCard });
+    expect(await storedCount(d.id)).toBe(0);
+    const { rows } = await reviewLog("cmp_1", REVIEWER, conn);
+    expect(rows.map((r) => r.shared_funding_count)).toEqual([0]);
+  });
+
+  it("stores exactly the posted count, including a warning that a fresh read would no longer give", async () => {
+    const b = await submit(B, FRIENDBOT);
+    expect(await storedCount((await pass(b, { shown: 3 })).id)).toBe(3);
+  });
+
+  it("the decision body takes a count of 0 or more, or null; a missing count is null", () => {
+    const body = { submissionId: "sub_1", signals: ALL_PASS, reasonCode: "R00_PASS", note: "Looks fine", secondsTotal: 30 };
+    expect(decideSchema.parse(body).sharedFundingCount).toBeNull();
+    expect(decideSchema.parse({ ...body, sharedFundingCount: null }).sharedFundingCount).toBeNull();
+    expect(decideSchema.parse({ ...body, sharedFundingCount: 0 }).sharedFundingCount).toBe(0);
+    expect(decideSchema.parse({ ...body, sharedFundingCount: 2 }).sharedFundingCount).toBe(2);
+    for (const bad of [-1, 1.5, "2", true]) expect(decideSchema.safeParse({ ...body, sharedFundingCount: bad }).success).toBe(false);
   });
 
   it("the queue hands the reviewer a count and nothing that identifies a wallet", async () => {
@@ -244,7 +301,7 @@ describe("review queue and decision", () => {
     const b = await submit(B, A);
     await submit(C, A);
     const ledger = new FakeLedger();
-    const d = await pass(b, ledger);
+    const d = await pass(b, { ledger });
     expect(d).toMatchObject({ outcome: "PASS", reasonCode: "R00_PASS", signals: ALL_PASS });
     expect(Object.keys(JSON.parse(d.canonicalJson) as object)).toEqual(["v", "submission", "campaign", "reviewer", "outcome", "reason", "signals", "appealOf", "decidedAt"]);
     expect(d.canonicalJson).not.toMatch(/fund/i);
