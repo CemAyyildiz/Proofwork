@@ -20,7 +20,7 @@ What the run confirms:
 
 - The first operation of every account was its own `create_account`, and its `funder` field named the creating account.
 - Friendbot sent the two transactions from two different minion accounts, and `funder` was the Friendbot account both times. Excluding that one account is enough to leave Friendbot-created wallets out.
-- A fifth keypair that was never created on the network answered 404; `readFundingSource` threw `unreachable`. In `createSubmission` that is the "lookup failed" path: the submission is accepted with an unknown source and the card says "Funding source not checked".
+- A fifth keypair that was never created on the network answered 404, and `readFundingSource` threw `unreachable`. A wallet like that never gets this far in `createSubmission`: the trustline gate refuses it first. There the lookup-failed path is reached when Horizon answers 429 or 5xx, times out, or returns a malformed body; the submission is then accepted with an unknown source and the card says "Funding source not checked".
 
 The same sources, put through the app's link rule (`sharedFundingCounts` in `src/services/review.ts`) with Friendbot as the only public source, give the counts the review card would show:
 
