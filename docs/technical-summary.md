@@ -42,9 +42,11 @@ One Trustless Work **multi-release** escrow per campaign.
 Trustless Work has no time-based auto-return. At the deadline:
 
 1. The funder closes the campaign in the app, which disputes the "campaign close" milestone (v1 treats a disputed milestone as processed).
-2. The dispute resolver runs `pnpm escrow:close <contract>`, which calls `withdraw-remaining-funds` and sends the whole remaining balance to the funder in one transaction. The tx hash is stored on the campaign and shown on its page.
+2. The dispute resolver runs `pnpm escrow:close <contract>`, which calls `withdraw-remaining-funds` for the escrow's whole balance, with the escrow's funder as the only destination, in one transaction. Once the escrow reads back empty, the tx hash is stored on the campaign and shown on its page.
 
-Verified on testnet in the spike (steps 5a and 5b). The close is manual: someone has to press it.
+Trustless Work takes its 0.3% protocol fee out of that withdrawal, as it does out of a release, so the funder receives the balance less 0.3%. Both testnet runs show it: 3.988 of 4 USDC in the spike (step 5b) and 4.985 of 5 USDC in the [external-funder rehearsal](evidence/external-funder-rehearsal.md#close-and-remainder). The rest went to Trustless Work's fee address and nowhere else.
+
+Verified on testnet in the spike (steps 5a and 5b), and in the rehearsal for a funder that is not the operator. The close is manual: someone has to press it.
 
 ## Decision record (AD-5)
 
@@ -107,7 +109,7 @@ A submission enters the review queue only when the submitted post was written by
 - **Page.** The submit form stays locked until the wallet has a connected X account, and the X step says the post must be written by that account. The lock is a convenience; the rule is enforced in the service on every submission.
 - **Earlier decisions.** The check touches only new submissions. The migration changes no decision row, so Month 1 decisions keep their canonical JSON, hash, signals and outcome, and the review log export has the same columns.
 
-The request shape comes from X's OpenAPI document (v2.170, read 2026-10-13) and has not been sent to X yet. What the tests and a local run cover, and the live rows still open, are in [x-connect.md](evidence/x-connect.md).
+The request shape comes from X's OpenAPI document (v2.170, read 2026-10-13) and has not been sent to X with a working token yet. `pnpm x:check <post id> <account id>` sends that one lookup for a known post through the same adapter and says whether X found the post and whether the author matches, so the shape can be confirmed before a campaign takes submissions ([deployment → Checking the lookup](deployment.md#checking-the-lookup)). What the tests and a local run cover, and the live rows still open, are in [x-connect.md](evidence/x-connect.md).
 
 ## Funder access
 
@@ -145,6 +147,29 @@ Once a team can become a funder without the operator, two things are checked bef
 
 The testnet reads for each wallet state and a local run of the pages and routes are in [funder-readiness.md](evidence/funder-readiness.md).
 
+## Team-run campaigns
+
+Month 1 was one campaign that Proofwork set up, funded and closed itself. Month 2 is built so that another team does those things with its own wallet. The escrow, the roles on it, the review and the decision record are the same; what changed is who does each step and what stands in the way.
+
+| | Operator-run campaign (Month 1) | Team-run campaign (Month 2) |
+|---|---|---|
+| Becoming a funder | The operator gave its own wallet the funder role with a database script | The team asks in the app; the operator approves or rejects on `/admin`; the grant is in the access log ([Funder access](#funder-access)) |
+| The funding wallet | A key the operator held | The team's own wallet. Proofwork never holds its key and signs nothing for it |
+| Before deploy and fund | Nothing about the funder or its wallet was checked | Two caps per funder, and a read of the wallet: account, USDC trustline, USDC for the budget, XLM for the fees ([Funder limits and funding readiness](#funder-limits-and-funding-readiness)) |
+| Who can submit | Any wallet with a USDC trustline, with a link to any X post | A wallet with a connected X account, and only a post that account wrote ([Post author check](#post-author-check)) |
+| What the reviewer has | The six signals | The same, plus a warning when wallets in the campaign share a funding source ([Shared funding source warning](#shared-funding-source-warning)) |
+| Final approval and release | The operator's funder key | The team's wallet. It keeps both, and close, on a campaign it funded even after its funder access is revoked |
+| Closing | The operator held the funder key, so `pnpm escrow:close` could dispute the close milestone and sweep in one run | The team closes in the app. The resolver's script signs only the sweep; it needs no funder key and refuses until the team has closed |
+| Where the remainder goes | To the operator's funder wallet | To the team's wallet, read from the escrow and checked against the campaign in the database before anything is signed |
+| Evidence page | `docs/evidence/campaign.md` | A page of its own from `pnpm evidence:dump <slug> <file-name>`, which names the funding wallet |
+| What the operator still does | Everything | Decides access requests, grants reviewer roles, and runs the server whose keys append, mark delivered and approve milestones. None of that moves money |
+
+What a team needs before it starts: a testnet wallet with XLM (1 XLM free above the reserves for the two funding transactions), a USDC trustline and testnet USDC for the budget, and the public key of a dispute resolver that is neither its own wallet nor a platform key.
+
+What stays with a third party: the dispute resolver. Only that key can send the remainder, and it chooses the destination (see Known limits). For the pilot campaign, who holds it is not settled yet.
+
+The path was run once on testnet with a wallet that never had a role, from the access request to the remainder, and one earlier assumption did not hold: the remainder returns less the protocol fee, not whole. The submission, review and release steps were not part of that run, because they need X. Every step, hash and open item is in [external-funder-rehearsal.md](evidence/external-funder-rehearsal.md).
+
 ## Security model
 
 - **No custody by the app.** The platform keys cannot move funds; release needs the funder's wallet, the remainder needs the dispute resolver (see Known limits for who holds that key in Month 1).
@@ -162,10 +187,14 @@ The testnet reads for each wallet state and a local run of the pages and routes 
 - **Reviewer is also the builder.** Mitigated by having a second person write and submit the planted fakes from separate accounts and keep the list outside the app, but not eliminated.
 - **Trustless Work v1 builds one transaction per release.** A campaign with N payouts needs N funder signatures.
 - **Manual close.** The remainder returns only when the funder closes and the resolver sweeps; there is no timer.
-- **The operator holds the dispute resolver key in Month 1.** `pnpm escrow:close` runs with `DISPUTE_RESOLVER_SECRET` from the operator's environment, not from a Chapter Lead wallet. The resolver chooses the destination of `withdraw-remaining-funds`; the script sends the balance to the escrow's funder, but the key itself could send it elsewhere. The sweep tx on stellar.expert shows where the remainder went.
+- **The remainder is not returned whole.** Trustless Work deducts its 0.3% protocol fee from `withdraw-remaining-funds` too, so a funder that pays nobody still gets back 99.7% of what it put in. The new-campaign page says so before the funder saves a campaign.
+- **A deploy whose reply is lost is deployed twice.** Every other operation is checked against the escrow before it is built again. A deploy cannot be: the check needs the new escrow's contract ID, which the app learns only from the reply to the submit. When that reply does not arrive, the operation is marked failed although the escrow exists, and the next attempt deploys a second one. The funder pays a second deploy fee, and the first escrow stays on chain, empty and unknown to the app. No budget is involved, because only a deployed escrow that the app knows is ever funded. Seen once, in the [rehearsal](evidence/external-funder-rehearsal.md#the-deploy-that-landed-unseen).
+- **The remainder script trusts the database it is given.** It refuses when that database does not hold the escrow's campaign, but it cannot know whether it is the app's database or a copy. It prints the host and name before it signs.
+- **A sweep that is not recorded stays unrecorded.** If the script sweeps and then fails to write the hash, or is run with no database, a second run finds nothing to sweep and has no hash to write. The campaign page then shows no remainder transaction; the sweep itself is on chain.
+- **The operator holds the dispute resolver key in Month 1.** `pnpm escrow:close` runs with `DISPUTE_RESOLVER_SECRET` from the operator's environment, not from a Chapter Lead wallet. The resolver chooses the destination of `withdraw-remaining-funds`; the script sends the balance to the escrow's funder, but the key itself could send it elsewhere. The sweep tx on stellar.expert shows where the remainder went. The same holds for a team's campaign whose resolver is the operator: the team's remainder then depends on the operator running the script.
 - **Testnet only.** Testnet USDC has no value; the server keys are sprint keys.
 - **The funding warning is a hint.** It sees only the account that created a wallet. Wallets each activated straight from Friendbot, which is what the app's own onboarding does, never link, so a count of 0 means no link was found, not that the accounts are independent. A link that appears after a decision is not added to that decision: its log row keeps the count the reviewer saw. Unrelated wallets created by the same exchange, or by a faucet that is not on the public list, are flagged together; wallets one person funds through separate intermediate accounts are not; and a wallet whose first Horizon record is not its creation is not checked at all.
-- **The X checks are not proven live.** Connecting an account and checking a post's author have run against a fake and a fetch stub only; the runs against X itself need an X developer app whose plan includes post lookup. The lookup's request shape is taken from X's OpenAPI document, and the first live call has to confirm it.
+- **The X checks are not proven live.** Connecting an account and checking a post's author have run against a fake and a fetch stub only; the runs against X itself need an X developer app whose plan includes post lookup. The lookup's request shape is taken from X's OpenAPI document, and the first call with a working token has to confirm it; `pnpm x:check` is that call. Sent with a placeholder token, the request reached X and was refused with 401, which shows the host and the path are reachable and nothing more.
 - **Every submission depends on X.** While X is down, the app's lookup quota is used up, or the X credentials are missing, nobody can submit: the server refuses and asks to try again. Nothing is queued for a later check.
 - **The author check says who posted, not what.** It reads no content, so whether a post is original work stays a rubric signal for the reviewer. It runs once, at submission: a post deleted or made private afterwards is not noticed by the app.
 - **Reposts are not confirmed.** A repost has its own post ID, and X may report the account that reposted as its author. If it does, a contributor could submit their repost of someone else's post and pass the author check, and only the reviewer's originality signal would stand in the way. What X answers for a repost's ID has not been observed; the open live run in [x-connect.md](evidence/x-connect.md) records it.
@@ -191,7 +220,9 @@ The testnet reads for each wallet state and a local run of the pages and routes 
 - **The fee floor is a constant.** It comes from two testnet transactions. If network fees rise past it, a wallet shown as ready could still fail to pay; the constant has to be raised by hand.
 - **Short of XLM has no button.** Friendbot only creates accounts and does not top up one that exists, so a wallet short of XLM is told how much it needs and has to get it elsewhere.
 - **A trustline the issuer has not authorised reads as no trustline.** The advice to add one is then wrong. Testnet USDC does not require authorisation, so this has not been seen.
-- **The ready path has not been run against Trustless Work.** A wallet read as ready has not yet deployed and funded an escrow through the app in a recorded run; see the open rows in [funder-readiness.md](evidence/funder-readiness.md).
+- **The fee floor has less room than when it was set.** On 2026-10-13 the deploy and fund transactions bid 0.1083558 and 0.1586494 XLM, more than twice the Week 1 bids, so 0.5 XLM is now about three times the larger bid, not seven.
+- **A team-run campaign has not been paid out.** The rehearsal covered access, readiness, deploy, fund, abandon, revocation, close and the remainder for a funder that is not the operator. A release signed by such a funder, and by a revoked one, has run against the in-memory escrow only.
+- **Nothing was clicked.** The rehearsal and the earlier local runs sent requests with a session cookie and signed with a script. The pages' buttons have not been used with a wallet extension in a recorded run.
 
 ## Month 2 next steps
 

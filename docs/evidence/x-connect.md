@@ -141,6 +141,8 @@ Not recorded yet. It needs an X developer app with an OAuth 2.0 client and a pla
 | Own post accepted | not recorded yet |
 | Another account's post rejected | not recorded yet |
 
+Before any of it, check the post lookup on its own: `pnpm x:check <post id> <expected X account id>` with a public post of the test account ([deployment → Checking the lookup](../deployment.md#checking-the-lookup)). Record its output here. On 2026-10-13 it was run without credentials (exit 3, "X is not configured") and with placeholder strings that belong to no X app (X answered 401; exit 3, `X gave no usable answer (step post, reason status, status 401)`). Neither is a live result.
+
 Steps, once the four variables are set and migrations 0004 and 0005 are applied:
 
 1. On an open campaign, sign in with wallet A and press Connect X; approve on X with a test account. Record the date, the return to `?x=connected`, and the `x_account` row (wallet truncated, the fact that the ID is numeric, the timestamp).

@@ -45,7 +45,7 @@ Values are entered in the Vercel dashboard only, per scope. None of them is ever
 | `X_REDIRECT_URI` | `https://proofwork.online/api/x/callback` | leave unset, or the callback of a fixed preview domain |
 | `X_BEARER_TOKEN` | app-only Bearer Token of the same X app (see [Post-author lookup](#post-author-lookup)) | leave unset, or the token of the second X app |
 
-Never set on Vercel: `FUNDER_SECRET`, `DISPUTE_RESOLVER_SECRET`. They are used only by local scripts (`pnpm spike`, `pnpm escrow:close`) and must stay on the operator's machine.
+Never set on Vercel: `FUNDER_SECRET`, `DISPUTE_RESOLVER_SECRET`. They are used only by local scripts (`pnpm spike`, `pnpm escrow:close`) and must stay on the machine of whoever holds them ([Returning a remainder](#returning-a-remainder)).
 
 When the Upstash database comes from the Vercel Marketplace integration, it injects `KV_REST_API_URL` and `KV_REST_API_TOKEN` as sensitive variables, which cannot be read back to copy under the names above. `src/config/env.ts` falls back to that pair when neither `UPSTASH_REDIS_REST_*` value is set, so nothing needs to be duplicated.
 
@@ -85,7 +85,31 @@ When a contributor submits, the server asks X who wrote the post: `GET https://a
 - `X_BEARER_TOKEN` is the **Bearer Token** (app-only) from the same X app's Keys and Tokens page. Paste the token alone, without the word `Bearer`. It is a secret like the Client Secret: Production scope only, never in a `NEXT_PUBLIC_` variable.
 - The X app's plan must allow post lookup (`GET /2/tweets/:id`) with app-only access. Each submission that passes the earlier checks costs one lookup; nothing is cached or retried.
 - When X answers 429, 5xx or not at all, or refuses the token, the contributor sees "couldn't check the post with X, try again" and nothing is stored. The server log has one line, `post author lookup failed`, with the HTTP status and, on a 429, `resetAt`: the Unix time at which X's limit resets. A 401 or 403 there means the token or the plan, not the contributor.
-- The request shape was taken from X's OpenAPI document (v2.170, read 2026-10-13) and has not been sent to X yet. The first submission after the variables are set is the check: if it fails with status 400 or with reason `body`, the shape has changed and `src/x/api.ts` needs correcting before a campaign opens.
+- The request shape was taken from X's OpenAPI document (v2.170, read 2026-10-13) and has not been sent to X with a working token yet. Check it with `pnpm x:check` (below) before a campaign opens.
+
+### Checking the lookup
+
+`pnpm x:check` asks X who wrote one known post, through the same adapter and the same app-only token the app uses, and compares the answer with the account that is expected to have written it:
+
+```bash
+pnpm x:check <post id> <expected X account id>
+```
+
+Both arguments are numeric IDs. The post ID is the number at the end of the post's link. The account ID is the numeric ID of the account that wrote it, not its handle. Use a public post of an account whose ID is known.
+
+| Output | Exit code | Meaning |
+|---|---|---|
+| `post found` and `author matches the expected account` | 0 | The lookup works as the app expects |
+| `post found` and `author does not match the expected account` | 1 | X answered. Check the two IDs; if they are right, X names another account as author than expected, which matters for reposts ([technical summary → Known limits](technical-summary.md#known-limits)) |
+| `post not found: X reports it as missing, deleted or not public` | 1 | X answered. The post ID is wrong, or the post is deleted or protected |
+| `X is not configured: set X_CLIENT_ID, …` | 3 | The four `X_*` variables are not set where the command runs |
+| `Invalid environment: …` | 3 | The environment is refused by the config module, for example one to three of the four X values |
+| `X gave no usable answer (step post, reason …, status …)` | 3 | The adapter's own failure: the step, the reason and the HTTP status. Status 401 or 403 means the token or the plan. Reason `body`, or status 400, means the request shape has changed and `src/x/api.ts` needs correcting |
+| a usage line | 2 | Not two numeric IDs |
+
+It prints no post text, no handle, no author ID and no token. It reads the whole server environment through `src/config/env.ts`, so it runs with `.env` like the other scripts, and the four X values must be in that file or exported in the shell. To check the production app's credentials, export them for the one command and nothing else; it calls X only, never the database.
+
+Run on 2026-10-13 without X credentials: exit 3, "X is not configured". Run with placeholder strings in the four variables, which are not the credentials of any X app: X answered 401 and the command printed `X gave no usable answer (step post, reason status, status 401)`, exit 3. So the request reaches `api.x.com` and a refused token is reported as such. A run with a working token is still open ([x-connect.md](evidence/x-connect.md)).
 
 ## Funder limits
 
@@ -97,6 +121,33 @@ Each funder is capped on the number of open campaigns and on their total budget 
 - Saving a campaign (20 in ten minutes) and asking for a deploy or fund transaction (30 in ten minutes) are rate limited per wallet, through the same Upstash limiter as the other write endpoints.
 - No migration and no new host. The readiness check reads `GET <HORIZON_URL>/accounts/<wallet>`, the host the app already uses. `HORIZON_URL` must be an `https://` address: the Stellar SDK behind the escrow routes refuses plain `http://` and those routes then answer 500.
 - The XLM a wallet must hold for fees is a constant in `src/domain/funding-readiness.ts`, not a variable: 0.5 XLM for each escrow transaction still to sign. It was measured on two testnet transactions and needs revisiting if network fees rise.
+
+## Returning a remainder
+
+A campaign's unreleased budget returns in two steps: the funder closes the campaign in the app, then whoever holds the dispute resolver key of that escrow runs
+
+```bash
+pnpm escrow:close C...CONTRACT
+```
+
+- **What it needs.** `DISPUTE_RESOLVER_SECRET`, the key named as dispute resolver when the campaign was created; `TW_API_KEY`; and the two platform keys the escrow adapter is built with, which sign nothing here. `FUNDER_SECRET` is optional and only has a use for a campaign funded with that same key, as in the Week 1 spike: the script then disputes the close milestone itself. For a campaign another team funded it can be left empty.
+- **Where the money goes.** To the escrow's own funder, read from the escrow, whoever runs the script. Trustless Work takes its 0.3% protocol fee out of the swept balance, as it does at a release: a campaign that funded 5 USDC and paid nobody got 4.985 USDC back in the [rehearsal](evidence/external-funder-rehearsal.md#close-and-remainder).
+- **`DATABASE_URL` decides whether the campaign page learns about it.** The script prints the host and name of the database it is using. It looks the escrow's campaign up there before it signs anything and stops when there is none, or when the campaign names another funder than the escrow: a sweep cannot be repeated, so a database that does not hold the campaign has to be noticed first. The hash is recorded only after the escrow reads back empty. The `.env` on a development machine points at a local database, so to return a remainder of a campaign on proofwork.online, export that database's connection string for the one command, as for `role:grant`:
+  ```bash
+  read -rs DATABASE_URL && export DATABASE_URL   # paste; not stored in shell history
+  pnpm escrow:close C...CONTRACT
+  ```
+  With `DATABASE_URL` set empty (`DATABASE_URL= pnpm escrow:close …`) the script sweeps without recording and says so.
+- **Refusals, each before anything is signed.** The funder has not closed the campaign yet; a reward milestone is still open; the configured resolver key is not the escrow's dispute resolver; the database does not know the escrow.
+- **Run again after a sweep** it prints "nothing to sweep". It cannot record a hash then: it never had it.
+
+Write a second campaign's transactions to its own evidence page by naming the file:
+
+```bash
+pnpm evidence:dump <campaign-slug> pilot-campaign    # docs/evidence/pilot-campaign.md
+```
+
+Without a name the page is `docs/evidence/campaign.md`, the one the Month 1 index links. The script replaces only a page it wrote itself.
 
 ## Client IP and rate limits
 

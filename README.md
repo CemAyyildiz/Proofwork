@@ -65,16 +65,22 @@ pnpm spike
 
 Deploys an escrow, funds it, appends a milestone after funding, marks it delivered, approves, releases, disputes the close milestone, sweeps the remainder back to the funder, and commits one decision record on-chain. Every transaction hash is written to `docs/evidence/escrow-cycle.md`. The funder key needs testnet USDC (Circle faucet, Stellar testnet).
 
-Return a closed campaign's remainder with the resolver key:
+Return a closed campaign's remainder to its funder with the resolver key, whoever funded it. With `DATABASE_URL` set, the campaign must be in that database and the sweep is recorded on it ([deployment → Returning a remainder](docs/deployment.md#returning-a-remainder)):
 
 ```bash
 pnpm escrow:close C...CONTRACT
 ```
 
-Write every on-chain transaction and decision record of a campaign, with explorer links, to `docs/evidence/campaign.md` (reads `DATABASE_URL`):
+Write every on-chain transaction and decision record of a campaign, with explorer links, to `docs/evidence/campaign.md`, or to `docs/evidence/<file-name>.md` when a name is given (reads `DATABASE_URL`):
 
 ```bash
-pnpm evidence:dump <campaign-slug>
+pnpm evidence:dump <campaign-slug> [file-name]
+```
+
+Check the X post-author lookup with one known post before a campaign takes submissions ([deployment → Checking the lookup](docs/deployment.md#checking-the-lookup)):
+
+```bash
+pnpm x:check <post id> <expected X account id>
 ```
 
 ## How a decision is verifiable
@@ -107,7 +113,7 @@ Money moves are checked the same way: every deploy, fund, release and remainder 
 
 Everything for the sprint review:
 
-- Evidence index, one row per SOW deliverable: [docs/evidence/README.md](docs/evidence/README.md)
+- Evidence index, one row per SOW deliverable: [docs/evidence/README.md](docs/evidence/README.md) (Month 1) · [docs/evidence/month-2.md](docs/evidence/month-2.md) (Month 2)
 - Results table (catch rate, false-positive rate, sample size, weak signals): [docs/results.md](docs/results.md) (_generated after the live campaign_)
 - Review rubric: [docs/rubric.md](docs/rubric.md)
 - Technical summary and known limits: [docs/technical-summary.md](docs/technical-summary.md)
@@ -126,7 +132,7 @@ src/services   auth, campaign, escrow-ops, submission, review, payout, x-account
 src/x          XPort + X adapter (Sign in with X, post-author lookup) + in-memory fake
 src/app        routes: /campaigns (funder), /c/[slug] (contributor), /review, /verify/[id]
 src/wallet     browser wallet layer (Wallets Kit)
-scripts        key generation, account prep, spike, escrow close, role grant, results, evidence dump
+scripts        key generation, account prep, spike, escrow close, role grant, results, evidence dump, X lookup check
 tests/unit     no network
 docs/evidence  evidence index, tx hashes per campaign and spike
 ```
