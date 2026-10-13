@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { funderLimits } from "@/config/env";
 import { getEscrow, getPlatformKeys } from "@/escrow";
 import { requireUser } from "@/lib/current-user";
 import { AppError } from "@/lib/errors";
 import { jsonRoute } from "@/lib/http";
-import { confirmDeploy, confirmFund, fundSubmitted, prepareDeploy, prepareFund } from "@/services/campaign";
+import { confirmDeploy, confirmFund, fundSubmitted, horizonFunderAccountReader, prepareDeploy, prepareFund } from "@/services/campaign";
 
 export const runtime = "nodejs";
 
@@ -35,7 +36,12 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     const escrow = getEscrow();
     const actor = { pubkey: user.pubkey, platformAdmin: keys.admin, platformOps: keys.ops };
     if (input.action === "prepare") {
-      return input.kind === "deploy" ? prepareDeploy(id, actor, escrow) : prepareFund(id, actor, escrow);
+      // Caps and the wallet's readiness are checked where a transaction is built, never on submit:
+      // a fund that already reached the network is reconciled before the wallet is read.
+      const account = horizonFunderAccountReader();
+      return input.kind === "deploy"
+        ? prepareDeploy(id, actor, escrow, { limits: funderLimits(), account })
+        : prepareFund(id, actor, escrow, account);
     }
     const args = { campaignId: id, opId: input.opId, signedXdr: input.signedXdr };
     return input.kind === "deploy" ? confirmDeploy(args, actor, escrow) : confirmFund(args, actor, escrow);

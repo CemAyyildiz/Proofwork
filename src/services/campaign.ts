@@ -1,13 +1,17 @@
 import "server-only";
 import { StrKey } from "@stellar/stellar-sdk";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { env, type FunderLimits } from "@/config/env";
 import { db, type Db } from "@/db/client";
 import { campaigns, escrowOps, type Campaign, type EscrowOp } from "@/db/schema";
-import { assertPositiveAmount, toStroops } from "@/escrow/amount";
+import { assessFunding, describeMissing, type FundingReadiness, type FundingStep } from "@/domain/funding-readiness";
+import { assertPositiveAmount, fromStroops, toStroops } from "@/escrow/amount";
 import type { EscrowPort, Submitted } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
+import { log } from "@/lib/logger";
+import { readFunderAccount, type FunderAccount } from "@/wallet/onboarding";
 import { campaignOwnedBy, prepareOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
 
 const CLOSE_MILESTONE_AMOUNT = "0.0000001";
@@ -55,15 +59,59 @@ function slugify(title: string): string {
   return `${base || "campaign"}-${newId("").slice(1, 7).toLowerCase()}`;
 }
 
+/** What a funder has open: campaigns whose escrow is deployed and that are not closed. */
+export interface FunderUsage {
+  openCampaigns: number;
+  /** Sum of their budgets, a USDC decimal string. */
+  openBudget: string;
+}
+
+/**
+ * A campaign counts from the moment its escrow is deployed until it is
+ * closed. A draft without an escrow counts for nothing, so an abandoned draft
+ * never blocks its funder.
+ */
+export async function funderUsage(pubkey: string, conn: Db = db): Promise<FunderUsage> {
+  const open = await conn
+    .select({ budget: campaigns.budget })
+    .from(campaigns)
+    .where(and(eq(campaigns.funderPubkey, pubkey), isNotNull(campaigns.escrowContractId), isNull(campaigns.closedAt)));
+  return { openCampaigns: open.length, openBudget: fromStroops(open.reduce((sum, c) => sum + toStroops(c.budget), 0n)) };
+}
+
+/**
+ * Refuses a campaign of `budget` that would take the funder over a cap. The
+ * message names each cap it breaks, with the limit and what is in use now.
+ */
+async function assertWithinLimits(pubkey: string, budget: string, limits: FunderLimits, conn: Db): Promise<void> {
+  const usage = await funderUsage(pubkey, conn);
+  const refusals: string[] = [];
+  const caps: Array<{ cap: "open_campaigns" | "open_budget"; limit: string; used: string }> = [];
+  if (usage.openCampaigns + 1 > limits.maxOpenCampaigns) {
+    refusals.push(`open-campaign limit reached: this wallet has ${usage.openCampaigns} of ${limits.maxOpenCampaigns} open campaigns in use, close one first`);
+    caps.push({ cap: "open_campaigns", limit: String(limits.maxOpenCampaigns), used: String(usage.openCampaigns) });
+  }
+  if (toStroops(usage.openBudget) + toStroops(budget) > toStroops(limits.maxOpenBudget)) {
+    refusals.push(
+      `open-budget limit exceeded: this wallet has ${usage.openBudget} of ${limits.maxOpenBudget} USDC in use and this campaign adds ${fromStroops(toStroops(budget))} USDC`,
+    );
+    caps.push({ cap: "open_budget", limit: limits.maxOpenBudget, used: usage.openBudget });
+  }
+  if (refusals.length > 0) throw new AppError("CONFLICT", refusals.join("; "), { caps });
+}
+
 export async function createCampaign(
   input: CreateCampaignInput,
   actor: { pubkey: string; platformAdmin: string; platformOps: string },
+  limits: FunderLimits,
   conn: Db = db,
 ): Promise<Campaign> {
   const taken = new Set([actor.platformAdmin, actor.platformOps, actor.pubkey]);
   if (taken.has(input.disputeResolverPubkey)) {
     throw AppError.validation("dispute resolver must be a neutral key, not the funder or a platform key");
   }
+  // The early warning: the check that holds is the one at deploy, where the campaign starts to count.
+  await assertWithinLimits(actor.pubkey, input.budget, limits, conn);
   const [row] = await conn
     .insert(campaigns)
     .values({
@@ -124,11 +172,49 @@ function fundConfirmed(campaignId: string, conn: Db): OnConfirmed {
   };
 }
 
-/** Step 1 of funding: build the deploy transaction for the funder's wallet. */
+/** Reads what a funder's wallet holds on Stellar. Injected so unit tests need no network. */
+export type FunderAccountReader = (pubkey: string) => Promise<FunderAccount>;
+
+/** Default reader: one Horizon read against the configured testnet host. `timeoutMs` shortens the wait for a page render. */
+export function horizonFunderAccountReader(timeoutMs?: number): FunderAccountReader {
+  return (pubkey) =>
+    readFunderAccount(pubkey, { horizonUrl: env.HORIZON_URL, usdcIssuer: env.USDC_ISSUER, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
+}
+
+/**
+ * Whether `pubkey` can pay for the next escrow transaction of a campaign with
+ * this budget. A read that fails is logged and reported as `unchecked`, never
+ * as ready.
+ */
+export async function fundingReadiness(pubkey: string, budget: string, step: FundingStep, account: FunderAccountReader): Promise<FundingReadiness> {
+  try {
+    return assessFunding(await account(pubkey), budget, step);
+  } catch (e) {
+    log.warn("funder wallet read failed", { wallet: pubkey, step, err: e instanceof Error ? e.message : String(e) });
+    return { status: "unchecked" };
+  }
+}
+
+/** Refuses to go on to building a transaction the wallet could not pay for, naming every missing item. */
+async function assertReady(pubkey: string, budget: string, step: FundingStep, account: FunderAccountReader): Promise<void> {
+  const readiness = await fundingReadiness(pubkey, budget, step, account);
+  if (readiness.status === "unchecked") throw new AppError("LEDGER", "couldn't check your wallet on Stellar, try again");
+  if (readiness.status === "not-ready") {
+    const what = step === "deploy" ? "deploy the escrow" : "fund the budget";
+    throw new AppError("CONFLICT", `your wallet is not ready to ${what}. ${readiness.missing.map(describeMissing).join(" ")}`, { missing: readiness.missing });
+  }
+}
+
+/**
+ * Step 1 of funding: build the deploy transaction for the funder's wallet.
+ * The caps and the wallet are checked inside `build`, so they run only when a
+ * transaction is about to be built and before any op row is written for it.
+ */
 export async function prepareDeploy(
   campaignId: string,
   actor: { pubkey: string; platformAdmin: string; platformOps: string },
   escrow: EscrowPort,
+  gate: { limits: FunderLimits; account: FunderAccountReader },
   conn: Db = db,
 ): Promise<PreparedOp> {
   const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
@@ -138,8 +224,11 @@ export async function prepareDeploy(
       campaignId,
       kind: "deploy",
       keyParts: ["deploy", campaignId],
-      build: () =>
-        escrow.buildDeploy({
+      build: async () => {
+        // This campaign is not deployed yet, so it is added to what the funder's other campaigns use.
+        await assertWithinLimits(actor.pubkey, c.budget, gate.limits, conn);
+        await assertReady(actor.pubkey, c.budget, "deploy", gate.account);
+        return escrow.buildDeploy({
           engagementId: c.slug,
           title: c.title,
           description: c.brief.slice(0, 500),
@@ -151,7 +240,8 @@ export async function prepareDeploy(
             disputeResolver: c.disputeResolverPubkey,
           },
           closeMilestone: { description: `campaign close · ${c.slug}`, amount: CLOSE_MILESTONE_AMOUNT },
-        }),
+        });
+      },
       verify: deployVisible(escrow, c.slug),
       onConfirmed: deployConfirmed(campaignId, conn),
     },
@@ -186,8 +276,20 @@ export async function fundSubmitted(campaignId: string, conn: Db = db): Promise<
   return rows.length > 0;
 }
 
-/** Step 2 of funding: move the budget into escrow. */
-export async function prepareFund(campaignId: string, actor: { pubkey: string }, escrow: EscrowPort, conn: Db = db): Promise<PreparedOp> {
+/**
+ * Step 2 of funding: move the budget into escrow. The wallet is checked
+ * inside `build`, which `prepareOp` reaches only after it has asked the chain
+ * about a fund that was already sent. A fund that landed is confirmed there
+ * and never meets the check: by then the budget has left the wallet, and the
+ * wallet would read as short of USDC.
+ */
+export async function prepareFund(
+  campaignId: string,
+  actor: { pubkey: string },
+  escrow: EscrowPort,
+  account: FunderAccountReader,
+  conn: Db = db,
+): Promise<PreparedOp> {
   const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("deploy the escrow first");
   if (c.fundedAt) throw AppError.conflict("campaign already funded");
@@ -197,7 +299,10 @@ export async function prepareFund(campaignId: string, actor: { pubkey: string },
       campaignId,
       kind: "fund",
       keyParts: ["fund", campaignId],
-      build: () => escrow.buildFund(contractId, c.funderPubkey, c.budget),
+      build: async () => {
+        await assertReady(actor.pubkey, c.budget, "fund", account);
+        return escrow.buildFund(contractId, c.funderPubkey, c.budget);
+      },
       verify: fundVisible(escrow, contractId, c.budget),
       onConfirmed: fundConfirmed(campaignId, conn),
     },

@@ -22,6 +22,8 @@ import {
   revokeFunder,
 } from "@/services/access";
 import { makeTestDb } from "./db";
+import { fakeFetch } from "./fake-fetch";
+import { horizonAccount } from "./funder-wallet";
 
 const world = vi.hoisted(() => ({
   jar: new Map<string, string>(),
@@ -106,12 +108,15 @@ beforeEach(async () => {
   TEAM = Keypair.random().publicKey();
   OTHER = Keypair.random().publicKey();
   clientIp = `203.0.113.${++ip}`;
+  // Deploy and fund read the funder's wallet on Horizon first; here every wallet can fund what these tests create.
+  vi.stubGlobal("fetch", fakeFetch(() => ({ status: 200, body: horizonAccount("1000.0000000") })));
   // The one-time bootstrap: the operator's wallet gets `ops` from the script.
   await changeRole({ pubkey: OPS, role: "ops", action: "grant" }, { via: "script" }, conn);
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   await close();
 });
 

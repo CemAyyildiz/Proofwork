@@ -1,3 +1,4 @@
+import { funderLimits } from "@/config/env";
 import { getEscrow, getPlatformKeys } from "@/escrow";
 import { requireUserRole } from "@/lib/current-user";
 import { jsonRoute } from "@/lib/http";
@@ -10,7 +11,7 @@ export const POST = jsonRoute(createCampaignSchema, async (input) => {
   const user = await requireUserRole("funder");
   getEscrow(); // fail here on misconfiguration, not at first signing
   const keys = getPlatformKeys();
-  const c = await createCampaign(input, { pubkey: user.pubkey, platformAdmin: keys.admin, platformOps: keys.ops });
+  const c = await createCampaign(input, { pubkey: user.pubkey, platformAdmin: keys.admin, platformOps: keys.ops }, funderLimits());
   return { id: c.id, slug: c.slug };
 });
 
