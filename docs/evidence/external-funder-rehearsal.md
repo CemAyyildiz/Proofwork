@@ -4,7 +4,9 @@ Before a team other than Proofwork runs a campaign, the path it will take was ru
 
 This page records what happened, including the two steps that failed on the first try and the result that differs from what was expected: the remainder came back less the 0.3% Trustless Work protocol fee, not whole. The submission, review and payout steps were not run; they are listed at the end with what they need.
 
-Run: 2026-10-13, 15:21 to 17:52 UTC · Network: Stellar testnet · Escrow: Trustless Work Core API v1 (`dev.api.trustlesswork.com`) · App: a local instance of this repository (`next dev`, commit `732a612` plus the changes of this run) on a scratch Postgres 17 database with every migration applied through `pnpm db:migrate`. Nothing here touched proofwork.online or its database.
+Run: 2026-10-13, 15:21 to 17:52 UTC · Network: Stellar testnet · Escrow: Trustless Work Core API v1 (`dev.api.trustlesswork.com`) · App: a local instance of this repository (`next dev`) on a scratch Postgres 17 database with every migration applied through `pnpm db:migrate`. Nothing here touched proofwork.online or its database.
+
+The app ran the code of commit `732a612`. Nothing in the app was changed for the run. From 17:48 UTC the file `src/services/payout.ts` also held two functions that the close script calls and no route does; they were committed after the run as `6cd97c5`. The close script changed during the run, and again after it: [What the run changed in the close script](#what-the-run-changed-in-the-close-script) gives the order and the commits.
 
 The machine running the app was on battery and kept going to sleep. Four of those sleeps, of about 15 minutes each, began in the middle of a step: at 15:21, 15:37, 15:53 and 17:28 UTC (the system's power log has them). That explains the gaps in the times below and caused the two failed steps. Nothing was done between 16:10 and 17:16 except reading the chain to find out what the failed deploy had left behind.
 
@@ -108,9 +110,9 @@ The USDC was bought with the wallet's own XLM on the testnet order book (about 1
 
 The machine went to sleep with the first deploy's `send-transaction` request in flight. The transaction had already been accepted: it is in ledger 5176645, five seconds after it was prepared. The app never got the reply, read the failure as a failed submit, and marked the operation `failed`.
 
-For any other operation the next `prepare` asks the chain whether the earlier attempt landed and confirms it instead of building a second transaction. A deploy cannot be checked that way: the check needs the new escrow's contract ID, and the only place the app gets it is the reply it did not receive. So the second `prepare` built a new deploy, and the funder paid a second deploy fee (0.0936184 XLM) for a second escrow. The first escrow, `CCCSKITI…QR5D`, exists on chain with the campaign's slug as its engagement ID, holds nothing, and is not known to the app. Its contract ID was read for this page from the transaction's return value on Soroban RPC.
+For any other operation the next `prepare` asks the chain whether the earlier attempt landed and confirms it instead of building a second transaction. A deploy is not checked that way yet: the check needs the new escrow's contract ID, and the app takes it only from the reply it did not receive. The ID is not lost: it is the transaction's return value, and it was read for this page from Soroban RPC with the hash the app had recorded when it prepared the deploy. The app does not make that read. So the second `prepare` built a new deploy, and the funder paid a second deploy fee (0.0936184 XLM) for a second escrow. The first escrow, `CCCSKITI…QR5D`, exists on chain with the campaign's slug as its engagement ID, holds nothing, and is not known to the app.
 
-No money was at risk: an escrow that was only deployed holds no funds, and the campaign was funded once, into the escrow the app knows. The limit is recorded in the [technical summary](../technical-summary.md#known-limits). It is not specific to an outside funder.
+No money was at risk: an escrow that was only deployed holds no funds, and the campaign was funded once, into the escrow the app knows. There is nothing for an operator to undo: an escrow cannot be removed, and this one is left as it is, empty. What an operator does is keep the first transaction's hash, as here, so the orphan can be told apart from the campaign's escrow by anyone who finds two contracts with the same engagement ID. The limit is recorded in the [technical summary](../technical-summary.md#known-limits). It is not specific to an outside funder.
 
 ## Limits and abandon
 
@@ -164,7 +166,7 @@ The funder closed campaign one with no funder role, and the dispute resolver swe
 
 | Time | Who | Step | Answer |
 |---|---|---|---|
-| 17:46 to 17:48 | Operator's machine | `pnpm escrow:close <contract>` before the funder had closed | exit 1, "close milestone not disputed yet: the funder must close the campaign in the app first". Nothing signed |
+| 17:46 to 17:48 | Operator's machine | `pnpm escrow:close <contract>` before the funder had closed, with the script as committed and again with the rewritten one | exit 1 both times, "close milestone not disputed yet: the funder must close the campaign in the app first". Nothing signed |
 | 17:48:59 | Funder (revoked) | `prepare close` on the payouts route | 200 |
 | 17:49:05 | Funder (revoked) | `submit close` | 200, tx 9. The campaign is closed in the app |
 | 17:49 | Operator's machine | `pnpm escrow:close <contract>` with `DATABASE_URL` set to a migrated database that does not hold the campaign | exit 1, "no campaign with this escrow in 127.0.0.1:54329/proofwork_other; nothing was signed. …" |
@@ -187,16 +189,36 @@ A team that funds 5 USDC and pays nobody gets 4.985 USDC back. The app's own wor
 
 ### What the run changed in the close script
 
-Before the funder closed, the script was run as it stood at commit `732a612`:
+The script that swept is not the script that was in the repository when the run began, and not the one that is there now. In order:
 
-| Run | Result |
+| When (UTC) | Script | What was run | Result |
+|---|---|---|---|
+| 17:46 | As committed, `732a612` | `pnpm escrow:close <contract>`, before the funder had closed | exit 1, "close milestone not disputed yet: the funder must close the campaign in the app first" |
+| 17:46 | As committed, `732a612` | the same with `FUNDER_SECRET` empty | A stack trace: `ZodError … "FUNDER_SECRET" … "invalid secret seed"`. The script demanded the operator's own funder key although the escrow's funder was another wallet and that key could sign nothing for it |
+| 17:46 to 17:48 | | The script was rewritten and `recordRemainder` changed, with unit tests that passed at 17:48. This version was committed after the run as `6cd97c5` | |
+| 17:48 | Rewritten, `6cd97c5` | before the funder had closed: once as is, once with `FUNDER_SECRET` empty, once against a database without the campaign | exit 1 three times: the "not disputed yet" refusal twice, then "no campaign with this escrow in …; nothing was signed" |
+| 17:49:05 | | The funder closed the campaign in the app (tx 9) | |
+| 17:49 | Rewritten, `6cd97c5` | against a database without the campaign, now with the close milestone disputed | exit 1, "no campaign with this escrow in …; nothing was signed" |
+| 17:49:42 | Rewritten, `6cd97c5` | the sweep, with `FUNDER_SECRET` empty and the app's database | exit 0, tx 10, recorded on the campaign |
+| 17:50 | Rewritten, `6cd97c5` | once more | exit 0, "nothing to sweep" |
+
+So the sweep on this page was signed by the version at `6cd97c5`, written during the run and before the funder closed. Reading the committed script had shown a second problem that could not be tried without spending the one sweep an escrow gets: it wrote the remainder hash with its own SQL after the sweep, and when `DATABASE_URL` pointed at a database without the campaign it updated no row and said nothing. The operator's `.env` points at a local database, so sweeping a team's campaign from that machine would have returned the money and left the campaign page without the remainder hash. The rewritten version made `FUNDER_SECRET` optional, looked the campaign up before signing, and recorded the hash through `recordRemainder` only after the escrow read back empty.
+
+After the run, a review of that version changed the script again (`c583266`): the flow moved into `src/services/remainder.ts` with tests, the sweep's hash is taken before it is sent, a campaign that is not closed in the app or already has a remainder is refused before signing, recording is skipped only with `--no-record`, `--record <tx hash>` writes the hash of a sweep made elsewhere, and the platform keys are no longer read ([deployment → Returning a remainder](../deployment.md#returning-a-remainder)). **That version has not signed a transaction on testnet.** At 18:20 UTC it was run against the two escrows of this rehearsal in the ways that sign nothing:
+
+| Run with the current script (`c583266`) | Result |
 |---|---|
-| `pnpm escrow:close <contract>` | exit 1, "close milestone not disputed yet: the funder must close the campaign in the app first" |
-| the same with `FUNDER_SECRET` empty | A stack trace: `ZodError … "FUNDER_SECRET" … "invalid secret seed"`. The script demanded the operator's own funder key although the escrow's funder was another wallet and that key could sign nothing for it |
+| campaign one's escrow, the app's database | exit 0, "nothing to sweep: remainder 2df7fde3…86bbb1 is already recorded" |
+| the same with `--no-record`, and with the funder and platform keys empty | exit 0, "nothing to sweep: the escrow is empty" |
+| the same against a database without the campaign | exit 1, "no campaign with this escrow in the database; nothing was signed" |
+| the same with no `DATABASE_URL` and no flag | exit 2, "DATABASE_URL is not set, so the sweep could not be recorded on its campaign. …" |
+| `--record` with the hash of tx 10, and with no signing key in the environment at all | exit 0, "recorded remainder 2df7fde3…86bbb1 on campaign rehearsal-campaign-one-gcqziy" (the same hash again, so nothing changed) |
+| `--record` with another hash | exit 1, "another remainder transaction is already recorded for this campaign" |
+| campaign two's escrow (abandoned, never funded), at that time | exit 3, "the escrow is empty and campaign rehearsal-campaign-two-mnas2- has no remainder recorded". A last change in the same commit made a campaign that was never funded read as "nothing to sweep" instead; that case is covered by a unit test and was not run again on testnet |
 
-Reading the script showed a second problem that could not be tried without spending the one sweep an escrow gets: it wrote the remainder hash with its own SQL after the sweep, and when `DATABASE_URL` pointed at a database without the campaign it updated no row and said nothing. The operator's `.env` points at a local database, so sweeping a team's campaign from that machine would have returned the money and left the campaign page without the remainder hash, with no second sweep to record it.
+A sweep by the current script, a sweep with `--no-record` followed by `--record`, and a lost reply are covered by unit tests against the in-memory escrow only.
 
-The script now treats `FUNDER_SECRET` as optional, looks the campaign up before it signs anything, stops when the database does not know the escrow or names another funder for it, and records the hash through `recordRemainder` only after the escrow reads back empty. The rows in the table above from 17:49 on were run with that version. `pnpm evidence:dump` gained the funder's wallet and an optional file name in the same change, so that a team's campaign gets its own page and that page names the funding wallet.
+`pnpm evidence:dump` changed after the run as well: it names the funder's wallet (`e8edb16`), takes an optional file name (`cbbd8b3`), and replaces a page only with a dump of the same campaign (`3f892ad`). [rehearsal-campaign.md](rehearsal-campaign.md) was written by that last version at 18:23 UTC from the rehearsal's database, which had not changed since the run.
 
 ## Not run
 
@@ -218,6 +240,6 @@ Steps, once the four `X_*` variables are set ([deployment → Sign in with X](..
 
 **On proofwork.online.** Not run, on purpose: this run made no call to the live site and did not read or write its database. Migration `0006` and the operator's `ops` grant are still to be applied there. Owner: Cem.
 
-**With the pilot's resolver.** The sweep was signed by the resolver key in the operator's environment. Who holds the resolver key for the pilot campaign is still open; whoever it is runs `pnpm escrow:close` with that key, the Trustless Work key, the platform keys and the app's `DATABASE_URL`. Owner: Cem.
+**With the pilot's resolver.** The sweep was signed by the resolver key in the operator's environment. Who holds the resolver key for the pilot campaign is still open. A resolver who is not the operator runs `pnpm escrow:close <contract> --no-record` with that key and a Trustless Work key, and needs neither the platform keys nor the database; the operator then records the hash with `--record`. That split has not been run on testnet. Owner: Cem.
 
 **Rate limits against Upstash.** The local app used the in-memory limiter.

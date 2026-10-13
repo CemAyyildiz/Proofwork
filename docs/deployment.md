@@ -124,22 +124,35 @@ Each funder is capped on the number of open campaigns and on their total budget 
 
 ## Returning a remainder
 
-A campaign's unreleased budget returns in two steps: the funder closes the campaign in the app, then whoever holds the dispute resolver key of that escrow runs
+A campaign's unreleased budget returns in two steps: the funder closes the campaign in the app, then whoever holds the dispute resolver key of that escrow sweeps it with `pnpm escrow:close`. The flow is `returnRemainder` in `src/services/remainder.ts`; the script reads the arguments and the environment.
 
-```bash
-pnpm escrow:close C...CONTRACT
-```
+| Command | What it does | Signs with | Needs |
+|---|---|---|---|
+| `pnpm escrow:close C...CONTRACT` | Sweeps and records the transaction on the campaign | the resolver key | `DISPUTE_RESOLVER_SECRET`, `TW_API_KEY`, `DATABASE_URL` of the app |
+| `pnpm escrow:close C...CONTRACT --no-record` | Sweeps only. No database is opened | the resolver key | `DISPUTE_RESOLVER_SECRET`, `TW_API_KEY` |
+| `pnpm escrow:close C...CONTRACT --record <tx hash>` | Records a sweep that already happened. Signs nothing | nothing | `TW_API_KEY`, `DATABASE_URL` of the app |
 
-- **What it needs.** `DISPUTE_RESOLVER_SECRET`, the key named as dispute resolver when the campaign was created; `TW_API_KEY`; and the two platform keys the escrow adapter is built with, which sign nothing here. `FUNDER_SECRET` is optional and only has a use for a campaign funded with that same key, as in the Week 1 spike: the script then disputes the close milestone itself. For a campaign another team funded it can be left empty.
+- **Who needs what.** The platform keys are not read: they sign nothing here. So a resolver who is not the operator sweeps with `--no-record`, holding only its own key and a Trustless Work key, and the script prints the `--record` command with the sweep's hash for the operator to run against the app's database. An operator who holds the resolver key runs the first form and does both at once. `FUNDER_SECRET` is optional and only has a use for an escrow that same key funded outside the app, as in the Week 1 spike: the script then disputes the close milestone itself.
 - **Where the money goes.** To the escrow's own funder, read from the escrow, whoever runs the script. Trustless Work takes its 0.3% protocol fee out of the swept balance, as it does at a release: a campaign that funded 5 USDC and paid nobody got 4.985 USDC back in the [rehearsal](evidence/external-funder-rehearsal.md#close-and-remainder).
-- **`DATABASE_URL` decides whether the campaign page learns about it.** The script prints the host and name of the database it is using. It looks the escrow's campaign up there before it signs anything and stops when there is none, or when the campaign names another funder than the escrow: a sweep cannot be repeated, so a database that does not hold the campaign has to be noticed first. The hash is recorded only after the escrow reads back empty. The `.env` on a development machine points at a local database, so to return a remainder of a campaign on proofwork.online, export that database's connection string for the one command, as for `role:grant`:
+- **Recording is never skipped silently.** Without `--no-record` the script refuses to start when `DATABASE_URL` is not set. It prints the host and name of the database it uses. The `.env` on a development machine points at a local database, so for a campaign on proofwork.online give the command that database's connection string, for the one command only:
   ```bash
-  read -rs DATABASE_URL && export DATABASE_URL   # paste; not stored in shell history
-  pnpm escrow:close C...CONTRACT
+  read -rs APP_DB    # paste the connection string; it is not echoed and not stored in shell history
+  DATABASE_URL="$APP_DB" pnpm escrow:close C...CONTRACT
+  unset APP_DB
   ```
-  With `DATABASE_URL` set empty (`DATABASE_URL= pnpm escrow:close …`) the script sweeps without recording and says so.
-- **Refusals, each before anything is signed.** The funder has not closed the campaign yet; a reward milestone is still open; the configured resolver key is not the escrow's dispute resolver; the database does not know the escrow.
-- **Run again after a sweep** it prints "nothing to sweep". It cannot record a hash then: it never had it.
+- **Refusals, each before anything is signed.** The configured resolver key is not the escrow's dispute resolver. A reward milestone is still open. The funder has not closed the campaign: the close milestone is not disputed, or the campaign is not closed in the app. The database does not know the escrow. The campaign in the database has another funder than the escrow. The campaign already has a remainder recorded while the escrow still holds money.
+- **The hash is known before the sweep is sent.** It is taken from the signed transaction and printed first. If the submit then fails, the escrow is read again: empty means the sweep landed, and that hash is recorded; otherwise the failure is reported and nothing is recorded. The hash is written only after the escrow reads back empty, and a recorded hash is never replaced by another.
+- **`--record`** writes the hash only while the escrow reads empty, on a campaign that is closed in the app and has the escrow's funder. It does not check that the hash is that escrow's withdrawal: open it on the explorer first.
+
+| Exit code | Meaning | What to do |
+|---|---|---|
+| 0 | Swept (and recorded, unless `--no-record`), recorded, or nothing to do: the escrow is empty and the remainder is on the campaign | With `--no-record`: pass the printed `--record` command to the operator |
+| 1 | Refused or failed. Nothing was returned | Read the message; nothing needs undoing |
+| 2 | Bad arguments or environment | |
+| 3 | The escrow is empty and the campaign has no remainder recorded | Find the withdrawal on the escrow's explorer page and run `--record` with its hash |
+| 4 | The sweep went out and is not recorded. The message names its hash | Check the hash on the explorer, then run the printed `--record` command |
+
+`escrow:close` and `x:check` start Node with `--conditions=react-server`. Both import server modules of the app that begin with `import "server-only"`, a package that throws when it is loaded outside that condition; the other scripts import only modules without it.
 
 Write a second campaign's transactions to its own evidence page by naming the file:
 
@@ -147,7 +160,7 @@ Write a second campaign's transactions to its own evidence page by naming the fi
 pnpm evidence:dump <campaign-slug> pilot-campaign    # docs/evidence/pilot-campaign.md
 ```
 
-Without a name the page is `docs/evidence/campaign.md`, the one the Month 1 index links. The script replaces only a page it wrote itself.
+Without a name the page is `docs/evidence/campaign.md`, the one the Month 1 index links. The script replaces a page only when it is an earlier dump of the same campaign: a hand-written page or another campaign's evidence stops it.
 
 ## Client IP and rate limits
 

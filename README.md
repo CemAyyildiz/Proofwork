@@ -8,7 +8,7 @@ The platform never holds funds and never has release authority.
 
 ## Status
 
-Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet only.** One hand-run campaign; not a self-service platform.
+Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet only.** Month 1 was one campaign that Proofwork set up and ran itself. Since Month 2 a team asks for funder access in the app and, once the operator approves it, creates, funds, pays out and closes its own campaign with its own wallet. Access and reviewer roles are still decided by hand, and so is every review.
 
 Live: **https://proofwork.online** (Stellar testnet). Hosting, environment and migration procedure: [docs/deployment.md](docs/deployment.md).
 
@@ -23,11 +23,11 @@ Live: **https://proofwork.online** (Stellar testnet). Hosting, environment and m
 | Re-review (once) | Contributor requests, reviewer decides | Second decision, ledger key `pw:<id>:a1`, linked to the first by hash |
 | Approve for payout | Platform keys | Milestone appended per approved submission, marked delivered and approved |
 | Release | Funder wallet | One transaction per milestone; USDC goes to the contributor |
-| Close | Funder wallet, then dispute resolver | Close milestone disputed; resolver sweeps the remainder back to the funder |
+| Close | Funder wallet, then dispute resolver | Close milestone disputed; resolver sweeps the remainder back to the funder, less the 0.3% protocol fee |
 
 Roles on the escrow: funder = release signer; platform keys = platform address (append milestones) and service provider + approver (mark delivered, approve); a neutral key = dispute resolver. The platform keys can never move money; the funder's release signature is the final approval.
 
-Known limit: Trustless Work v1 builds one transaction per milestone, so a campaign with N payouts needs N release signatures. v2 offers batch approve-and-release in one transaction and is the planned Month 2 upgrade.
+Known limit: Trustless Work v1 builds one transaction per milestone, so a campaign with N payouts needs N release signatures. v2 offers batch approve-and-release in one transaction; moving to it is a later step and not part of Month 2.
 
 ## Stack
 
@@ -65,10 +65,12 @@ pnpm spike
 
 Deploys an escrow, funds it, appends a milestone after funding, marks it delivered, approves, releases, disputes the close milestone, sweeps the remainder back to the funder, and commits one decision record on-chain. Every transaction hash is written to `docs/evidence/escrow-cycle.md`. The funder key needs testnet USDC (Circle faucet, Stellar testnet).
 
-Return a closed campaign's remainder to its funder with the resolver key, whoever funded it. With `DATABASE_URL` set, the campaign must be in that database and the sweep is recorded on it ([deployment → Returning a remainder](docs/deployment.md#returning-a-remainder)):
+Return a closed campaign's remainder to its funder with the resolver key, whoever funded it. The sweep is recorded on the campaign in `DATABASE_URL`; a resolver without the app's database sweeps with `--no-record` and the operator records the hash ([deployment → Returning a remainder](docs/deployment.md#returning-a-remainder)):
 
 ```bash
-pnpm escrow:close C...CONTRACT
+pnpm escrow:close C...CONTRACT                      # sweep and record
+pnpm escrow:close C...CONTRACT --no-record          # sweep only
+pnpm escrow:close C...CONTRACT --record <tx hash>   # record a sweep made elsewhere
 ```
 
 Write every on-chain transaction and decision record of a campaign, with explorer links, to `docs/evidence/campaign.md`, or to `docs/evidence/<file-name>.md` when a name is given (reads `DATABASE_URL`):
@@ -130,7 +132,7 @@ src/escrow     EscrowPort + Trustless Work adapter + in-memory fake
 src/ledger     canonical decision record + on-chain commit
 src/services   auth, campaign, escrow-ops, submission, review, payout, x-account
 src/x          XPort + X adapter (Sign in with X, post-author lookup) + in-memory fake
-src/app        routes: /campaigns (funder), /c/[slug] (contributor), /review, /verify/[id]
+src/app        routes: /campaigns (funder), /c/[slug] (contributor), /review, /verify/[id], /admin (operator)
 src/wallet     browser wallet layer (Wallets Kit)
 scripts        key generation, account prep, spike, escrow close, role grant, results, evidence dump, X lookup check
 tests/unit     no network
