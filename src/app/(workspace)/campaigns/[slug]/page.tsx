@@ -5,6 +5,7 @@ import { PayoutActions } from "@/components/payout-actions";
 import { publicEnv } from "@/config/public-env";
 import { currentUser } from "@/lib/current-user";
 import { formatDate, formatUsdc } from "@/lib/format";
+import { canManageCampaign } from "@/services/access";
 import { getCampaignBySlug } from "@/services/campaign";
 import { listOps } from "@/services/escrow-ops";
 import { submissionsForFunder } from "@/services/payout";
@@ -16,8 +17,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
   const c = await getCampaignBySlug(slug);
   if (!c) notFound();
   const user = await currentUser(c.id);
-  const isFunder = user?.pubkey === c.funderPubkey && user.roles.has("funder");
-  if (!isFunder) notFound();
+  if (!user || !canManageCampaign(c, user)) notFound();
   const ops = await listOps(c.id);
   const subs = await submissionsForFunder(c.id);
   const rows = subs.map((r) => ({

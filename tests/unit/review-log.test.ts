@@ -167,6 +167,14 @@ describe("reviewLog", () => {
     await expect(reviewLog(CAMPAIGN, { pubkey: FUNDER }, conn)).resolves.toMatchObject({ rows: expect.any(Array) });
   });
 
+  it("a funder whose access was revoked keeps the log of a campaign it funded, not of one it never funded", async () => {
+    await conn.delete(roleGrants).where(eq(roleGrants.pubkey, FUNDER));
+    await expect(reviewLog(CAMPAIGN, { pubkey: FUNDER }, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await conn.update(campaigns).set({ fundedAt: new Date() }).where(eq(campaigns.id, CAMPAIGN));
+    const { rows } = await reviewLog(CAMPAIGN, { pubkey: FUNDER }, conn);
+    expect(rows.map((r) => r.contributor_pubkey)).toEqual(["G_C1", "G_C2", "G_C1"]);
+  });
+
   it("a campaign-scoped reviewer may export that campaign", async () => {
     await conn.insert(roleGrants).values({ pubkey: "G_SCOPED", role: "reviewer", campaignId: CAMPAIGN });
     await expect(reviewLog(CAMPAIGN, { pubkey: "G_SCOPED" }, conn)).resolves.toMatchObject({ rows: expect.any(Array) });

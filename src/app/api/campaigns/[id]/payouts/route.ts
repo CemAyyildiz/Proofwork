@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getEscrow } from "@/escrow";
-import { requireUserRole } from "@/lib/current-user";
+import { requireUser } from "@/lib/current-user";
 import { jsonRoute } from "@/lib/http";
 import { approveForPayout, confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp } from "@/services/payout";
 
@@ -12,10 +12,16 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("submit"), kind: z.enum(["release", "close"]), opId: z.string().min(1), signedXdr: z.string().min(1) }),
 ]);
 
+/**
+ * Final approval, release and close. Signed in is enough here: every service
+ * below checks that the caller owns the campaign. The funder role is not
+ * asked for, so a funder whose access was revoked can still pay out and
+ * close what it already funded (create, deploy and fund keep the role gate).
+ */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   const { id } = await ctx.params;
   return jsonRoute(schema, async (input) => {
-    const user = await requireUserRole("funder", id);
+    const user = await requireUser(id);
     const escrow = getEscrow();
     switch (input.action) {
       case "approve":

@@ -11,6 +11,7 @@ import type { DecisionRecord } from "@/ledger/canonical";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
+import { canManageCampaign } from "./access";
 import { rolesFor } from "./auth";
 import { closeInFlight } from "./escrow-ops";
 
@@ -301,11 +302,16 @@ export type ReviewLogRow = Record<ReviewLogColumn, string | number | boolean | n
 
 /**
  * Reviewer (global or for this campaign) or the campaign's own funder; anyone
- * else is refused. Returns whether the caller is that funder.
+ * else is refused. Returns whether the caller is that funder. A funder whose
+ * access was revoked keeps the log of a campaign it funded (`canManageCampaign`).
  */
-async function assertCanReadReviewLog(campaign: { id: string; funderPubkey: string }, actor: { pubkey: string }, conn: Db): Promise<{ isFunder: boolean }> {
+async function assertCanReadReviewLog(
+  campaign: { id: string; funderPubkey: string; fundedAt: Date | null },
+  actor: { pubkey: string },
+  conn: Db,
+): Promise<{ isFunder: boolean }> {
   const roles = await rolesFor(actor.pubkey, campaign.id, conn);
-  const isFunder = roles.has("funder") && campaign.funderPubkey === actor.pubkey;
+  const isFunder = canManageCampaign(campaign, { pubkey: actor.pubkey, roles });
   if (isFunder || roles.has("reviewer")) return { isFunder };
   throw AppError.forbidden("review log is for reviewers and the campaign funder");
 }
