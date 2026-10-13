@@ -85,6 +85,13 @@ The service tests run `createSubmission` on an in-process Postgres with every mi
 | Configuration | All four X values or none; any partial set, the three Sign in with X values without the token included, and a token with a space, line break or non-ASCII character are refused | `tests/unit/env.test.ts` |
 | Page | The X step says, before connecting, that submitting needs the connection and a post written by that account, and afterwards that a post from another account is refused. Without X values it says submissions are not possible, connected or not, with nothing to press. The form's link field is disabled while locked | `tests/unit/public-states.test.ts` |
 
+After review, commit `1983eb5` changed four things. The two test files that cover them were run again on 2026-10-13 (`submission-create` now 55 tests, `tests/unit/onboarding.test.ts` 34, all pass):
+
+- An earlier row without a post ID counts under any handle or host: it is matched by the ID that ends its stored link, not only by its exact link. Tested with two such rows for one post and a third and fourth spelling of the link; a longer ID ending in the same digits is not taken for the same post.
+- Whether the form is open is decided in one place, `onboardingView` in `src/components/contributor-state.ts`: the wallet can receive USDC, has an X account, and X is configured. Tested for a ready wallet without an X account, a connected wallet on a deployment without X credentials, neither, and an X account on a wallet without a trustline.
+- The lookup-failure log line names its fields (step, reason, status, reset time); the assertions on the line's exact content are unchanged and pass.
+- `POST /api/submissions` is also rate limited by wallet alone, so a wallet changing IPs cannot spend the X lookup quota. This is a route change with no unit test.
+
 ## Run 4: migration and local app, X never contacted
 
 Run: 2026-10-13, about 08:50 UTC · commit `6815f13` · a scratch Postgres 17.5 database and a local instance of this repository (`next dev`) with throwaway server keys. Contributor wallets were fresh keypairs, activated with Friendbot on testnet, given a USDC trustline where noted and signed in with the wallet challenge; they were discarded after the run. No request reached X in any step.
@@ -122,6 +129,8 @@ The `submission` table held the same four rows after these requests.
 | Headless Chrome, wallet with a trustline and no X account, after the wallet check finished | Link field disabled, Submit disabled |
 | Headless Chrome, wallet with a trustline and an X account, after the wallet check finished | Link field enabled; Submit disabled until a valid link was typed, then enabled |
 
+**Client bundle.** 2026-10-13, commit `1983eb5`: `pnpm build` with a distinct marker string in each of the four `X_*` variables. None of the 41 files under `.next/static` contained a marker value, a variable name (`X_CLIENT_ID`, `X_CLIENT_SECRET`, `X_REDIRECT_URI`, `X_BEARER_TOKEN`), `/2/tweets`, `api.x.com`, `/2/oauth2` or the flow cookie's name. A string the client does ship, "Link to your post on X", was found by the same scan, so it was reading the bundle. The marker values appeared nowhere in `.next` or in the build output; the variable names and API paths are in the server output only.
+
 ## Run 5: live, against X
 
 Not recorded yet. It needs an X developer app with an OAuth 2.0 client and a plan that includes post lookup ([deployment → Sign in with X](../deployment.md#sign-in-with-x), [Post-author lookup](../deployment.md#post-author-lookup)).
@@ -146,3 +155,4 @@ Steps, once the four variables are set and migrations 0004 and 0005 are applied:
 10. Submit the post from step 8 again from another connected wallet, as a `twitter.com` link with a different handle. Record the 409 "this post has already been submitted".
 11. Submit a link to a deleted post or to a post of a protected account. Record the 404 "this post could not be found on X, it must be public".
 12. Search the application logs for the run and record that no post text, handle or author ID appears in the app's own log lines.
+13. Reposts, not confirmed either way: from the connected test account, repost a public post written by another account, take the repost's own post ID (not the original's), and submit a link with that ID from a connected wallet that has not submitted to the campaign. Record what X answered for that ID (found, and whether the author is the reposting account or the original one, or not found) and what the app did with the submission. If X names the reposting account, the submission is accepted and the limit in the technical summary stands as written; record that here.

@@ -105,7 +105,13 @@ Migrations are run by hand, never during the build. Run them before the deployme
 4. Check the preview deployment, then repeat step 3 with the production branch string.
 5. Merge to `main`; Vercel deploys production.
 
-Migration `0005` adds the nullable column `submission.post_id` with a unique index and fills it for existing rows from the post ID at the end of their link. Rows that share a post ID (one post stored under two handle spellings) are left empty, so the index cannot fail on existing data. The deployed code keeps working on the new schema; a submission it stores between the migration and the new deployment has no post ID and is matched as a duplicate by its exact link only.
+Migration `0005` adds the nullable column `submission.post_id` with a unique index and fills it for existing rows from the post ID at the end of their link. Rows that share a post ID (one post stored under two handle spellings) are left empty, so the index cannot fail on existing data. The deployed code keeps working on the new schema; a submission it stores between the migration and the new deployment has no post ID and is matched as a duplicate by the ID that ends its link.
+
+The release that adds the post-author check goes out in this order:
+
+1. In Vercel, set `X_BEARER_TOKEN` in every scope that has the three Sign in with X values, so each scope holds all four or none ([Post-author lookup](#post-author-lookup)). The deployed code ignores the new variable; the new code rejects the environment when it finds three without the fourth.
+2. Apply migration `0005`, preview first and then production, with steps 1 to 4 above.
+3. Merge to `main`; Vercel deploys production. A scope left without the four values takes no submissions.
 
 Role grants go to the same database the same way:
 

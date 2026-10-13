@@ -17,4 +17,4 @@ A freshly generated keypair stood in for the wallet's signature; every other cal
 
 ## Run 2: Freighter in the browser, through to a submission
 
-Not recorded yet. Steps: install Freighter, create a new testnet account, open `/c/<slug>` of a funded campaign, connect, "Activate testnet account", "Add USDC trustline" (sign in Freighter), submit a post link. Record the Friendbot tx, the trustline tx shown on the page and the submission short ID here.
+Not recorded yet. It needs the X developer app, because a submission is accepted only for a post written by the wallet's connected X account ([x-connect.md](x-connect.md)). Steps: install Freighter, create a new testnet account, open `/c/<slug>` of a funded campaign, connect the wallet, press Connect X and approve with the X account the post was made from, "Activate testnet account", "Add USDC trustline" (sign in Freighter), then submit the link of a public post written by that X account. The form stays locked until both the X account and the trustline are in place. Record the Friendbot tx, the trustline tx shown on the page and the submission short ID here.
