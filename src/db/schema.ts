@@ -61,6 +61,12 @@ export const escrowOpStatus = pgEnum("escrow_op_status", ["intent", "submitted",
 
 export const roleName = pgEnum("role_name", ["funder", "reviewer", "ops"]);
 
+export const funderRequestStatus = pgEnum("funder_request_status", ["pending", "approved", "rejected"]);
+
+export const accessAction = pgEnum("access_action", ["grant", "revoke"]);
+
+export const accessVia = pgEnum("access_via", ["admin", "script"]);
+
 const id = () => text("id").primaryKey();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
@@ -210,6 +216,53 @@ export const roleGrants = pgTable(
   ],
 );
 
+/**
+ * A wallet's request for funder access, decided by the operator. The partial
+ * unique index gives a wallet at most one pending request. A rejection is
+ * recorded here and nowhere else: it changes no role.
+ */
+export const funderRequests = pgTable(
+  "funder_request",
+  {
+    id: id(),
+    pubkey: text("pubkey").notNull(),
+    team: text("team").notNull(),
+    note: text("note").notNull(),
+    status: funderRequestStatus("status").notNull().default("pending"),
+    createdAt: createdAt(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: text("decided_by"),
+  },
+  (t) => [
+    uniqueIndex("funder_request_pending_idx").on(t.pubkey).where(sql`${t.status} = 'pending'`),
+    index("funder_request_pubkey_idx").on(t.pubkey),
+  ],
+);
+
+/**
+ * History of role changes: one row per grant or revocation that changed
+ * `role_grant`, written in the same transaction by `changeRole`
+ * (services/access.ts). Append-only: no code updates or deletes a row.
+ * `actor_pubkey` is the ops wallet that acted; null when `via` is "script".
+ */
+export const accessLog = pgTable(
+  "access_log",
+  {
+    id: id(),
+    pubkey: text("pubkey").notNull(),
+    role: roleName("role").notNull(),
+    action: accessAction("action").notNull(),
+    actorPubkey: text("actor_pubkey"),
+    via: accessVia("via").notNull(),
+    /** scope of the changed grant; null = global */
+    campaignId: text("campaign_id").references(() => campaigns.id),
+    /** the approved request behind a grant, when there is one */
+    requestId: text("request_id").references(() => funderRequests.id),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("access_log_at_idx").on(t.at)],
+);
+
 export const reviewTimes = pgTable("review_time", {
   decisionId: text("decision_id")
     .primaryKey()
@@ -241,3 +294,5 @@ export type Submission = typeof submissions.$inferSelect;
 export type Decision = typeof decisions.$inferSelect;
 export type Payout = typeof payouts.$inferSelect;
 export type EscrowOp = typeof escrowOps.$inferSelect;
+export type FunderRequest = typeof funderRequests.$inferSelect;
+export type AccessLogEntry = typeof accessLog.$inferSelect;
