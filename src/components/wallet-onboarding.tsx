@@ -24,9 +24,19 @@ const horizon = { horizonUrl: publicEnv.horizonUrl, usdcIssuer: publicEnv.usdcIs
  * Gets a connected wallet ready to be paid, then shows the submit form.
  * Everything runs in the browser against Horizon testnet and Friendbot; the
  * contributor's wallet signs the trustline and Proofwork never pays or signs
- * for it. The server re-checks the trustline on submit.
+ * for it. The form also stays locked until `xReady`. The server re-checks the
+ * trustline and the X account on submit.
  */
-export function WalletOnboarding({ campaignSlug, address }: { campaignSlug: string; address: string }) {
+export function WalletOnboarding({
+  campaignSlug,
+  address,
+  xReady,
+}: {
+  campaignSlug: string;
+  address: string;
+  /** The wallet has an X account connected and the server can check posts against it. */
+  xReady: boolean;
+}) {
   const [check, setCheck] = useState<WalletCheck>({ status: "checking" });
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
@@ -173,7 +183,7 @@ export function WalletOnboarding({ campaignSlug, address }: { campaignSlug: stri
           ) : null}
         </div>
       )}
-      <SubmitForm campaignSlug={campaignSlug} payTo={address} locked={!view.canSubmit} />
+      <SubmitForm campaignSlug={campaignSlug} payTo={address} locked={!view.canSubmit || !xReady} />
     </>
   );
 }

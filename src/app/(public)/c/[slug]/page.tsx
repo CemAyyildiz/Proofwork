@@ -79,6 +79,7 @@ export default async function ContributorCampaignPage({
   const pill = STAGE_PILL[stage];
 
   // The X step belongs to the submit panel only: open campaign, nothing submitted yet.
+  // It gates the form: the server accepts a post only from the connected account.
   const submitting = stage === "open" && !mine;
   const xConnected = submitting && user ? (await xAccountFor(user.pubkey)) !== null : false;
   const xAvailable = xConfig() !== null;
@@ -234,7 +235,7 @@ function SubmissionPanel({
   pubkey: string | null;
   mine: MySubmission | null;
   xConnected: boolean;
-  /** False when the deployment has no X credentials: the step is shown, with nothing to press. */
+  /** False when the deployment has no X credentials: the step says submissions are not possible yet, and the form stays locked. */
   xAvailable: boolean;
   xNote: XNotice | null;
 }) {
@@ -294,7 +295,7 @@ function SubmissionPanel({
     <>
       <h2 className="text-lg font-semibold tracking-[-0.02em]">Submit your post</h2>
       <XConnectStep campaignSlug={c.slug} connected={xConnected} available={xAvailable} notice={xNote} />
-      <WalletOnboarding key={pubkey} campaignSlug={c.slug} address={pubkey} />
+      <WalletOnboarding key={pubkey} campaignSlug={c.slug} address={pubkey} xReady={xConnected && xAvailable} />
     </>
   );
 }

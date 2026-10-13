@@ -52,7 +52,12 @@ describe("submit form", () => {
     expect(html).toMatch(/<button[^>]*type="submit"[^>]*\bdisabled=""/);
   });
 
-  it("disables the link field while the wallet cannot receive USDC", () => {
+  it("says the post must come from the connected X account", () => {
+    const html = renderToStaticMarkup(createElement(SubmitForm, { campaignSlug: "c", payTo: "GDXGQ7VJ2Y6XJ3KZ5L4M8N2P7R9S3T6U1W4X8Y2Z5A7B9C3D6EQR4F2A" }));
+    expect(html).toContain("with a post from your connected X account");
+  });
+
+  it("disables the link field while locked: the wallet cannot receive USDC yet, or has no X account to check the post against", () => {
     const html = renderToStaticMarkup(createElement(SubmitForm, { campaignSlug: "c", payTo: "GDXGQ7VJ2Y6XJ3KZ5L4M8N2P7R9S3T6U1W4X8Y2Z5A7B9C3D6EQR4F2A", locked: true }));
     const input = html.match(/<input[^>]*name="workUrl"[^>]*>/)?.[0] ?? "";
     expect(input).toMatch(/\bdisabled=""/);
@@ -98,7 +103,7 @@ describe("stageOf", () => {
 });
 
 function submission(status: Submission["status"]): Submission {
-  return { id: "sub_1", shortId: "s1", campaignId: "cmp_1", contributorPubkey: "G_C1", workUrl: "https://x.com/a/status/1", fundingSource: null, status, submittedAt: new Date(NOW) };
+  return { id: "sub_1", shortId: "s1", campaignId: "cmp_1", contributorPubkey: "G_C1", workUrl: "https://x.com/a/status/1", postId: "1", fundingSource: null, status, submittedAt: new Date(NOW) };
 }
 
 function decision(id: string, outcome: "PASS" | "FAIL", txHash: string | null): Decision {
@@ -176,10 +181,21 @@ describe("X connect step", () => {
     expect(html).not.toContain("no access to post");
   });
 
+  it("says, before connecting, that submitting needs the connection and a post from that account", () => {
+    const html = step({ connected: false });
+    expect(html).toContain("You can submit once it is connected, and only a post written by that account is accepted.");
+  });
+
   it("says connected, with no link to connect again", () => {
     const html = step({ connected: true });
     expect(html).toContain("X account connected");
     expect(html).not.toContain("/api/x/connect");
+  });
+
+  it("says, once connected, that the post must be written by this account", () => {
+    const html = step({ connected: true });
+    expect(html).toContain("Submit a post written by this account.");
+    expect(html).toContain("a post from another account is refused");
   });
 
   it("shows a failed attempt as an alert under the link", () => {
@@ -205,14 +221,19 @@ describe("X connect step", () => {
     const html = step({ connected: false, available: false, notice: xNotice("unavailable", signedIn) });
     expect(html).toContain("Connect your X account");
     expect(html).toContain("Not available yet.");
+    expect(html).toContain("Submissions aren&#x27;t possible until Proofwork can check with X who wrote a post.");
     expect(html).not.toContain("<a");
     expect(html).not.toContain("/api/x/connect");
     expect(html).not.toContain('role="alert"');
     expect(html).not.toContain("text-fail");
   });
 
-  it("still says connected when X is not configured any more", () => {
-    expect(step({ connected: true, available: false })).toContain("X account connected");
+  it("still says connected when X is not configured any more, and that submissions are not possible", () => {
+    const html = step({ connected: true, available: false });
+    expect(html).toContain("X account connected");
+    expect(html).toContain("Submissions aren&#x27;t possible until Proofwork can check with X who wrote a post.");
+    expect(html).not.toContain("Submit a post written by this account.");
+    expect(html).not.toContain("/api/x/connect");
   });
 
   it("has a message and a tone for every outcome a failed attempt can return with", () => {

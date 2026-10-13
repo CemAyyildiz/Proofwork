@@ -126,6 +126,9 @@ async function submit(wallet: string, source: string | null | Error, campaign = 
       if (source instanceof Error) throw source;
       return source;
     },
+    // Every wallet here submits its own post from its own X account; that gate is covered in submission-create.test.ts.
+    async () => ({ found: true, authorId: "111" }),
+    async () => ({ xUserId: "111" }),
   );
   return s.id;
 }
@@ -333,6 +336,14 @@ describe("Month 1 rows after the migration", () => {
       .filter((statement) => statement !== "");
   const MONTH_1 = ["0000_overjoyed_rocket_raccoon", "0001_nebulous_bloodaxe", "0002_needy_meltdown"];
   const MONTH_2 = "0003_wandering_layla_miller";
+  /** Every migration after it, from the journal: the app's queries need the whole current schema. */
+  const LATER = (
+    JSON.parse(readFileSync(fileURLToPath(new URL("../../src/db/migrations/meta/_journal.json", import.meta.url)), "utf8")) as {
+      entries: Array<{ idx: number; tag: string }>;
+    }
+  ).entries
+    .filter((e) => e.idx > 3)
+    .map((e) => e.tag);
 
   it("the migration only adds two nullable columns", () => {
     expect(sql(MONTH_2)).toEqual([
@@ -375,6 +386,8 @@ describe("Month 1 rows after the migration", () => {
 
       for (const statement of sql(MONTH_2)) await client.exec(statement);
 
+      expect((await client.query(`SELECT * FROM "decision" WHERE id = 'dec_m1'`)).rows[0]).toEqual(before);
+      for (const name of LATER) for (const statement of sql(name)) await client.exec(statement);
       expect((await client.query(`SELECT * FROM "decision" WHERE id = 'dec_m1'`)).rows[0]).toEqual(before);
       conn = drizzle({ client, schema });
       const read = await getDecision("dec_m1", conn);

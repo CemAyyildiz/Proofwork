@@ -28,7 +28,7 @@ export function SubmitForm({
 }: {
   campaignSlug: string;
   payTo: string;
-  /** True until the wallet can receive USDC: the field and submit stay disabled. */
+  /** True until the wallet can receive USDC and has its X account connected: the field and submit stay disabled. */
   locked?: boolean;
 }) {
   const router = useRouter();
@@ -118,7 +118,9 @@ export function SubmitForm({
       <Button type="submit" disabled={!valid || locked} busy={busy} busyLabel="Submitting…" className="mt-3.5 h-[52px] w-full text-[15.5px]">
         Submit for review
       </Button>
-      <p className="mt-3 text-[12.5px] text-muted">One submission per wallet. The post must stay public until the campaign closes.</p>
+      <p className="mt-3 text-[12.5px] text-muted">
+        One submission per wallet, with a post from your connected X account. The post must stay public until the campaign closes.
+      </p>
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-line pt-4 text-[13px] text-muted">
         <span>Paid in USDC to</span>
         <HashChip value={payTo} head={4} tail={4} href={publicEnv.explorerAccountUrl(payTo)} />

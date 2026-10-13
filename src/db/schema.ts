@@ -95,6 +95,13 @@ export const submissions = pgTable(
     contributorPubkey: text("contributor_pubkey").notNull(),
     workUrl: text("work_url").notNull(),
     /**
+     * Numeric ID of the submitted X post, from the link. Unique, so one post is
+     * submitted once whatever handle or host its link carries. Null only on
+     * rows stored before the column existed whose post ID another such row
+     * shares: those could not be backfilled.
+     */
+    postId: text("post_id"),
+    /**
      * Account that created the contributor's wallet, as Horizon reported it at
      * submission. Stored raw (Friendbot included) so the public-source list
      * applies at read time. Null = not looked up or no creation record.
@@ -107,6 +114,7 @@ export const submissions = pgTable(
     index("submission_campaign_idx").on(t.campaignId),
     uniqueIndex("submission_campaign_contributor_idx").on(t.campaignId, t.contributorPubkey),
     uniqueIndex("submission_work_url_idx").on(t.workUrl),
+    uniqueIndex("submission_post_id_idx").on(t.postId),
   ],
 );
 
