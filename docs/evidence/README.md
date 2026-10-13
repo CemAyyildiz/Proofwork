@@ -2,6 +2,8 @@
 
 Proofwork · Stellar Instawards, Stellar Türkiye chapter · Stellar testnet only.
 
+This is the Month 1 index. Month 2, a campaign run by a team other than Proofwork, has its own: [Evidence index, Month 2](month-2.md).
+
 This page maps each deliverable in the Statement of Work (§6.1 and the §6.2 verification checklist) to the evidence that shows it. Nothing here requires reading code: every transaction hash opens on [stellar.expert](https://stellar.expert/explorer/testnet), and every decision can be checked in the browser (see [Verify it yourself](../../README.md#verify-it-yourself)).
 
 | Shared evidence | Link |
