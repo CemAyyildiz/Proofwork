@@ -67,11 +67,26 @@ The rubric asks whether one person is behind several accounts. To give the revie
 
 Read back on testnet in [funding-source.md](evidence/funding-source.md).
 
+## X account connection
+
+Month 1 knew a contributor only by a wallet, so nothing tied the wallet to the X account whose post it submitted. A signed-in wallet can now connect its X account with Sign in with X. Connecting is not yet required to submit; that check is a later step.
+
+- **Flow.** OAuth 2.0 authorization code with PKCE (S256), with Proofwork as a confidential client. `GET /api/x/connect?slug=<campaign>` sends the session wallet to X's authorize page; X sends the contributor back to `GET /api/x/callback`. The server trades the code for an access token at `api.x.com/2/oauth2/token`, reads the account from `api.x.com/2/users/me`, keeps the numeric account ID and drops the token. Those two hosts and `x.com` are fixed in code. A redirect from either API call is treated as a failure, not followed.
+- **What is asked of X.** The scopes `users.read tweet.read`, the least X accepts for that one lookup. No `offline.access`, so there is no refresh token. The app reads no posts and can post nothing.
+- **What is stored.** One row in `x_account`: wallet public key, X account ID, time connected. The wallet is the primary key and the account ID is unique, so the database itself holds the rule of one X account per wallet and one wallet per X account. The access token, authorization code, PKCE verifier, handle and display name are never written and never logged; the adapter does not parse the handle or name out of X's reply. There is no unlink.
+- **Flow state.** `state`, the PKCE verifier, the wallet that started the flow, the campaign to return to and a 10-minute expiry travel in an httpOnly, SameSite=Lax cookie sent only to `/api/x`. It is signed with a key derived from the session secret for this purpose alone, so neither cookie verifies as the other. The callback binds only when the cookie is intact and unexpired, its `state` equals the one X returned, and the session wallet is the wallet that started the flow. Otherwise X is not called. The cookie is cleared on every callback, so the same callback URL opened twice finds no flow state the second time.
+- **Outcomes.** Both routes answer with a redirect to `/c/<slug>?x=<outcome>`, where the slug matches a fixed alphabet (never a URL) and the outcome is one of a fixed list: connected, X account already on another wallet, wallet already has an X account, cancelled on X, try again, sign in first, X did not answer, not available, too many attempts. The page shows "X account connected" from the database, never from the URL.
+- **Without credentials.** `X_CLIENT_ID`, `X_CLIENT_SECRET` and `X_REDIRECT_URI` are optional as a set. A deployment without them shows the step and answers "X sign-in is not available right now".
+- **Review stays blind.** The X account ID is used only on the server. It is not shown on the campaign page, and the review queue shows neither it nor a handle.
+
+What the tests cover, and the live run that is still open, are in [x-connect.md](evidence/x-connect.md).
+
 ## Security model
 
 - **No custody by the app.** The platform keys cannot move funds; release needs the funder's wallet, the remainder needs the dispute resolver (see Known limits for who holds that key in Month 1).
 - **Money state comes from chain.** Every escrow write is recorded as intent → submitted → confirmed with an idempotency key, and confirmed only after the escrow is read back and shows the effect. A retry never submits a second transaction. Nothing is shown as paid from a database write alone.
 - **Wallet login.** Single-use signed nonce with expiry; httpOnly, Secure, SameSite=Lax session cookie; logout revokes server-side.
+- **X sign-in.** Only the X account ID is kept. Tokens, codes, the PKCE verifier and handles are never stored or logged, and the X credentials are server environment only (see X account connection).
 - **Authorization** is checked in the service layer on every mutation against the caller's wallet, role and campaign ownership.
 - **Input.** Every route and server action validates with zod. Submission URLs must be `https://x.com/<handle>/status/<id>` (or twitter.com); the server never fetches them.
 - **Secrets** live only in server environment, validated at startup, never logged and never in the client bundle. Security headers (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none) on every response; public write endpoints are rate limited.
@@ -86,6 +101,9 @@ Read back on testnet in [funding-source.md](evidence/funding-source.md).
 - **The operator holds the dispute resolver key in Month 1.** `pnpm escrow:close` runs with `DISPUTE_RESOLVER_SECRET` from the operator's environment, not from a Chapter Lead wallet. The resolver chooses the destination of `withdraw-remaining-funds`; the script sends the balance to the escrow's funder, but the key itself could send it elsewhere. The sweep tx on stellar.expert shows where the remainder went.
 - **Testnet only.** Testnet USDC has no value; the server keys are sprint keys.
 - **The funding warning is a hint.** It sees only the account that created a wallet. Wallets each activated straight from Friendbot, which is what the app's own onboarding does, never link, so a count of 0 means no link was found, not that the accounts are independent. A link that appears after a decision is not added to that decision: its log row keeps the count the reviewer saw. Unrelated wallets created by the same exchange, or by a faucet that is not on the public list, are flagged together; wallets one person funds through separate intermediate accounts are not; and a wallet whose first Horizon record is not its creation is not checked at all.
+- **The X connection is not yet enforced or proven live.** A wallet can still submit without connecting, and the app does not yet check that a submitted post was written by the connected account. The flow has run against a fake and a fetch stub only; the run against X itself needs an X developer app.
+- **An X connection is permanent.** There is no unlink or relink: a wallet that connects the wrong account, or a contributor who loses a wallet, has no way to move the X account in the app.
+- **The authorization code appears in the request URL.** X returns it as a query parameter, so the hosting platform's request log holds it. It is single use, expires 30 seconds after X issues it, and is useless without the client secret and the PKCE verifier. The app's own logs carry only the failed step and HTTP status.
 - **X only, USDC only**, and the campaign is created and run by hand; this is not a self-service platform.
 
 ## Month 2 next steps

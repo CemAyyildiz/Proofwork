@@ -12,6 +12,7 @@ Proofwork runs on the Stellar **testnet only**. There is no mainnet host and no 
 | Database | Neon Postgres | Branch `main` for production, a separate branch `preview` for previews |
 | Rate limiting | Upstash Redis | One database for production, a separate one for previews |
 | Chain | Stellar testnet (Horizon, Soroban RPC), Trustless Work `dev.api.trustlesswork.com` | Fixed hosts, also listed in the CSP `connect-src` |
+| X | `x.com` (authorize page, reached by browser redirect), `api.x.com` (token and account lookup, called by the server) | Fixed hosts in `src/x/api.ts`. Not in the CSP: the browser navigates to X and never fetches it |
 
 Pick the Vercel function region next to the Neon region (for example `fra1` with `aws-eu-central-1`). Set the Vercel Node.js version to 22, the same as CI.
 
@@ -37,6 +38,9 @@ Values are entered in the Vercel dashboard only, per scope. None of them is ever
 | `UPSTASH_REDIS_REST_TOKEN` | production Upstash database (see below) | preview Upstash database |
 | `DEFAULT_DISPUTE_RESOLVER_PUBKEY` | optional, public key (`G...`) only | optional |
 | `PUBLIC_FUNDING_SOURCES` | optional, comma-separated public keys (`G...`) of faucets besides Friendbot; wallets they created are not flagged for sharing a funding source | same |
+| `X_CLIENT_ID` | OAuth 2.0 Client ID of the X app (see [Sign in with X](#sign-in-with-x)) | leave unset, or a second X app |
+| `X_CLIENT_SECRET` | OAuth 2.0 Client Secret of the same X app | leave unset, or a second X app |
+| `X_REDIRECT_URI` | `https://proofwork.online/api/x/callback` | leave unset, or the callback of a fixed preview domain |
 
 Never set on Vercel: `FUNDER_SECRET`, `DISPUTE_RESOLVER_SECRET`. They are used only by local scripts (`pnpm spike`, `pnpm escrow:close`) and must stay on the operator's machine.
 
@@ -47,6 +51,27 @@ The schema treats the two Upstash variables as optional, and nothing checks them
 After generating preview keys, run `pnpm accounts:prepare` with them in a local `.env` so the accounts exist on testnet and hold the USDC trustline.
 
 No absolute site URL is configured: nothing in the code builds one, so `SITE_URL` is not needed.
+
+## Sign in with X
+
+A contributor connects an X account through an X developer app that Proofwork owns. The three `X_*` variables are optional as a set: with all three the Connect X step works, with none the step answers "X sign-in is not available right now" and nothing else changes. Setting only one or two fails the first request with `set X_CLIENT_ID, X_CLIENT_SECRET and X_REDIRECT_URI together, or none of them`.
+
+Settings to enter on the X app, in its authentication settings in the X Developer Console (`console.x.com`):
+
+| Setting | Value |
+|---|---|
+| OAuth 2.0 | enabled |
+| Type of App | **Web App, Automated App or Bot**. That makes it a confidential client, which is the only kind that gets a Client Secret; the server authenticates to the token endpoint with it |
+| Callback URL | `https://proofwork.online/api/x/callback`, plus `http://localhost:3000/api/x/callback` for local development. X compares the callback exactly, trailing slash included, so each one in use must be listed |
+| App permissions | Read only, if the form asks. Permission levels belong to OAuth 1.0a; what this flow may do is set by the scopes below |
+
+Then copy the **OAuth 2.0 Client ID and Client Secret** from the app's Keys and Tokens page into `X_CLIENT_ID` and `X_CLIENT_SECRET`. These are not the API Key and Secret or the Bearer Token on the same page, which belong to OAuth 1.0a and app-only access and are not used here. `X_REDIRECT_URI` must be exactly one of the callback URLs above, and its path must be `/api/x/callback`; the config module refuses any other path. Any other field the form requires, such as a website URL, takes `https://proofwork.online`.
+
+Scopes are not a console setting. The app asks for `users.read tweet.read` in the authorize request, which is the least X accepts for looking up the signed-in account. It does not ask for `offline.access`, so X issues no refresh token.
+
+Preview deployments get a new hostname each time, and X will not redirect to a callback that is not listed. Leave the three variables unset in the Preview scope unless a fixed preview domain is registered as a callback URL; if it is, use a second X app so the production secret stays in the Production scope.
+
+No CSP change is needed. The flow starts from a plain link to `/api/x/connect`, which answers with a redirect to X; `form-action 'self'` restricts form posts, not link navigation. Checked in headless Chrome against the dev server on 2026-10-13: the browser followed the redirect to `x.com` with no CSP violation.
 
 ## Client IP and rate limits
 
@@ -101,9 +126,9 @@ Before the first push, and before making the repository public, scan the full hi
 git rev-list --all | xargs git grep -nE '(^|[^A-Z2-7])S[A-Z2-7]{55}([^A-Z2-7]|$)'
 git rev-list --all | xargs git grep -nE 'BEGIN [A-Z ]*PRIVATE KEY'
 git rev-list --all | xargs sh -c 'git grep -nE "postgres(ql)?://[^:/@ ]+:[^@ ]+@" "$@" -- ":(exclude,glob)**/.env.example"' _ | grep -v '@localhost/'
-git rev-list --all | xargs sh -c 'git grep -nE "(TW_API_KEY|SESSION_SECRET|UPSTASH_REDIS_REST_TOKEN)=[^ \$\`]+" "$@" -- ":(exclude,glob)**/.env.example"' _
+git rev-list --all | xargs sh -c 'git grep -nE "(TW_API_KEY|SESSION_SECRET|UPSTASH_REDIS_REST_TOKEN|X_CLIENT_SECRET)=[^ \$\`]+" "$@" -- ":(exclude,glob)**/.env.example"' _
 # commit messages
-git log --all --format=%B | grep -nE '(^|[^A-Z2-7])S[A-Z2-7]{55}([^A-Z2-7]|$)|BEGIN [A-Z ]*PRIVATE KEY|postgres(ql)?://[^:/@ ]+:[^@ ]+@|(TW_API_KEY|SESSION_SECRET|UPSTASH_REDIS_REST_TOKEN)=[^ ]+'
+git log --all --format=%B | grep -nE '(^|[^A-Z2-7])S[A-Z2-7]{55}([^A-Z2-7]|$)|BEGIN [A-Z ]*PRIVATE KEY|postgres(ql)?://[^:/@ ]+:[^@ ]+@|(TW_API_KEY|SESSION_SECRET|UPSTASH_REDIS_REST_TOKEN|X_CLIENT_SECRET)=[^ ]+'
 # .env files ever tracked, except .env.example at any depth
 git log --all --name-only --pretty=format: | sort -u | grep -E '(^|/)\.env' | grep -vE '(^|/)\.env\.example$'
 ```
