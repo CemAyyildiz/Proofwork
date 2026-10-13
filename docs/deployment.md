@@ -37,6 +37,8 @@ Values are entered in the Vercel dashboard only, per scope. None of them is ever
 | `UPSTASH_REDIS_REST_URL` | production Upstash database (see below) | preview Upstash database |
 | `UPSTASH_REDIS_REST_TOKEN` | production Upstash database (see below) | preview Upstash database |
 | `DEFAULT_DISPUTE_RESOLVER_PUBKEY` | optional, public key (`G...`) only | optional |
+| `FUNDER_MAX_OPEN_CAMPAIGNS` | optional, whole number from 1 to 9999, defaults to `2`: campaigns one funder may have open at once (see [Funder limits](#funder-limits)) | same |
+| `FUNDER_MAX_OPEN_BUDGET` | optional, USDC amount with at most 7 decimals, defaults to `100`: total budget one funder may have open at once | same |
 | `PUBLIC_FUNDING_SOURCES` | optional, comma-separated public keys (`G...`) of faucets besides Friendbot; wallets they created are not flagged for sharing a funding source | same |
 | `X_CLIENT_ID` | OAuth 2.0 Client ID of the X app (see [Sign in with X](#sign-in-with-x)) | leave unset, or a second X app |
 | `X_CLIENT_SECRET` | OAuth 2.0 Client Secret of the same X app | leave unset, or a second X app |
@@ -84,6 +86,16 @@ When a contributor submits, the server asks X who wrote the post: `GET https://a
 - The X app's plan must allow post lookup (`GET /2/tweets/:id`) with app-only access. Each submission that passes the earlier checks costs one lookup; nothing is cached or retried.
 - When X answers 429, 5xx or not at all, or refuses the token, the contributor sees "couldn't check the post with X, try again" and nothing is stored. The server log has one line, `post author lookup failed`, with the HTTP status and, on a 429, `resetAt`: the Unix time at which X's limit resets. A 401 or 403 there means the token or the plan, not the contributor.
 - The request shape was taken from X's OpenAPI document (v2.170, read 2026-10-13) and has not been sent to X yet. The first submission after the variables are set is the check: if it fails with status 400 or with reason `body`, the shape has changed and `src/x/api.ts` needs correcting before a campaign opens.
+
+## Funder limits
+
+Each funder is capped on the number of open campaigns and on their total budget ([technical summary → Funder limits and funding readiness](technical-summary.md#funder-limits-and-funding-readiness)). Both caps are the same for every funder; there is no per-funder override and no admin screen for them.
+
+- `FUNDER_MAX_OPEN_CAMPAIGNS` is a whole number from 1 to 9999, default `2`. `FUNDER_MAX_OPEN_BUDGET` is a USDC amount with at most 7 decimals, default `100`. Left unset or empty, the defaults apply. A value the config module refuses (zero, a negative number, `1.5` campaigns, `1e2`) rejects the whole environment, so every route that reads it fails until the value is fixed.
+- The environment is read once per server process, so a changed value takes effect with the next deployment, on the new-campaign page and in the refusal messages alike.
+- Lowering a cap below what a funder already has open closes nothing. That funder can still approve, release and close; it cannot create or deploy until it is back under the cap.
+- No migration and no new host. The readiness check reads `GET <HORIZON_URL>/accounts/<wallet>`, the host the app already uses. `HORIZON_URL` must be an `https://` address: the Stellar SDK behind the escrow routes refuses plain `http://` and those routes then answer 500.
+- The XLM a wallet must hold for fees is a constant in `src/domain/funding-readiness.ts`, not a variable: 0.5 XLM for each escrow transaction still to sign. It was measured on two testnet transactions and needs revisiting if network fees rise.
 
 ## Client IP and rate limits
 
