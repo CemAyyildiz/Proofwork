@@ -82,8 +82,9 @@ export function EscrowActions({
         confirming ? (
           <div className="max-w-[640px] space-y-2 rounded border border-red-300 p-3 text-sm">
             <p>
-              Nothing is in this escrow: no fund transaction was ever sent for it. Abandoning closes the campaign and frees its place
-              under your limits. It cannot be funded afterwards.
+              Nothing is in this escrow: no fund transaction was ever sent for it, and the escrow is read to confirm it is empty
+              before anything changes. Abandoning closes the campaign and frees its place under your limits. It cannot be funded
+              afterwards.
             </p>
             <div className="flex items-center gap-3">
               <button type="button" disabled={busy !== null} onClick={() => void abandon()} className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50">

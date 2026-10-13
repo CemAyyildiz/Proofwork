@@ -12,8 +12,8 @@ export const runtime = "nodejs";
 /**
  * Funder-side escrow operations. `prepare` returns an unsigned XDR for the
  * wallet; `submit` takes the signed XDR back and confirms it on-chain.
- * `abandon` closes a campaign whose escrow was deployed and never funded; it
- * signs and sends nothing.
+ * `abandon` closes a campaign whose escrow was deployed and never funded,
+ * after reading that the escrow is empty; it signs and sends nothing.
  */
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("prepare"), kind: z.enum(["deploy", "fund"]) }),
@@ -35,12 +35,13 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     // services check ownership.
     const reconcilingFund = input.action !== "abandon" && input.kind === "fund" && (await fundSubmitted(id));
     if (!user.roles.has("funder") && !reconcilingFund) throw AppError.forbidden("requires funder role");
+    const escrow = getEscrow();
     if (input.action === "abandon") {
-      const c = await abandonCampaign(id, user);
+      // The escrow is read first and must be empty; nothing is signed or sent.
+      const c = await abandonCampaign(id, user, escrow);
       return { closedAt: c.closedAt };
     }
     const keys = getPlatformKeys();
-    const escrow = getEscrow();
     const actor = { pubkey: user.pubkey, platformAdmin: keys.admin, platformOps: keys.ops };
     if (input.action === "prepare") {
       // Every prepare can cost a Horizon read, so it is counted per wallet.

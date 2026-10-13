@@ -344,17 +344,28 @@ export async function confirmFund(
 /**
  * Gives up a campaign whose escrow was deployed and never funded, so that it
  * stops counting against its funder's caps. Allowed only while no fund
- * transaction was ever sent for it: then nothing is in the escrow as far as
- * the app's records go, and marking the campaign closed is all there is to
- * do. Nothing is read from or written to the chain. A closed campaign cannot
- * be funded afterwards (`prepareFund`, `confirmFund`).
+ * transaction was ever sent for it and the escrow itself, read through the
+ * port, holds nothing: the app's records alone would miss a fund signed and
+ * sent outside the app. Nothing is written to the chain. A closed campaign
+ * cannot be funded afterwards (`prepareFund`, `confirmFund`).
  */
-export async function abandonCampaign(campaignId: string, actor: { pubkey: string }, conn: Db = db): Promise<Campaign> {
+export async function abandonCampaign(campaignId: string, actor: { pubkey: string }, escrow: EscrowPort, conn: Db = db): Promise<Campaign> {
   const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("the escrow is not deployed, so there is nothing to abandon");
   if (c.closedAt) throw AppError.conflict("campaign already closed");
   if (c.fundedAt) throw AppError.conflict("campaign is funded; close it to return the budget");
   if (await fundSubmitted(campaignId, conn)) throw AppError.conflict("a fund transaction was sent for this campaign; finish funding it, then close it");
+  let balance: string;
+  try {
+    balance = (await escrow.getEscrow(c.escrowContractId)).balance;
+  } catch (e) {
+    // Without the read nothing says the escrow is empty, so the campaign stays open.
+    log.warn("escrow read failed before abandon", { campaignId, err: e instanceof Error ? e.message : String(e) });
+    throw new AppError("ESCROW", "couldn't read the escrow, try again");
+  }
+  if (toStroops(balance) !== 0n) {
+    throw AppError.conflict(`the escrow holds ${fromStroops(toStroops(balance))} USDC, so this campaign cannot be abandoned`);
+  }
   // One statement decides: a fund sent or confirmed since the checks above leaves the row as it is.
   const sent = conn
     .select({ id: escrowOps.id })

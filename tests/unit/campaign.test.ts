@@ -333,7 +333,7 @@ describe("abandoning a deployed campaign that was never funded", () => {
     const stale = await prepareFund(a.id, actor, escrow, openGate().account, conn);
     const submits = escrow.submits;
 
-    const closed = await abandonCampaign(a.id, actor, conn);
+    const closed = await abandonCampaign(a.id, actor, escrow, conn);
     expect(closed.closedAt).toBeInstanceOf(Date);
     expect(closed.fundedAt).toBeNull();
     expect(escrow.submits).toBe(submits);
@@ -352,14 +352,14 @@ describe("abandoning a deployed campaign that was never funded", () => {
     });
     expect(escrow.submits).toBe(submits + 1); // the deploy of the new campaign, nothing else
     expect((await escrow.getEscrow((await campaignRow(a.id)).escrowContractId ?? "")).balance).toBe("0");
-    await expect(abandonCampaign(a.id, actor, conn)).rejects.toMatchObject({ code: "CONFLICT", message: "campaign already closed" });
+    await expect(abandonCampaign(a.id, actor, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT", message: "campaign already closed" });
     expect((await campaignRow(b.id)).closedAt).toBeNull();
   });
 
   it("is refused for a funded campaign", async () => {
     const c = await deployed("50");
     await fund(c);
-    await expect(abandonCampaign(c.id, actor, conn)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("campaign is funded") });
+    await expect(abandonCampaign(c.id, actor, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("campaign is funded") });
     expect((await campaignRow(c.id)).closedAt).toBeNull();
   });
 
@@ -367,18 +367,48 @@ describe("abandoning a deployed campaign that was never funded", () => {
     const c = await deployed("50");
     const f = await prepareFund(c.id, actor, escrow, openGate().account, conn);
     await conn.update(escrowOps).set({ status }).where(eq(escrowOps.id, f.opId));
-    await expect(abandonCampaign(c.id, actor, conn)).rejects.toMatchObject({
+    await expect(abandonCampaign(c.id, actor, escrow, conn)).rejects.toMatchObject({
       code: "CONFLICT",
       message: expect.stringContaining("a fund transaction was sent for this campaign"),
     });
     expect((await campaignRow(c.id)).closedAt).toBeNull();
   });
 
+  it("is refused when the escrow holds money the app has no record of: a fund signed and sent outside the app", async () => {
+    const c = await deployed("50");
+    const f = await prepareFund(c.id, actor, escrow, openGate().account, conn);
+    // The prepared transaction reaches the network without the app: its record stays `intent`.
+    await escrow.submit(f.unsignedXdr);
+    expect((await opRows()).find((o) => o.id === f.opId)?.status).toBe("intent");
+    expect((await escrow.getEscrow((await campaignRow(c.id)).escrowContractId ?? "")).balance).toBe("50");
+
+    await expect(abandonCampaign(c.id, actor, escrow, conn)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "the escrow holds 50 USDC, so this campaign cannot be abandoned",
+    });
+    expect((await campaignRow(c.id)).closedAt).toBeNull();
+    expect(await funderUsage(FUNDER, conn)).toEqual({ openCampaigns: 1, openBudget: "50" });
+  });
+
+  it("is refused with a try-again message when the escrow cannot be read, and the failure is logged", async () => {
+    const c = await deployed("50");
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+    const read = vi.spyOn(escrow, "getEscrow").mockRejectedValue(new Error("trustless work unreachable"));
+    await expect(abandonCampaign(c.id, actor, escrow, conn)).rejects.toMatchObject({ code: "ESCROW", message: "couldn't read the escrow, try again" });
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("escrow read failed before abandon", { campaignId: c.id, err: "trustless work unreachable" });
+    expect((await campaignRow(c.id)).closedAt).toBeNull();
+
+    // Once the escrow answers and is empty, the same call goes through.
+    read.mockRestore();
+    expect((await abandonCampaign(c.id, actor, escrow, conn)).closedAt).toBeInstanceOf(Date);
+  });
+
   it("is refused for a draft, and for a wallet that does not own the campaign", async () => {
     const d = await draft("50");
-    await expect(abandonCampaign(d.id, actor, conn)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("not deployed") });
+    await expect(abandonCampaign(d.id, actor, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("not deployed") });
     const c = await deployed("50");
-    await expect(abandonCampaign(c.id, { pubkey: Keypair.random().publicKey() }, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(abandonCampaign(c.id, { pubkey: Keypair.random().publicKey() }, escrow, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect((await campaignRow(c.id)).closedAt).toBeNull();
   });
 });
@@ -932,6 +962,26 @@ describe("caps and readiness through the routes and pages", () => {
     const fundRes = await escrowCall(id, { action: "prepare", kind: "fund" });
     expect(fundRes.status).toBe(409);
     expect(await fundRes.json()).toMatchObject({ message: "campaign is closed" });
+  });
+
+  it("abandon reads the escrow first: 502 with a try-again message when it cannot be read, 409 when it holds money", async () => {
+    const { id } = await created("50");
+    await escrowStep(id, "deploy");
+    vi.spyOn((await import("@/lib/logger")).log, "warn").mockImplementation(() => undefined);
+    const read = vi.spyOn(escrow, "getEscrow").mockRejectedValue(new Error("trustless work unreachable"));
+    const down = await escrowCall(id, { action: "abandon" });
+    expect(down.status).toBe(502);
+    expect(await down.json()).toMatchObject({ error: "ESCROW", message: "couldn't read the escrow, try again" });
+    expect((await campaignRow(id)).closedAt).toBeNull();
+    read.mockRestore();
+
+    const prepared = await escrowCall(id, { action: "prepare", kind: "fund" });
+    const { unsignedXdr } = (await prepared.json()) as { unsignedXdr: string };
+    await escrow.submit(unsignedXdr);
+    const holds = await escrowCall(id, { action: "abandon" });
+    expect(holds.status).toBe(409);
+    expect(await holds.json()).toMatchObject({ error: "CONFLICT", message: "the escrow holds 50 USDC, so this campaign cannot be abandoned" });
+    expect((await campaignRow(id)).closedAt).toBeNull();
   });
 
   it("abandon is refused for a funded campaign, a draft, another wallet, and a wallet without the funder role", async () => {
