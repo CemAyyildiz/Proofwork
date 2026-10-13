@@ -122,7 +122,8 @@ src/db         schema + migrations
 src/domain     rubric, reason codes, submission URL rules, wallet signature check
 src/escrow     EscrowPort + Trustless Work adapter + in-memory fake
 src/ledger     canonical decision record + on-chain commit
-src/services   auth, campaign, escrow-ops, submission, review, payout
+src/services   auth, campaign, escrow-ops, submission, review, payout, x-account
+src/x          XPort + Sign in with X adapter + in-memory fake
 src/app        routes: /campaigns (funder), /c/[slug] (contributor), /review, /verify/[id]
 src/wallet     browser wallet layer (Wallets Kit)
 scripts        key generation, account prep, spike, escrow close, role grant, results, evidence dump

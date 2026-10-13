@@ -4,31 +4,36 @@ A signed-in wallet connects its X account with Sign in with X, and the app binds
 
 ## Run 1: unit tests against the fake and the fetch stub
 
-Run: 2026-10-13 · `pnpm test --maxWorkers=2` · 412 tests in 28 files pass, 96 of them for this feature.
+Run: 2026-10-13 · `pnpm vitest run` on the five files named in the table (`x-api`, `x-account`, `x-routes`, `env`, `public-states`) · 157 tests pass.
 
 X sits behind a port (`src/x/port.ts`). The service and route tests use the in-memory fake (`src/x/fake.ts`) and an in-process Postgres with every migration applied; the adapter tests give the real adapter (`src/x/api.ts`) a stubbed `fetch`.
 
 | Scenario | What the tests assert | Where |
 |---|---|---|
-| Connect | Row `(wallet, 111)` with a timestamp; the callback returns to `/c/<slug>?x=connected` | `tests/unit/x-account.test.ts`, `tests/unit/x-routes.test.ts` |
+| Connect | Row `(wallet, 111)` with a timestamp; the callback returns to `/c/<slug>?x=connected#submit` | `tests/unit/x-account.test.ts`, `tests/unit/x-routes.test.ts` |
 | Same pair again | Success, still one row | `x-account.test.ts` |
 | X account taken | Second wallet gets `taken`; nothing stored for it. Two wallets racing for one account: exactly one wins | `x-account.test.ts` |
 | Wallet already bound | Outcome `wallet_bound`; the first account stays | `x-account.test.ts` |
 | Denied on X | `error=access_denied` gives `cancelled`; nothing stored, X not called | `x-account.test.ts`, `x-routes.test.ts` |
 | Bad state | State missing, different, expired at 10 minutes, or issued to another wallet; cookie missing, edited or signed with the session key: nothing stored, X not called, `retry` | `x-account.test.ts`, `x-routes.test.ts` |
-| Not signed in | Start and callback without a session, or with a session revoked by logout: no redirect to X, nothing stored, `signin` | `x-account.test.ts`, `x-routes.test.ts` |
+| Not signed in | Start and callback, each without a session and with a session revoked by logout: no redirect to X, nothing stored, `signin` | `x-account.test.ts`, `x-routes.test.ts` |
 | X fails | Token exchange or account lookup times out, cannot connect, answers non-200, answers non-JSON or an unexpected body: typed error, nothing stored, `x_failed` | `tests/unit/x-api.test.ts`, `x-account.test.ts` |
-| Not configured | No X values: start does not redirect to X, `unavailable`. One or two of the three values: the config refuses to load | `x-account.test.ts`, `x-routes.test.ts`, `tests/unit/env.test.ts` |
-| Callback opened twice | The second request finds no flow cookie, binds nothing and X is called once in total | `x-routes.test.ts` |
+| Not configured | No X values: no adapter is wired, the page step is muted with no link, and a start request does not redirect to X (`unavailable`). One or two of the three values, or a redirect URI that is not `https://<host>/api/x/callback` (http only on localhost; no query, fragment or credentials): the config refuses to load | `x-account.test.ts`, `x-routes.test.ts`, `tests/unit/env.test.ts`, `tests/unit/public-states.test.ts` |
+| Callback opened twice | The callback clears the flow cookie, so the second request from that browser finds none, binds nothing and X is called once in total. Not covered, because the server keeps no used-flow record: a replay that still carries the cookie would reach X and rely on X refusing the spent code | `x-routes.test.ts` |
+| No flow cookie | As when X sends the contributor back to another browser: nothing bound, X not called, redirect to `/explore?x=retry` (or `signin` without a session), one warning line with no request data | `x-routes.test.ts`, `public-states.test.ts` |
+| Something breaks | A failing database on either route, or a start request without a valid slug: a redirect, never JSON (`x_failed` on the campaign page when the slug is known, the campaign list otherwise), and one log line with the error's kind and no request data | `x-routes.test.ts` |
+| X account ID format | Only 1 to 19 digits with no leading zero is accepted from X or stored | `x-api.test.ts`, `x-account.test.ts` |
 | Request shape | Authorize URL: `x.com/i/oauth2/authorize`, `response_type=code`, PKCE `S256`, scope `users.read tweet.read`, no `offline.access`, no client secret. Token call: `POST api.x.com/2/oauth2/token`, form-encoded, HTTP Basic, no `client_id` in the body. Lookup: `GET api.x.com/2/users/me` with the bearer token. Redirects are refused on both | `x-api.test.ts` |
 | Only the ID leaves the adapter | With a handle and display name in X's reply, the adapter returns exactly `{ xUserId }` | `x-api.test.ts` |
 | Nothing else is stored | `x_account` has the columns `pubkey`, `x_user_id`, `connected_at`; no table has a column for a token, handle, name or verifier | `x-account.test.ts` |
-| Logs | On the failure paths, run through the real adapter with X echoing the code, the token and a handle in its error replies, captured stdout and stderr hold the failed step and HTTP status and no authorization code, access token, verifier, state, client secret or handle. The thrown errors carry none either | `x-api.test.ts`, `x-account.test.ts`, `x-routes.test.ts` |
+| Logs | On the failure paths, run through the real adapter with X echoing the code, the token and a handle in its error replies, captured stdout and stderr hold one line with the failed step and HTTP status and no authorization code, access token, verifier, state, client secret or handle. The thrown errors carry none either. A bind, or a refused bind, leaves one line with the wallet and the outcome and never the X account ID; an authorize error from X is logged only as one of the OAuth error codes or `other` | `x-api.test.ts`, `x-account.test.ts`, `x-routes.test.ts` |
 | Rate limit | The 11th start, and the 11th callback, inside 10 minutes from one address and wallet returns `rate_limited`; X is not called | `x-routes.test.ts` |
 
 ## Run 2: local app, X never contacted
 
 Run: 2026-10-13, about 08:00 UTC · App: a local instance of this repository (`next dev`) on a scratch Postgres 17 database with migrations 0000 to 0004 applied, throwaway server keys, one open campaign inserted by hand. Fresh keypairs signed in with the wallet challenge. No request reached X in any step.
+
+This run was made at commit `d3f5ad2` and has not been repeated. Four answers changed afterwards and are covered by Run 1 only: return paths now end in `#submit`; a start request with a bad slug redirects to `/explore?x=retry` instead of answering 400; a callback without a flow cookie goes to `/explore?x=<outcome>` instead of bare `/explore`; and without the `X_*` variables the page shows the step as "Not available yet" with no link. The tables below are what was observed at the time.
 
 Without the three `X_*` variables:
 

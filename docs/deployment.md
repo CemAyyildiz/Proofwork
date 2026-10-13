@@ -54,7 +54,9 @@ No absolute site URL is configured: nothing in the code builds one, so `SITE_URL
 
 ## Sign in with X
 
-A contributor connects an X account through an X developer app that Proofwork owns. The three `X_*` variables are optional as a set: with all three the Connect X step works, with none the step answers "X sign-in is not available right now" and nothing else changes. Setting only one or two fails the first request with `set X_CLIENT_ID, X_CLIENT_SECRET and X_REDIRECT_URI together, or none of them`.
+A contributor connects an X account through an X developer app that Proofwork owns. The three `X_*` variables are optional as a set: with all three the Connect X step works, with none the campaign page shows the step as "Not available yet" with nothing to press and nothing else changes. A partial or malformed set (one or two of the three, or a redirect URI the config module refuses) is not limited to the X step: the whole environment is rejected, so every route that reads it fails until the values are fixed or removed.
+
+Migration `0004` (the `x_account` table) must be applied before this release is deployed, even with the X variables unset, because the campaign page reads `x_account` for every signed-in wallet.
 
 Settings to enter on the X app, in its authentication settings in the X Developer Console (`console.x.com`):
 
@@ -65,7 +67,7 @@ Settings to enter on the X app, in its authentication settings in the X Develope
 | Callback URL | `https://proofwork.online/api/x/callback`, plus `http://localhost:3000/api/x/callback` for local development. X compares the callback exactly, trailing slash included, so each one in use must be listed |
 | App permissions | Read only, if the form asks. Permission levels belong to OAuth 1.0a; what this flow may do is set by the scopes below |
 
-Then copy the **OAuth 2.0 Client ID and Client Secret** from the app's Keys and Tokens page into `X_CLIENT_ID` and `X_CLIENT_SECRET`. These are not the API Key and Secret or the Bearer Token on the same page, which belong to OAuth 1.0a and app-only access and are not used here. `X_REDIRECT_URI` must be exactly one of the callback URLs above, and its path must be `/api/x/callback`; the config module refuses any other path. Any other field the form requires, such as a website URL, takes `https://proofwork.online`.
+Then copy the **OAuth 2.0 Client ID and Client Secret** from the app's Keys and Tokens page into `X_CLIENT_ID` and `X_CLIENT_SECRET`. These are not the API Key and Secret or the Bearer Token on the same page, which belong to OAuth 1.0a and app-only access and are not used here. `X_REDIRECT_URI` must be exactly one of the callback URLs above. The config module refuses anything but `https://<host>/api/x/callback` (`http` only for `localhost` or `127.0.0.1`), with no query, fragment or credentials in it. Any other field the form requires, such as a website URL, takes `https://proofwork.online`.
 
 Scopes are not a console setting. The app asks for `users.read tweet.read` in the authorize request, which is the least X accepts for looking up the signed-in account. It does not ask for `offline.access`, so X issues no refresh token.
 
