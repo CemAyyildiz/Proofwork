@@ -12,7 +12,7 @@ import { approveKeyParts, deliverKeyParts } from "./op-keys";
  * op and every decision record, as Markdown with stellar.expert links.
  * Run by `scripts/evidence-dump.ts`, so this module does not import
  * "server-only". It never reads work URLs or anything planted-related, and
- * contributor wallets are truncated.
+ * contributor wallets are truncated. The funder's wallet is printed in full.
  */
 
 export const NO_HASH = "confirmed on chain, hash not recorded";
@@ -51,7 +51,7 @@ export interface EvidenceDecision {
 }
 
 export interface CampaignEvidence {
-  campaign: Pick<Campaign, "slug" | "title" | "escrowContractId" | "budget" | "rewardAmount" | "fundedAt" | "closedAt">;
+  campaign: Pick<Campaign, "slug" | "title" | "funderPubkey" | "escrowContractId" | "budget" | "rewardAmount" | "fundedAt" | "closedAt">;
   ops: Map<EscrowOp["kind"], EvidenceRow[]>;
   /** Ops that never confirmed: counted, not listed. */
   unconfirmed: { failedOrIntent: number; submitted: number };
@@ -152,6 +152,7 @@ export async function loadCampaignEvidence(conn: Db, slug: string): Promise<Camp
     campaign: {
       slug: c.slug,
       title: c.title,
+      funderPubkey: c.funderPubkey,
       escrowContractId: c.escrowContractId,
       budget: c.budget,
       rewardAmount: c.rewardAmount,
@@ -200,6 +201,8 @@ export function renderCampaignEvidence(e: CampaignEvidence, opts: { siteUrl: str
   out.push(
     `| Escrow contract | ${c.escrowContractId ? `[\`${c.escrowContractId}\`](${publicEnv.explorerContractUrl(c.escrowContractId)})` : "not deployed"} |`,
   );
+  // In full: the wallet that funded the campaign is itself evidence, and it is the source account of the deploy and fund transactions. A session wallet's public key, so base32 only.
+  out.push(`| Funder wallet | [\`${c.funderPubkey}\`](${publicEnv.explorerAccountUrl(c.funderPubkey)}) |`);
   out.push(`| Budget | ${formatUsdc(c.budget)} |`);
   out.push(`| Reward per approved submission | ${formatUsdc(c.rewardAmount)} |`);
   out.push(`| Funded | ${c.fundedAt ? iso(c.fundedAt) : "no"} |`);

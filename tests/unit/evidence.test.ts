@@ -10,6 +10,7 @@ const CAMPAIGN = "cmp_1";
 const CONTRACT = "CCDKBF7H5NOMNHBLYP7DFMAPBUA4YJ2DMOLETHIDNKKMLAX2PZC33WBF";
 const C1 = "GCN7FQMYXUNZ6MPGKMUMOFLQZXR2DMPUWQSTCQQJJEEKOQNYC6SIY2M4";
 const C2 = "GDXGFSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB";
+const FUNDER = "GBYRWD7HPWAQYIJHTMVLQVUB26DJSVU742MZVX3M5YH55QJN46ZQANOT";
 const hex = (c: string) => c.repeat(64);
 const SIGNALS = { account_genuine: true, content_original: true, task_done: true, follows_brief: true, single_account: true, not_spam: true };
 
@@ -39,7 +40,7 @@ beforeEach(async () => {
     rewardAmount: "10",
     budget: "100",
     deadlineAt: new Date("2026-10-01T00:00:00Z"),
-    funderPubkey: "G_FUNDER",
+    funderPubkey: FUNDER,
     disputeResolverPubkey: "G_DR",
     escrowContractId: CONTRACT,
     fundedAt: new Date("2026-09-20T10:00:00Z"),
@@ -147,6 +148,8 @@ describe("campaign evidence dump", () => {
     expect(md).toContain(`| 1 | ${NO_HASH} | s1aaaaaa · GCN7…Y2M4 |`);
     expect(md).toContain("| s2bbbbbb | pw:s2bbbbbb | first | FAIL | R06_SPAM | `3333333333333333…` | not committed | [verify](https://proofwork.online/verify/dec_3) |");
     expect(md).toContain(`https://stellar.expert/explorer/testnet/contract/${CONTRACT}`);
+    // The funding wallet in full, linked: for a team-run campaign it shows who funded it.
+    expect(md).toContain(`| Funder wallet | [\`${FUNDER}\`](https://stellar.expert/explorer/testnet/account/${FUNDER}) |`);
     expect(md).toContain("1 op(s) prepared or failed without a confirmed effect on chain");
     expect(md).toContain("1 op(s) submitted but not yet confirmed; they may still land");
     expect(md).toContain("# Campaign evidence: Live \\| campaign\n");
