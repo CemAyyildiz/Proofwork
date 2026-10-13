@@ -4,7 +4,7 @@ import type { Db } from "@/db/client";
 import { campaigns, decisions, escrowOps, payouts, submissions } from "@/db/schema";
 import { FakeEscrow } from "@/escrow/fake";
 import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/services/campaign";
-import { approveForPayout, confirmClose, prepareClose } from "@/services/payout";
+import { approveForPayout, campaignForEscrow, confirmClose, prepareClose, recordRemainder } from "@/services/payout";
 import { makeTestDb } from "./db";
 import { LIMITS, openGate } from "./funder-wallet";
 
@@ -424,5 +424,51 @@ describe("prepareClose", () => {
     await expect(closeIt()).resolves.toMatchObject({ unsignedXdr: expect.any(String) });
     expect(dispute).toHaveBeenCalledWith(expect.any(String), FUNDER, [0]);
     expect(await opsOf("dispute")).toHaveLength(1);
+  });
+});
+
+describe("the remainder sweep's record", () => {
+  const HASH = "a".repeat(64);
+  const OTHER = "b".repeat(64);
+  const remainder = async () => (await conn.select().from(campaigns).where(eq(campaigns.id, CAMPAIGN)))[0]?.remainderTxHash;
+
+  it("finds the campaign by its escrow, whoever funded it", async () => {
+    const contractId = await funded();
+    await expect(campaignForEscrow(contractId, conn)).resolves.toMatchObject({ id: CAMPAIGN, slug: "camp-1", funderPubkey: FUNDER });
+  });
+
+  it("an escrow no campaign has is not found, also while a campaign without an escrow exists", async () => {
+    await expect(campaignForEscrow("C_UNKNOWN", conn)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await funded();
+    await expect(campaignForEscrow("C_UNKNOWN", conn)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("records the hash on the campaign and changes nothing else on it", async () => {
+    await funded();
+    const before = (await conn.select().from(campaigns).where(eq(campaigns.id, CAMPAIGN)))[0];
+    const row = await recordRemainder(CAMPAIGN, HASH, conn);
+    expect(row).toEqual({ ...before, remainderTxHash: HASH });
+  });
+
+  it("recording the same hash again is accepted and leaves it in place", async () => {
+    await recordRemainder(CAMPAIGN, HASH, conn);
+    await expect(recordRemainder(CAMPAIGN, HASH, conn)).resolves.toMatchObject({ remainderTxHash: HASH });
+    expect(await remainder()).toBe(HASH);
+  });
+
+  it("a second, different hash is refused and the first one stays", async () => {
+    await recordRemainder(CAMPAIGN, HASH, conn);
+    await expect(recordRemainder(CAMPAIGN, OTHER, conn)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await remainder()).toBe(HASH);
+  });
+
+  it("a campaign that does not exist is not found", async () => {
+    await expect(recordRemainder("cmp_none", HASH, conn)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await remainder()).toBeNull();
+  });
+
+  it.each(["", "abc", "A".repeat(64), "a".repeat(63), "a".repeat(65), `${"a".repeat(63)}g`])("refuses %j as a transaction hash and writes nothing", async (bad) => {
+    await expect(recordRemainder(CAMPAIGN, bad, conn)).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(await remainder()).toBeNull();
   });
 });

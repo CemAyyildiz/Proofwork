@@ -491,9 +491,35 @@ export async function confirmClose(
   return { txHash: res.txHash };
 }
 
-/** Record the resolver's remainder sweep (done outside the app with the resolver key). */
-export async function recordRemainder(campaignId: string, txHash: string, conn: Db = db): Promise<Campaign> {
-  const [row] = await conn.update(campaigns).set({ remainderTxHash: txHash }).where(eq(campaigns.id, campaignId)).returning();
+/**
+ * The campaign whose escrow is `contractId`. `pnpm escrow:close` asks before
+ * it signs anything: a sweep cannot be repeated, so a database that does not
+ * know the escrow has to be noticed while nothing has moved yet.
+ */
+export async function campaignForEscrow(contractId: string, conn: Db = db): Promise<Campaign> {
+  const row = (await conn.select().from(campaigns).where(eq(campaigns.escrowContractId, contractId)).limit(1))[0];
   if (!row) throw AppError.notFound("campaign");
   return row;
+}
+
+const TX_HASH = /^[0-9a-f]{64}$/;
+
+/**
+ * Record the resolver's remainder sweep on its campaign. The sweep is done
+ * outside the app with the resolver key (`pnpm escrow:close`), which calls
+ * this only after the escrow has read back empty. Recording the same hash
+ * again changes nothing; a campaign that already carries another remainder
+ * hash keeps it and the call is refused.
+ */
+export async function recordRemainder(campaignId: string, txHash: string, conn: Db = db): Promise<Campaign> {
+  if (!TX_HASH.test(txHash)) throw AppError.validation("remainder transaction hash must be 64 lowercase hex characters");
+  const [row] = await conn
+    .update(campaigns)
+    .set({ remainderTxHash: txHash })
+    .where(and(eq(campaigns.id, campaignId), or(isNull(campaigns.remainderTxHash), eq(campaigns.remainderTxHash, txHash))))
+    .returning();
+  if (row) return row;
+  const known = await conn.select({ id: campaigns.id }).from(campaigns).where(eq(campaigns.id, campaignId)).limit(1);
+  if (known.length === 0) throw AppError.notFound("campaign");
+  throw AppError.conflict("another remainder transaction is already recorded for this campaign");
 }
