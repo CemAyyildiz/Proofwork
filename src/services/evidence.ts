@@ -1,4 +1,5 @@
 import { asc, eq } from "drizzle-orm";
+import { z } from "zod";
 import type { Db } from "@/db/client";
 import { campaigns, decisions, escrowOps, payouts, submissions, type Campaign, type EscrowOp } from "@/db/schema";
 import { publicEnv } from "@/config/public-env";
@@ -16,6 +17,34 @@ import { approveKeyParts, deliverKeyParts } from "./op-keys";
  */
 
 export const NO_HASH = "confirmed on chain, hash not recorded";
+
+/** First line of every page `renderCampaignEvidence` writes, up to the campaign's title. */
+export const EVIDENCE_HEADING = "# Campaign evidence: ";
+
+/** File a dump is written to, under docs/evidence and without `.md`. `campaign` when none is given. */
+export const DEFAULT_EVIDENCE_FILE = "campaign";
+export const evidenceFileNameSchema = z
+  .string()
+  .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "file name must be lowercase words of a-z and 0-9 joined by single hyphens, without .md")
+  .max(64, "file name must be at most 64 characters")
+  .default(DEFAULT_EVIDENCE_FILE);
+
+/** The row of a dumped page that names its campaign. */
+const CAMPAIGN_ROW = /^\| Campaign \| `([^`]+)` \|$/m;
+
+/**
+ * Whether a dump of campaign `slug` may be written over `existing`, the
+ * current content of the target file (null when there is none). Only a page
+ * this module wrote for the same campaign is replaced: never a hand-written
+ * page, and never another campaign's evidence.
+ */
+export function mayReplaceEvidencePage(existing: string | null, slug: string): { ok: true } | { ok: false; reason: string } {
+  if (existing === null) return { ok: true };
+  if (!existing.startsWith(EVIDENCE_HEADING)) return { ok: false, reason: "it is not a campaign evidence page" };
+  const owner = CAMPAIGN_ROW.exec(existing)?.[1];
+  if (owner === slug) return { ok: true };
+  return { ok: false, reason: owner ? `it holds the evidence of campaign ${owner}` : "it does not say which campaign it belongs to" };
+}
 
 /** Order the sections appear in, which is also the order they happen in. */
 const SECTIONS: Array<{ kind: EscrowOp["kind"]; title: string; signer: string }> = [
@@ -138,7 +167,8 @@ export async function loadCampaignEvidence(conn: Db, slug: string): Promise<Camp
   // The remainder sweep runs outside the app (`pnpm escrow:close`) and lands on the campaign row.
   // Only when no op row exists, so a recovered op without its hash is not listed twice.
   if (c.remainderTxHash && !ops.has("withdraw_remaining")) {
-    push("withdraw_remaining", { txHash: c.remainderTxHash, detail: "remaining balance → funder", at: c.closedAt });
+    // No time: the campaign row holds the hash of the sweep, not when it happened.
+    push("withdraw_remaining", { txHash: c.remainderTxHash, detail: "remaining balance, less the Trustless Work protocol fee → funder", at: null });
   }
 
   const decs = await conn
@@ -188,12 +218,14 @@ export function cell(s: string): string {
     .replace(/[\\`*_[\]|<>]/g, (ch) => `\\${ch}`);
 }
 
-export function renderCampaignEvidence(e: CampaignEvidence, opts: { siteUrl: string; generatedAt: Date }): string {
+export function renderCampaignEvidence(e: CampaignEvidence, opts: { siteUrl: string; generatedAt: Date; fileName?: string }): string {
   const c = e.campaign;
   const out: string[] = [];
-  out.push(`# Campaign evidence: ${cell(c.title)}`, "");
+  // The command as it was run, so running it again writes this same file.
+  const command = `pnpm evidence:dump ${c.slug}${opts.fileName && opts.fileName !== DEFAULT_EVIDENCE_FILE ? ` ${opts.fileName}` : ""}`;
+  out.push(`${EVIDENCE_HEADING}${cell(c.title)}`, "");
   out.push(
-    `Generated ${iso(opts.generatedAt)} by \`pnpm evidence:dump ${c.slug}\`. Network: Stellar testnet. This page lists what the app recorded; it makes no chain read. Each hash links to stellar.expert, where the transaction can be checked on chain.`,
+    `Generated ${iso(opts.generatedAt)} by \`${command}\`. Network: Stellar testnet. This page lists what the app recorded; it makes no chain read. Each hash links to stellar.expert, where the transaction can be checked on chain.`,
     "",
   );
   out.push("| | |", "|---|---|");

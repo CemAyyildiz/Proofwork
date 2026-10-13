@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "@/db/client";
 import { campaigns, decisions, escrowOps, payouts, submissions } from "@/db/schema";
 import { idempotencyKey } from "@/lib/ids";
-import { loadCampaignEvidence, NO_HASH, renderCampaignEvidence } from "@/services/evidence";
+import { evidenceFileNameSchema, loadCampaignEvidence, mayReplaceEvidencePage, NO_HASH, renderCampaignEvidence } from "@/services/evidence";
 import { approveKeyParts, deliverKeyParts } from "@/services/op-keys";
 import { makeTestDb } from "./db";
 
@@ -129,7 +129,8 @@ describe("campaign evidence dump", () => {
     expect(e.ops.get("mark_delivered")?.[0]?.detail).toBe("s1aaaaaa · GCN7…Y2M4");
     expect(e.ops.get("release")?.[0]?.detail).toBe("s1aaaaaa · GCN7…Y2M4 · 10 USDC · milestone 1");
     expect(e.ops.get("approve")?.[0]?.detail).toBe("s1aaaaaa · GCN7…Y2M4");
-    expect(e.ops.get("withdraw_remaining")).toEqual([{ txHash: hex("e"), detail: "remaining balance → funder", at: new Date("2026-09-25T10:00:00Z") }]);
+    // The row carries no time: the campaign row knows the sweep's hash, not when it happened.
+    expect(e.ops.get("withdraw_remaining")).toEqual([{ txHash: hex("e"), detail: "remaining balance, less the Trustless Work protocol fee → funder", at: null }]);
     expect(e.decisions.map((d) => [d.ledgerKey, d.round, d.outcome, d.reasonCode])).toEqual([
       ["pw:s1aaaaaa", "first", "FAIL", "R03_TASK"],
       ["pw:s2bbbbbb", "first", "FAIL", "R06_SPAM"],
@@ -184,5 +185,50 @@ describe("campaign evidence dump", () => {
 
   it("refuses an unknown slug", async () => {
     await expect(loadCampaignEvidence(conn, "nope")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("where a dump may be written", () => {
+  const page = async (fileName?: string) =>
+    renderCampaignEvidence(await loadCampaignEvidence(conn, "live-1"), {
+      siteUrl: "https://proofwork.online",
+      generatedAt: new Date("2026-09-26T00:00:00Z"),
+      ...(fileName === undefined ? {} : { fileName }),
+    });
+
+  it("the file name defaults to campaign", () => {
+    expect(evidenceFileNameSchema.parse(undefined)).toBe("campaign");
+    expect(evidenceFileNameSchema.parse("pilot-campaign")).toBe("pilot-campaign");
+  });
+
+  it.each(["", "README", "month-2.md", "../x", "a/b", "a--b", "-a", "a-", "a b", "pilot_campaign", "a".repeat(65)])("refuses %j as a file name", (name) => {
+    expect(evidenceFileNameSchema.safeParse(name).success).toBe(false);
+  });
+
+  it("a new file, and this campaign's own earlier page, may be written", async () => {
+    expect(mayReplaceEvidencePage(null, "live-1")).toEqual({ ok: true });
+    expect(mayReplaceEvidencePage(await page(), "live-1")).toEqual({ ok: true });
+    expect(mayReplaceEvidencePage(await page("pilot-campaign"), "live-1")).toEqual({ ok: true });
+  });
+
+  it("a page that is not a campaign evidence page is not replaced", () => {
+    expect(mayReplaceEvidencePage("# Evidence index, Month 2\n\n| Campaign | `live-1` |\n", "live-1")).toEqual({ ok: false, reason: "it is not a campaign evidence page" });
+    expect(mayReplaceEvidencePage("", "live-1")).toMatchObject({ ok: false });
+  });
+
+  it("another campaign's page is not replaced, under the default name or any other", async () => {
+    expect(mayReplaceEvidencePage(await page(), "pilot-1")).toEqual({ ok: false, reason: "it holds the evidence of campaign live-1" });
+    expect(mayReplaceEvidencePage(await page(), "live-10")).toMatchObject({ ok: false });
+    expect(mayReplaceEvidencePage("# Campaign evidence: Something\n\nno table here\n", "live-1")).toEqual({ ok: false, reason: "it does not say which campaign it belongs to" });
+  });
+
+  it("the page names the command that wrote it, with the file name when one was given", async () => {
+    expect(await page()).toContain("by `pnpm evidence:dump live-1`.");
+    expect(await page("campaign")).toContain("by `pnpm evidence:dump live-1`.");
+    expect(await page("pilot-campaign")).toContain("by `pnpm evidence:dump live-1 pilot-campaign`.");
+  });
+
+  it("the remainder row shows no time and says the fee is taken out", async () => {
+    expect(await page()).toContain(`| 1 | [${hex("e").slice(0, 12)}…](https://stellar.expert/explorer/testnet/tx/${hex("e")}) | remaining balance, less the Trustless Work protocol fee → funder |  |`);
   });
 });

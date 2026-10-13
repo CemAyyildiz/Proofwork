@@ -5,24 +5,21 @@ import postgres from "postgres";
 import { z } from "zod";
 import * as schema from "../src/db/schema";
 import { AppError } from "../src/lib/errors";
-import { loadCampaignEvidence, renderCampaignEvidence } from "../src/services/evidence";
+import { evidenceFileNameSchema, loadCampaignEvidence, mayReplaceEvidencePage, renderCampaignEvidence } from "../src/services/evidence";
 
 /**
  * Writes every on-chain tx of one campaign to docs/evidence/campaign.md, or
  * to docs/evidence/<file-name>.md when a second campaign needs its own page.
  *   pnpm evidence:dump <campaign-slug> [file-name]
  * Reads the app database (DATABASE_URL) only; no network beyond it. It only
- * ever replaces a page it wrote itself.
+ * ever replaces a page it wrote itself for the same campaign
+ * (`mayReplaceEvidencePage`).
  */
 const argsSchema = z.object({
   slug: z
     .string({ error: "campaign slug is required" })
     .regex(/^[a-z0-9_-]{1,64}$/, "campaign slug must be 1-64 characters of a-z, 0-9, - or _"),
-  name: z
-    .string()
-    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "file name must be lowercase words of a-z and 0-9 joined by single hyphens, without .md")
-    .max(64, "file name must be at most 64 characters")
-    .default("campaign"),
+  name: evidenceFileNameSchema,
 });
 const envSchema = z.object({
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/, error: "DATABASE_URL must be a postgres:// or postgresql:// URL" }),
@@ -30,8 +27,6 @@ const envSchema = z.object({
 
 const SITE_URL = "https://proofwork.online";
 const EVIDENCE_DIR = resolve(import.meta.dirname, "..", "docs", "evidence");
-/** First line of every page this script writes; see `renderCampaignEvidence`. */
-const DUMP_HEADING = "# Campaign evidence: ";
 
 function fail(message: string): never {
   process.stderr.write(`evidence:dump: ${message}\n`);
@@ -45,10 +40,9 @@ async function main(): Promise<void> {
   const args = argsSchema.safeParse({ slug: argv[0], name: argv[1] });
   if (!args.success) fail(z.prettifyError(args.error));
   const out = resolve(EVIDENCE_DIR, `${args.data.name}.md`);
-  // The name is free, so it could be that of a hand-written page: never replace one.
-  if (existsSync(out) && !readFileSync(out, "utf8").startsWith(DUMP_HEADING)) {
-    fail(`docs/evidence/${args.data.name}.md exists and is not a campaign evidence page; choose another file name`);
-  }
+  // The name is free, so it could be that of a hand-written page or of another campaign's evidence.
+  const replace = mayReplaceEvidencePage(existsSync(out) ? readFileSync(out, "utf8") : null, args.data.slug);
+  if (!replace.ok) fail(`docs/evidence/${args.data.name}.md exists and ${replace.reason}; choose another file name`);
   const env = envSchema.safeParse(process.env);
   if (!env.success) fail(z.prettifyError(env.error));
 
@@ -56,7 +50,7 @@ async function main(): Promise<void> {
   try {
     const conn = drizzle({ client, schema });
     const evidence = await loadCampaignEvidence(conn, args.data.slug);
-    writeFileSync(out, renderCampaignEvidence(evidence, { siteUrl: SITE_URL, generatedAt: new Date() }));
+    writeFileSync(out, renderCampaignEvidence(evidence, { siteUrl: SITE_URL, generatedAt: new Date(), fileName: args.data.name }));
     process.stdout.write(`wrote ${out}\n`);
   } catch (e) {
     if (e instanceof AppError) fail(e.message);

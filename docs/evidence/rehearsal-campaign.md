@@ -1,6 +1,6 @@
 # Campaign evidence: Rehearsal campaign one
 
-Generated 2026-10-13T17:56:07Z by `pnpm evidence:dump rehearsal-campaign-one-gcqziy`. Network: Stellar testnet. This page lists what the app recorded; it makes no chain read. Each hash links to stellar.expert, where the transaction can be checked on chain.
+Generated 2026-10-13T18:23:08Z by `pnpm evidence:dump rehearsal-campaign-one-gcqziy rehearsal-campaign`. Network: Stellar testnet. This page lists what the app recorded; it makes no chain read. Each hash links to stellar.expert, where the transaction can be checked on chain.
 
 | | |
 |---|---|
@@ -70,7 +70,7 @@ Signed by: dispute resolver key.
 
 | # | Tx | Detail | Recorded (UTC) |
 |---|---|---|---|
-| 1 | [2df7fde33230…](https://stellar.expert/explorer/testnet/tx/2df7fde332303415e48ed3c53163a1c3e1b8e512a5a2c68facdd8a8e0286bbb1) | remaining balance → funder | 2026-10-13T17:49:05Z |
+| 1 | [2df7fde33230…](https://stellar.expert/explorer/testnet/tx/2df7fde332303415e48ed3c53163a1c3e1b8e512a5a2c68facdd8a8e0286bbb1) | remaining balance, less the Trustless Work protocol fee → funder |  |
 
 ## Decision records
 
