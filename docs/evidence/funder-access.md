@@ -1,6 +1,6 @@
 # Funder access evidence
 
-A signed-in wallet asks for funder access in the app, the operator approves or rejects the request and revokes access on an admin page, and every grant and revocation of a role is written to an access log ([technical summary → Funder access](../technical-summary.md#funder-access)). This page records what has been checked so far: the unit tests, and one run through a local instance of the app. Nothing here touched the chain or the production database. The run on proofwork.online, and a revocation with real money in escrow, are listed as open at the end.
+A signed-in wallet asks for funder access in the app, the operator approves or rejects the request and revokes access on an admin page, and every grant and revocation of a role is written to an access log ([technical summary → Funder access](../technical-summary.md#funder-access)). This page records what has been checked so far: the unit tests, one run through a local instance of the app, and a revocation with real money in a testnet escrow. Runs 1 and 2 did not touch the chain, and nothing here touched the production database. The run on proofwork.online, and a release by a revoked funder, are listed as open at the end.
 
 ## Run 1: unit tests
 
@@ -165,10 +165,27 @@ The pages were also opened in headless Chrome at 1280 and 390 pixels wide (reque
 
 Build check on the same day: `pnpm build` succeeds and lists `/admin`, `/api/access/requests` and `/api/admin/access`.
 
+## Run 3: testnet, a revoked funder and a funded escrow
+
+Run: 2026-10-13, 15:21 to 17:52 UTC · part of the [external-funder rehearsal](external-funder-rehearsal.md), on a local instance of the app against Stellar testnet and Trustless Work.
+
+A wallet that never had a role asked for access, was approved on the admin route, and deployed and funded a campaign with 5 USDC ([aa5f5a7fabdc…](https://stellar.expert/explorer/testnet/tx/aa5f5a7fabdca1670c090aeb57dac7c1fbe825ebde71be2cb8a609a543518ce0)). The operator then revoked it, with the money in the escrow.
+
+| After the revocation | Result |
+|---|---|
+| Create a campaign; ask for the deploy and for the fund of a saved campaign | 403 "requires funder role", three times |
+| Open the funded campaign's page and `/campaigns` | 200: the campaign with "Close campaign", and "Funder access removed" with the campaign listed |
+| Open a saved campaign that was never funded | 404 |
+| Close the funded campaign through the payouts route | 200, dispute [543b1fd6c5e7…](https://stellar.expert/explorer/testnet/tx/543b1fd6c5e7ee68170eea975c0c1acbbc6c404ac70bae07a8d2bf05af84bf67), signed by the revoked wallet |
+| The resolver's sweep | [2df7fde33230…](https://stellar.expert/explorer/testnet/tx/2df7fde332303415e48ed3c53163a1c3e1b8e512a5a2c68facdd8a8e0286bbb1): 4.985 of 5 USDC to the revoked wallet, the rest to Trustless Work's fee address |
+| Access log | Three rows: the operator's `ops` grant by script, the funder grant and the funder revoke by the operator's wallet |
+
+The requests, the pages and the log are in [Request to approval](external-funder-rehearsal.md#request-to-approval) and [Revoked after funding](external-funder-rehearsal.md#revoked-after-funding).
+
 ## Not recorded yet
 
 - **On proofwork.online.** Migration `0006` has not been applied to the preview or production database, and no wallet there holds `ops`. The run to record: grant `ops` with the script, request from a wallet that never had a role, approve on `/admin`, create a campaign, and read the log on the admin page.
-- **Revocation with money in escrow.** Approve, release and close by a revoked funder have run against the in-memory escrow only. The local run set the funded state by hand and stopped at the gate. A testnet run would revoke a funder after funding and then release a payout and close the campaign, with the transaction hashes.
+- **A release by a revoked funder.** Close by a revoked funder ran on testnet in Run 3. Final approval and release have run against the in-memory escrow only: a payout needs a submission, and a submission needs X. The steps are in the [rehearsal](external-funder-rehearsal.md#not-run).
 - **The buttons in a browser.** The local run posted to the routes directly with a session cookie. Approve, Reject and Revoke have not been clicked with a wallet extension signed in.
 - **Two connections at once.** Every "issued together" case above ran on one connection, one call after the other. A double request, a double approval and a double grant from two real connections against Postgres have not been run.
 - **Rate limit against Upstash.** The limit was checked with the in-memory limiter the tests and `next dev` use, not the Upstash one production uses.

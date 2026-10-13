@@ -1,6 +1,6 @@
 # Funder limits and funding readiness evidence
 
-Each funder is capped on open campaigns and open budget, and before an escrow is deployed or funded the funder's wallet is read on Stellar and shown as ready or not, with what is missing. A deployed campaign that was never funded can be abandoned so that it stops counting ([technical summary → Funder limits and funding readiness](../technical-summary.md#funder-limits-and-funding-readiness)). This page records what has been checked: the unit tests, one testnet read per wallet state with the app's own code, and a run through a local instance of the app. No escrow was deployed or funded in these runs; that is listed as open at the end. Runs 2 and 3 were made before the changes that review asked for; Run 2 was read again afterwards, Run 3 was not, and each says what that means for it.
+Each funder is capped on open campaigns and open budget, and before an escrow is deployed or funded the funder's wallet is read on Stellar and shown as ready or not, with what is missing. A deployed campaign that was never funded can be abandoned so that it stops counting ([technical summary → Funder limits and funding readiness](../technical-summary.md#funder-limits-and-funding-readiness)). This page records what has been checked: the unit tests, one testnet read per wallet state with the app's own code, a run through a local instance of the app, and one wallet deploying and funding through the gate on testnet. No escrow was deployed or funded in Runs 1 to 3; Run 4 did both. Runs 2 and 3 were made before the changes that review asked for; Run 2 was read again afterwards, Run 3 was not, and each says what that means for it.
 
 ## Run 1: unit tests
 
@@ -144,11 +144,43 @@ The app was then restarted with `FUNDER_MAX_OPEN_CAMPAIGNS=3`, `FUNDER_MAX_OPEN_
 
 A first attempt at this last part used an `http://` address for Horizon. The create and deploy routes then answered 500: the Stellar SDK that the escrow routes load refuses a plain `http` Horizon host before any of this code runs. That is how the app already behaved and is noted in [deployment](../deployment.md#funder-limits); the `https` address above is what a real outage looks like to the app.
 
+## Run 4: testnet, through the gate to a funded escrow
+
+Run: 2026-10-13, 15:37 to 17:44 UTC · part of the [external-funder rehearsal](external-funder-rehearsal.md), on a local instance of the app against Stellar testnet and Trustless Work, with the default caps (2 campaigns, 100 USDC). One freshly created wallet, [`GBYRWD7H…QANOT`](https://stellar.expert/explorer/testnet/account/GBYRWD7HPWAQYIJHTMVLQVUB26DJSVU742MZVX3M5YH55QJN46ZQANOT), for a campaign with a 5 USDC budget.
+
+| Wallet held | Campaign page | Deploy request |
+|---|---|---|
+| 10000 XLM, no trustline | Not ready: trustline, USDC 0 of 5 | 409, the same two items; no operation recorded |
+| trustline open, 0 USDC | Not ready: USDC 0 of 5 | 409, the same item; no operation recorded |
+| 10 USDC, 9988.8628669 XLM | Ready: "10 USDC to spend and 9987.3628669 XLM free for network fees" | built, signed by the wallet, submitted |
+
+The transactions that followed, with the fee each bid and was charged, read on Horizon:
+
+| Transaction | Fee bid (`max_fee`) | Fee charged |
+|---|---|---|
+| deploy [5e5759254e86…](https://stellar.expert/explorer/testnet/tx/5e5759254e86e8dc08f1f5e3bfa7d3daa80fea4364e67578935ee0eae143f535) | 0.1083558 XLM | 0.0936184 XLM |
+| fund, 5 USDC [aa5f5a7fabdc…](https://stellar.expert/explorer/testnet/tx/aa5f5a7fabdca1670c090aeb57dac7c1fbe825ebde71be2cb8a609a543518ce0) | 0.1586494 XLM | 0.0684730 XLM |
+| deploy of a second campaign [4c45e70c178c…](https://stellar.expert/explorer/testnet/tx/4c45e70c178c491650abfdfe93db960b1cadf526f3f77522fda88d03c34cbe0f) | 0.1087375 XLM | 0.0939504 XLM |
+| an earlier deploy of the first campaign that landed without the app seeing it [3cb22c4d8c48…](https://stellar.expert/explorer/testnet/tx/3cb22c4d8c48efb4cd318d155ceadd985ace8e79b73a29cef956edf1a5bdcd9f) | 0.1073584 XLM | 0.0927511 XLM |
+
+The floor of 0.5 XLM per transaction held for all of them. The bids are more than twice those of Week 1, so the floor is now about three times the larger bid (0.1586494 XLM), where it was about seven times on 2026-09-23. The fourth row is a deploy whose reply was lost; the app deployed again and the wallet paid both fees ([rehearsal → The deploy that landed unseen](external-funder-rehearsal.md#the-deploy-that-landed-unseen)).
+
+The caps and abandon, on the same wallet and real escrows:
+
+| Step | Result |
+|---|---|
+| New-campaign page with one campaign funded and two saved | "1 of 2 in use", "5 USDC of 100 USDC in use, 95 USDC left" |
+| After the second campaign (3 USDC) was deployed | "2 of 2 in use", "8 USDC of 100 USDC in use", "You have reached the open-campaign limit, so a new campaign can't be created" |
+| Deploy request for a third, saved campaign | 409 "open-campaign limit reached: this wallet has 2 of 2 open campaigns in use, close one first"; its page shows the same refusal with the wallet read as Ready |
+| Abandon the second campaign, first try | 502 "couldn't read the escrow, try again": the machine slept with the escrow read in flight. The campaign stayed open and one `escrow read failed before abandon` line was logged |
+| Abandon again | 200, closed; the escrow was read and held nothing; nothing was sent to the network |
+| Fund request for the abandoned campaign | 409 "campaign is closed" |
+| New-campaign page | "1 of 2 in use", "5 USDC of 100 USDC in use, 95 USDC left" |
+
 ## What this does not show
 
-- **A ready wallet deploying and funding through Trustless Work.** Not recorded yet. Steps: on a deployment with a Trustless Work key, a wallet shown as ready deploys and funds a campaign from the campaign page; record the two transaction hashes and the fees charged against the 0.5 XLM floor.
 - **The panel's buttons in a browser.** Activate, Add USDC trustline, Check again, the faucet link and the abandon confirm step were rendered and the first two use the contributor page's helpers, but nobody has clicked them with a wallet extension.
-- **Abandon on a real escrow.** Covered against the in-memory escrow and through the route in tests only. It has not been run in the local app or on a campaign whose escrow exists on testnet, so the balance read that guards it has only been made against the in-memory escrow.
+- **Abandon refused on a real escrow that holds money.** Run 4 abandoned an empty testnet escrow and was refused once when the escrow could not be read. The refusal for an escrow that holds a balance has run against the in-memory escrow only.
 - **Two submits at the same moment.** The tests run on a database with one connection, so a deploy submit is always checked after the one before it finished. Two handled at once are not covered and can both pass the caps.
 - **A fund reconciled on testnet with an emptied wallet.** Covered against the in-memory escrow only.
 - **Run on proofwork.online.** Not recorded yet. No migration is needed; the two variables are optional.
