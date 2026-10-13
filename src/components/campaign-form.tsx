@@ -118,13 +118,17 @@ export function CampaignForm({ defaultDisputeResolver, now, limits }: { defaultD
           ))}
         </div>
         <p className="mt-1 text-xs text-neutral-500">
-          Closes {closesAt} UTC. Unpaid budget returns to you after that.
+          Closes {closesAt} UTC. After that you close the campaign here, and the dispute resolver returns what is left of the budget, less
+          the 0.3% protocol fee.
         </p>
       </fieldset>
       <label className="block text-sm">
         <span className="font-medium">Dispute resolver public key</span>
         <input name="disputeResolverPubkey" required defaultValue={defaultDisputeResolver} pattern="G[A-Z2-7]{55}" className={field} />
-        <span className="text-xs text-neutral-500">A neutral key (the chapter lead). It can only return the remainder to you; it cannot pay anyone else.</span>
+        <span className="text-xs text-neutral-500">
+          A key that is neither yours nor Proofwork&apos;s (the chapter lead). After you close the campaign, this key signs the return of what is left in
+          the escrow.
+        </span>
       </label>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       <button type="submit" disabled={busy || blocked !== null} className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50">
