@@ -57,3 +57,63 @@ describe("publicFundingSources", () => {
     await expect(withEnv(`${good.slice(0, -1)}${good.endsWith("A") ? "B" : "A"}`)).rejects.toThrow(/PUBLIC_FUNDING_SOURCES/);
   });
 });
+
+describe("xConfig", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const CALLBACK = "https://proofwork.test/api/x/callback";
+
+  /** The environment is parsed once per module instance, so each case loads its own. */
+  async function withX(values: { id?: string; pass?: string; redirect?: string }) {
+    vi.resetModules();
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@localhost/db");
+    vi.stubEnv("STELLAR_NETWORK", "testnet");
+    vi.stubEnv("TW_API_KEY", "k".repeat(16));
+    // Throwaway seeds generated per run: the env schema needs three distinct valid ones.
+    vi.stubEnv("PLATFORM_ADMIN_SECRET", Keypair.random().secret());
+    vi.stubEnv("PLATFORM_OPS_SECRET", Keypair.random().secret());
+    vi.stubEnv("DECISION_LEDGER_SECRET", Keypair.random().secret());
+    vi.stubEnv("SESSION_SECRET", "s".repeat(43));
+    if (values.id !== undefined) vi.stubEnv("X_CLIENT_ID", values.id);
+    if (values.pass !== undefined) vi.stubEnv("X_CLIENT_SECRET", values.pass);
+    if (values.redirect !== undefined) vi.stubEnv("X_REDIRECT_URI", values.redirect);
+    return (await import("@/config/env")).xConfig();
+  }
+
+  it("is null when no X value is set, or all are left empty as in .env.example", async () => {
+    expect(await withX({})).toBeNull();
+    expect(await withX({ id: "", pass: " ", redirect: "" })).toBeNull();
+  });
+
+  it("returns the three values when all are set", async () => {
+    expect(await withX({ id: "client-1", pass: "pass-1", redirect: CALLBACK })).toEqual({
+      clientId: "client-1",
+      clientSecret: "pass-1",
+      redirectUri: CALLBACK,
+    });
+  });
+
+  it.each([
+    ["only the client ID", { id: "client-1" }],
+    ["no client secret", { id: "client-1", redirect: CALLBACK }],
+    ["no redirect URI", { id: "client-1", pass: "pass-1" }],
+    ["no client ID", { pass: "pass-1", redirect: CALLBACK }],
+  ])("refuses a partial set: %s", async (_label, values) => {
+    await expect(withX(values)).rejects.toThrow(/X_CLIENT_ID, X_CLIENT_SECRET and X_REDIRECT_URI together/);
+  });
+
+  it("refuses a redirect URI that is not a URL or does not end at the callback route", async () => {
+    await expect(withX({ id: "client-1", pass: "pass-1", redirect: "not a url" })).rejects.toThrow(/X_REDIRECT_URI/);
+    await expect(withX({ id: "client-1", pass: "pass-1", redirect: "https://proofwork.test/callback" })).rejects.toThrow(
+      /X_REDIRECT_URI: path must be \/api\/x\/callback/,
+    );
+  });
+
+  it("accepts a localhost callback for development", async () => {
+    expect((await withX({ id: "client-1", pass: "pass-1", redirect: "http://localhost:3000/api/x/callback" }))?.redirectUri).toBe(
+      "http://localhost:3000/api/x/callback",
+    );
+  });
+});

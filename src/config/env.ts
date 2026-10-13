@@ -32,6 +32,9 @@ const publicKeyList = z
  */
 export const FRIENDBOT_ACCOUNT = "GAIH3ULLFQ4DGSECF2AR555KZ4KNDGEKN4AFI4SU2M7B43MGK3QJZNSR";
 
+/** Where X sends the contributor back; `src/app/api/x/callback/route.ts` answers it. */
+export const X_CALLBACK_PATH = "/api/x/callback";
+
 /** `.env` templates leave optional values as empty strings; treat those as unset. */
 const optional = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), inner.optional());
@@ -61,6 +64,17 @@ const schema = z.object({
 
   /** Faucets besides Friendbot whose wallets must not be linked by funding source. */
   PUBLIC_FUNDING_SOURCES: optional(publicKeyList),
+
+  /** Sign in with X (OAuth 2.0 confidential client). All three or none, see `load`. */
+  X_CLIENT_ID: optional(z.string().min(1)),
+  X_CLIENT_SECRET: optional(z.string().min(1)),
+  /** Must equal a callback URL registered on the X app. The flow cookie is only sent under /api/x. */
+  X_REDIRECT_URI: optional(
+    z
+      .string()
+      .url()
+      .refine((v) => URL.canParse(v) && new URL(v).pathname === X_CALLBACK_PATH, `path must be ${X_CALLBACK_PATH}`),
+  ),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -93,6 +107,10 @@ function load(): Env {
   if (new Set(seeds).size !== seeds.length) {
     throw new Error("Invalid environment: server signing keys must be distinct");
   }
+  const x = [env.X_CLIENT_ID, env.X_CLIENT_SECRET, env.X_REDIRECT_URI].filter((v) => v !== undefined);
+  if (x.length !== 0 && x.length !== 3) {
+    throw new Error("Invalid environment: set X_CLIENT_ID, X_CLIENT_SECRET and X_REDIRECT_URI together, or none of them");
+  }
   return env;
 }
 
@@ -116,4 +134,18 @@ export const env: Env = new Proxy({} as Env, {
  */
 export function publicFundingSources(): ReadonlySet<string> {
   return new Set([FRIENDBOT_ACCOUNT, ...(env.PUBLIC_FUNDING_SOURCES ?? [])]);
+}
+
+export interface XConfig {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+}
+
+/** Sign in with X credentials, or null when the deployment has none: the feature is then off. */
+export function xConfig(): XConfig | null {
+  const { X_CLIENT_ID: clientId, X_CLIENT_SECRET: clientSecret, X_REDIRECT_URI: redirectUri } = env;
+  // `load` guarantees all three or none.
+  if (clientId === undefined || clientSecret === undefined || redirectUri === undefined) return null;
+  return { clientId, clientSecret, redirectUri };
 }

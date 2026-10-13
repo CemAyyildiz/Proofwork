@@ -28,7 +28,7 @@ function makeLimiter(requests: number, windowSeconds: number): Limiter {
   };
 }
 
-const cache: Partial<Record<"auth" | "submit" | "appeal", Limiter>> = {};
+const cache: Partial<Record<"auth" | "submit" | "appeal" | "x", Limiter>> = {};
 /** Limiters are created on first use so importing this module never touches the environment. */
 export const limiters = {
   get auth(): Limiter {
@@ -39,6 +39,10 @@ export const limiters = {
   },
   get appeal(): Limiter {
     return (cache.appeal ??= makeLimiter(3, 3600));
+  },
+  /** Sign in with X: starting the flow and the callback, counted separately by key prefix. */
+  get x(): Limiter {
+    return (cache.x ??= makeLimiter(10, 600));
   },
 };
 

@@ -11,6 +11,7 @@ export type ErrorCode =
   | "RATE_LIMITED"
   | "ESCROW"
   | "LEDGER"
+  | "X"
   | "INTERNAL";
 
 export class AppError extends Error {
@@ -61,6 +62,7 @@ export function httpStatus(code: ErrorCode): number {
       return 429;
     case "ESCROW":
     case "LEDGER":
+    case "X":
       return 502;
     case "INTERNAL":
       return 500;

@@ -215,6 +215,17 @@ export const reviewTimes = pgTable("review_time", {
   sharedFundingCount: integer("shared_funding_count"),
 });
 
+/**
+ * A wallet's connected X account. The primary key gives one X account per
+ * wallet, the unique index one wallet per X account. The numeric account ID is
+ * the only thing from X this database holds: no token, handle or name.
+ */
+export const xAccounts = pgTable("x_account", {
+  pubkey: text("pubkey").primaryKey(),
+  xUserId: text("x_user_id").notNull().unique(),
+  connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Campaign = typeof campaigns.$inferSelect;
 export type Submission = typeof submissions.$inferSelect;
 export type Decision = typeof decisions.$inferSelect;

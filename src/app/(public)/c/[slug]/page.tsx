@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { Suspense, type ReactNode } from "react";
 import { AppealButton } from "@/components/appeal-button";
-import { stageOf, timelineView, type Stage } from "@/components/contributor-state";
+import { stageOf, timelineView, xNotice, type Stage, type XNotice } from "@/components/contributor-state";
 import { Countdown } from "@/components/countdown";
 import { EscrowCard } from "@/components/escrow-card";
 import { buttonClasses } from "@/components/ui/button";
@@ -14,15 +14,18 @@ import { HashChip } from "@/components/ui/hash-chip";
 import { Pill, type PillTone } from "@/components/ui/pill";
 import { WalletButton } from "@/components/wallet-button";
 import { WalletOnboarding } from "@/components/wallet-onboarding";
+import { XConnectStep } from "@/components/x-connect";
 import { campaignFor } from "./campaign";
 import { publicEnv } from "@/config/public-env";
 import type { Decision } from "@/db/schema";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
+import { xOutcomeSchema } from "@/domain/x-connect";
 import { getEscrow } from "@/escrow";
 import { currentUser } from "@/lib/current-user";
 import { formatDateShort, formatUsdc, truncateMiddle } from "@/lib/format";
 import { log } from "@/lib/logger";
 import { mySubmission, type MySubmission, type PublicCampaign } from "@/services/submission";
+import { xAccountFor } from "@/services/x-account";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +61,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 }
 
 /** Contributor-facing campaign page: brief, live escrow balance, submit, own status. */
-export default async function ContributorCampaignPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ContributorCampaignPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ x?: string | string[] }>;
+}) {
   const { slug } = await params;
   const c = await campaignFor(slug);
   if (!c) notFound();
@@ -67,6 +76,12 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
   const mine = user ? await mySubmission(c.id, user.pubkey) : null;
   const stage = stageOf(c);
   const pill = STAGE_PILL[stage];
+
+  // The X step belongs to the submit panel only: open campaign, nothing submitted yet.
+  const submitting = stage === "open" && !mine;
+  const xConnected = submitting && user ? (await xAccountFor(user.pubkey)) !== null : false;
+  const xOutcome = xOutcomeSchema.safeParse((await searchParams).x);
+  const notice = submitting ? xNotice(xOutcome.success ? xOutcome.data : null, { signedIn: user !== null, connected: xConnected }) : null;
 
   return (
     <div className="mx-auto max-w-[1180px] pb-24 pt-4 md:pt-6">
@@ -126,7 +141,7 @@ export default async function ContributorCampaignPage({ params }: { params: Prom
       <div className="mt-12 grid items-start gap-10 lg:mt-[72px] lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-12">
         <aside id="submit" className="scroll-mt-24 lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1" aria-label="Your submission">
           <Card style={rise(4).style} className={cx("p-6", rise(4).className)}>
-            <SubmissionPanel c={c} stage={stage} signedIn={user !== null} pubkey={user?.pubkey ?? null} mine={mine} />
+            <SubmissionPanel c={c} stage={stage} signedIn={user !== null} pubkey={user?.pubkey ?? null} mine={mine} xConnected={xConnected} xNote={notice} />
           </Card>
         </aside>
 
@@ -207,12 +222,16 @@ function SubmissionPanel({
   signedIn,
   pubkey,
   mine,
+  xConnected,
+  xNote,
 }: {
   c: PublicCampaign;
   stage: Stage;
   signedIn: boolean;
   pubkey: string | null;
   mine: MySubmission | null;
+  xConnected: boolean;
+  xNote: XNotice | null;
 }) {
   if (mine) {
     return (
@@ -245,6 +264,11 @@ function SubmissionPanel({
           activates it on testnet and adds USDC before you submit.
         </p>
         <WalletButton pubkey={null} className="mt-4" />
+        {xNote ? (
+          <p role="status" className="mt-3 text-[12.5px] text-muted">
+            {xNote.text}
+          </p>
+        ) : null}
         <div className="mt-5 rounded-lg border border-line bg-sunken p-4">
           <p className="text-[13px] font-semibold">First time? About a minute:</p>
           <ol className="mt-2.5 list-decimal space-y-1.5 pl-5 text-[13px] leading-normal text-text-2 marker:font-mono marker:text-muted">
@@ -264,6 +288,7 @@ function SubmissionPanel({
   return (
     <>
       <h2 className="text-lg font-semibold tracking-[-0.02em]">Submit your post</h2>
+      <XConnectStep campaignSlug={c.slug} connected={xConnected} notice={xNote} />
       <WalletOnboarding key={pubkey} campaignSlug={c.slug} address={pubkey} />
     </>
   );

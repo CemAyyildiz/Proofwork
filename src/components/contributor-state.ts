@@ -1,4 +1,5 @@
 import type { Decision, Payout } from "@/db/schema";
+import type { XOutcome } from "@/domain/x-connect";
 import type { MySubmission, PublicCampaign } from "@/services/submission";
 import type { AccountState } from "@/wallet/onboarding";
 
@@ -63,4 +64,36 @@ export function onboardingView(check: WalletCheck): OnboardingView {
     activate: step === "no-account" ? "current" : step === "no-trustline" || step === "ready" ? "done" : "pending",
     trustline: step === "no-trustline" ? "current" : step === "ready" ? "done" : "pending",
   };
+}
+
+export interface XNotice {
+  text: string;
+  /** `fail` for something that went wrong, `muted` for something the contributor chose or has to do. */
+  tone: "fail" | "muted";
+}
+
+const X_NOTICES: Partial<Record<XOutcome, XNotice>> = {
+  taken: { tone: "fail", text: "This X account is connected to another wallet." },
+  cancelled: { tone: "muted", text: "The X connection was cancelled. Nothing was saved." },
+  retry: { tone: "fail", text: "That X sign-in could not be completed. Try again." },
+  x_failed: { tone: "fail", text: "X did not answer. Try again in a moment." },
+  unavailable: { tone: "fail", text: "X sign-in is not available right now." },
+  rate_limited: { tone: "fail", text: "Too many attempts. Try again in a few minutes." },
+};
+
+/**
+ * What to say about the last connect attempt, from the `?x=` outcome in the
+ * URL. The URL is only a hint and can be stale or hand-typed, so nothing here
+ * claims a connection: "connected" is shown from the database alone, and a
+ * message that no longer fits the wallet's state is dropped.
+ */
+export function xNotice(outcome: XOutcome | null, state: { signedIn: boolean; connected: boolean }): XNotice | null {
+  if (outcome === null) return null;
+  if (!state.signedIn) {
+    return outcome === "signin" ? { tone: "muted", text: "Connect your wallet first, then connect your X account." } : null;
+  }
+  if (state.connected) {
+    return outcome === "wallet_bound" ? { tone: "fail", text: "This wallet already has an X account. It stays connected to that one." } : null;
+  }
+  return X_NOTICES[outcome] ?? null;
 }

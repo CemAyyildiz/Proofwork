@@ -43,6 +43,15 @@ export function errorResponse(e: unknown): Response {
 }
 
 /**
+ * Redirect answer for GET routes reached by navigation. `location` is a path
+ * on this site or a fixed external URL built by the server, never caller
+ * input. Not cacheable: such a URL can carry a one-time code.
+ */
+export function redirectTo(location: string): Response {
+  return new Response(null, { status: 307, headers: { location, "cache-control": "no-store" } });
+}
+
+/**
  * Client IP for rate-limit keys. Safe on Vercel only: the platform overwrites
  * x-forwarded-for with the connecting IP and sets x-real-ip to the same value,
  * so a client cannot spoof it. Behind another proxy or bare `next start`,
