@@ -24,6 +24,7 @@ export default async function PublicLayout({ children }: { children: React.React
             <WorkspaceNav
               funder={user?.roles.has("funder") ?? false}
               reviewer={user?.roles.has("reviewer") ?? false}
+              ops={user?.roles.has("ops") ?? false}
               variant="top"
               showPublic={false}
             />

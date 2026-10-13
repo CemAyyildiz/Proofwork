@@ -52,6 +52,18 @@ const REVIEW: NavItem = {
   ),
 };
 
+const ADMIN: NavItem = {
+  href: "/admin",
+  label: "Admin",
+  match: under("/admin"),
+  icon: (
+    <svg {...iconProps}>
+      <path d="M12 3l8 3v6c0 4.6-3.2 7.9-8 9-4.8-1.1-8-4.4-8-9V6z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  ),
+};
+
 const EXPLORE: NavItem = {
   href: "/explore",
   label: "Explore",
@@ -80,15 +92,16 @@ export interface WorkspaceNavProps {
   /** Role flags come from the server session; the nav never decides access itself. */
   funder: boolean;
   reviewer: boolean;
+  ops: boolean;
   /** "side" is the ≥ lg rail with group headings; "top" is the compact row for narrow screens and the public bar. */
   variant: "side" | "top";
   /** Include Home in the Public group. Off in the public top bar, where the logo already links home. */
   showPublic?: boolean;
 }
 
-export function WorkspaceNav({ funder, reviewer, variant, showPublic = true }: WorkspaceNavProps) {
+export function WorkspaceNav({ funder, reviewer, ops, variant, showPublic = true }: WorkspaceNavProps) {
   const pathname = usePathname();
-  const workspace = [funder ? CAMPAIGNS : null, reviewer ? REVIEW : null].filter((i): i is NavItem => i !== null);
+  const workspace = [funder ? CAMPAIGNS : null, reviewer ? REVIEW : null, ops ? ADMIN : null].filter((i): i is NavItem => i !== null);
   const pub = showPublic ? [EXPLORE, HOME] : [EXPLORE];
 
   if (variant === "top") {

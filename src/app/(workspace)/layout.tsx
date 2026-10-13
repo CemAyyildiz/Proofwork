@@ -13,6 +13,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
   const user = await currentUser();
   const funder = user?.roles.has("funder") ?? false;
   const reviewer = user?.roles.has("reviewer") ?? false;
+  const ops = user?.roles.has("ops") ?? false;
   const pubkey = user?.pubkey ?? null;
 
   return (
@@ -21,7 +22,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
         <Link href="/" className="mx-2.5 mb-5 mt-1.5 self-start rounded-sm" aria-label="Proofwork home">
           <Logo />
         </Link>
-        <WorkspaceNav funder={funder} reviewer={reviewer} variant="side" />
+        <WorkspaceNav funder={funder} reviewer={reviewer} ops={ops} variant="side" />
         <div className="mt-auto grid justify-items-start gap-2.5">
           <TestnetBadge />
           <WalletButton pubkey={pubkey} menuPlacement="up" className="flex-wrap" />
@@ -40,7 +41,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
                   <Logo />
                 </span>
               </Link>
-              <WorkspaceNav funder={funder} reviewer={reviewer} variant="top" />
+              <WorkspaceNav funder={funder} reviewer={reviewer} ops={ops} variant="top" />
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <span className="hidden sm:contents">

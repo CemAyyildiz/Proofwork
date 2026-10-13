@@ -55,7 +55,7 @@ describe("wallet control", () => {
 
 describe("workspace nav", () => {
   it("shows only the Public group for a wallet with no roles", () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { funder: false, reviewer: false, variant: "side" }));
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { funder: false, reviewer: false, ops: false, variant: "side" }));
     expect(html).toContain("Public");
     expect(html).not.toContain("Workspace");
     expect(html).not.toContain("Campaigns");
@@ -63,14 +63,14 @@ describe("workspace nav", () => {
   });
 
   it("shows only the items for the roles held", () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { funder: true, reviewer: false, variant: "side" }));
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { funder: true, reviewer: false, ops: false, variant: "side" }));
     expect(html).toContain("Campaigns");
     expect(html).not.toContain(">Review<");
   });
 
   it("marks the item that owns the current path", () => {
     nav.pathname = "/campaigns/try-proofwork";
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { funder: true, reviewer: true, variant: "side" }));
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { funder: true, reviewer: true, ops: false, variant: "side" }));
     expect(html).toMatch(/href="\/campaigns" aria-current="page"/);
     expect(html).not.toMatch(/href="\/review" aria-current="page"/);
   });

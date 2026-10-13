@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDateShort, shortKey, truncateMiddle } from "@/lib/format";
+import { formatDateShort, formatTimestamp, shortKey, truncateMiddle } from "@/lib/format";
 
 const TX = "31c9dd0a7e5b4c2f8d1e6a3b9c0f4e7d2a5b8c1e4f7a0d3b6c9e2f5a815dcff4";
 const WALLET = "GDXGQ7VJ2Y6XJ3KZ5L4M8N2P7R9S3T6U1W4X8Y2Z5A7B9C3D6EQR4F2A";
@@ -41,5 +41,11 @@ describe("formatDateShort", () => {
   it("reads as day, month and UTC time", () => {
     expect(formatDateShort(new Date("2026-10-02T18:00:00Z"))).toBe("2 Oct · 18:00 UTC");
     expect(formatDateShort(new Date("2026-09-23T00:05:00Z"))).toBe("23 Sep · 00:05 UTC");
+  });
+});
+
+describe("formatTimestamp", () => {
+  it("reads as a UTC date and time to the second", () => {
+    expect(formatTimestamp(new Date("2026-10-13T09:31:07.159Z"))).toBe("2026-10-13 09:31:07 UTC");
   });
 });

@@ -10,6 +10,11 @@ export function formatDate(d: Date): string {
   return d.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC";
 }
 
+/** UTC to the second, for log rows where the minute is too coarse: "2026-10-13 09:31:07 UTC". */
+export function formatTimestamp(d: Date): string {
+  return `${d.toISOString().slice(0, 19).replace("T", " ")} UTC`;
+}
+
 /**
  * Keeps `head` leading and `tail` trailing characters around an ellipsis.
  * A value that would not get shorter is returned unchanged.
