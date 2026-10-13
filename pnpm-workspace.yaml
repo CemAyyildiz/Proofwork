@@ -3,4 +3,8 @@ ignoredBuiltDependencies:
   - unrs-resolver
 minimumReleaseAge: 1440
 overrides:
+  # GHSA-wq5f-xc86-pv6w: next allows ^0.35.4, librsvg fix landed in 0.35.5
+  sharp: 0.35.5
+  # GHSA-68fv-2mgg-jv7q: @tailwindcss/node allows ^1.2.1, fix landed in 1.2.2
+  source-map-js: 1.2.2
   toml: 4.3.0
