@@ -420,7 +420,7 @@ describe("finishConnect", () => {
     const BEARER = "bearer.sentinel.1";
     const HANDLE = "handle_sentinel_1";
     const tokenOk: FakeReply = { status: 200, body: { token_type: "bearer", access_token: BEARER } };
-    const config = { clientId: "client-id-1", clientSecret: "client-pass-1", redirectUri: "https://proofwork.test/api/x/callback" };
+    const config = { clientId: "client-id-1", clientSecret: "client-pass-1", redirectUri: "https://proofwork.test/api/x/callback", bearerToken: "app.bearer.1" };
 
     /** X answers the token call with `token` and the account lookup with `me`. */
     function failingX(token: FakeReply, me: FakeReply): XApi {
@@ -472,6 +472,7 @@ describe("finishConnect", () => {
       identify: async ({ code, codeVerifier }: { code: string; codeVerifier: string }) => {
         throw new Error(`boom ${code} ${codeVerifier}`);
       },
+      postAuthor: async () => ({ found: false as const }),
     };
     const logs = captureLogs();
     const out = await finishConnect({ pubkey: WALLET_A, flowToken: flow.flowToken, query: flow.query, x: broken, conn, now: NOW });

@@ -65,7 +65,9 @@ describe("xConfig", () => {
 
   const CALLBACK = "https://proofwork.test/api/x/callback";
 
-  type XValues = { id?: string; pass?: string; redirect?: string };
+  const APP_TOKEN = "app.bearer.1%3D";
+
+  type XValues = { id?: string; pass?: string; redirect?: string; bearer?: string };
 
   /** The environment is parsed once per module instance, so each case loads its own. */
   function stubX(values: XValues): void {
@@ -81,6 +83,7 @@ describe("xConfig", () => {
     if (values.id !== undefined) vi.stubEnv("X_CLIENT_ID", values.id);
     if (values.pass !== undefined) vi.stubEnv("X_CLIENT_SECRET", values.pass);
     if (values.redirect !== undefined) vi.stubEnv("X_REDIRECT_URI", values.redirect);
+    if (values.bearer !== undefined) vi.stubEnv("X_BEARER_TOKEN", values.bearer);
   }
 
   async function withX(values: XValues) {
@@ -96,24 +99,36 @@ describe("xConfig", () => {
 
   it("is null when no X value is set, or all are left empty as in .env.example", async () => {
     expect(await withX({})).toBeNull();
-    expect(await withX({ id: "", pass: " ", redirect: "" })).toBeNull();
+    expect(await withX({ id: "", pass: " ", redirect: "", bearer: "" })).toBeNull();
   });
 
-  it("returns the three values when all are set", async () => {
-    expect(await withX({ id: "client-1", pass: "pass-1", redirect: CALLBACK })).toEqual({
+  it("returns the four values when all are set", async () => {
+    expect(await withX({ id: "client-1", pass: "pass-1", redirect: CALLBACK, bearer: APP_TOKEN })).toEqual({
       clientId: "client-1",
       clientSecret: "pass-1",
       redirectUri: CALLBACK,
+      bearerToken: APP_TOKEN,
     });
   });
 
   it.each([
     ["only the client ID", { id: "client-1" }],
-    ["no client secret", { id: "client-1", redirect: CALLBACK }],
-    ["no redirect URI", { id: "client-1", pass: "pass-1" }],
-    ["no client ID", { pass: "pass-1", redirect: CALLBACK }],
+    ["only the bearer token", { bearer: APP_TOKEN }],
+    ["no client secret", { id: "client-1", redirect: CALLBACK, bearer: APP_TOKEN }],
+    ["no redirect URI", { id: "client-1", pass: "pass-1", bearer: APP_TOKEN }],
+    ["no client ID", { pass: "pass-1", redirect: CALLBACK, bearer: APP_TOKEN }],
+    // Sign in with X alone would connect accounts no submission could be checked against.
+    ["no bearer token", { id: "client-1", pass: "pass-1", redirect: CALLBACK }],
   ])("refuses a partial set: %s", async (_label, values) => {
-    await expect(withX(values)).rejects.toThrow(/X_CLIENT_ID, X_CLIENT_SECRET and X_REDIRECT_URI together/);
+    await expect(withX(values)).rejects.toThrow(/X_CLIENT_ID, X_CLIENT_SECRET, X_REDIRECT_URI and X_BEARER_TOKEN together/);
+  });
+
+  it.each([
+    ["a space", "Bearer app.bearer.1"],
+    ["a line break", "app.bearer.1\n"],
+    ["a character outside ASCII", "app.bearer.\u00e9"],
+  ])("refuses a bearer token with %s", async (_label, bearer) => {
+    await expect(withX({ id: "client-1", pass: "pass-1", redirect: CALLBACK, bearer })).rejects.toThrow(/X_BEARER_TOKEN/);
   });
 
   it.each([
@@ -130,13 +145,13 @@ describe("xConfig", () => {
     ["a user name", "https://user@proofwork.test/api/x/callback"],
     ["a user name and password", "https://user:pass@proofwork.test/api/x/callback"],
   ])("refuses a redirect URI with %s", async (_label, redirect) => {
-    await expect(withX({ id: "client-1", pass: "pass-1", redirect })).rejects.toThrow(/X_REDIRECT_URI/);
+    await expect(withX({ id: "client-1", pass: "pass-1", redirect, bearer: APP_TOKEN })).rejects.toThrow(/X_REDIRECT_URI/);
   });
 
   it.each(["http://localhost:3000/api/x/callback", "http://127.0.0.1:3000/api/x/callback", "https://proofwork.test:8443/api/x/callback"])(
     "accepts %s",
     async (redirect) => {
-      expect((await withX({ id: "client-1", pass: "pass-1", redirect }))?.redirectUri).toBe(redirect);
+      expect((await withX({ id: "client-1", pass: "pass-1", redirect, bearer: APP_TOKEN }))?.redirectUri).toBe(redirect);
     },
   );
 
@@ -145,11 +160,12 @@ describe("xConfig", () => {
   });
 
   it("wires an adapter that sends the browser to X with the configured client and callback", async () => {
-    const x = await getXWith({ id: "client-1", pass: "pass-1", redirect: CALLBACK });
+    const x = await getXWith({ id: "client-1", pass: "pass-1", redirect: CALLBACK, bearer: APP_TOKEN });
     const url = new URL(x?.authorizeUrl({ state: "state-1", codeChallenge: "challenge-1" }) ?? "");
     expect(url.origin).toBe("https://x.com");
     expect(url.searchParams.get("client_id")).toBe("client-1");
     expect(url.searchParams.get("redirect_uri")).toBe(CALLBACK);
     expect(url.toString()).not.toContain("pass-1");
+    expect(url.toString()).not.toContain(APP_TOKEN);
   });
 });

@@ -6,7 +6,7 @@ import type { XPort } from "./port";
 /**
  * Composition root for X. Created on first use so importing this module never
  * reads the environment (build safety). Null when the deployment has no X
- * credentials: Sign in with X is then off.
+ * credentials: Sign in with X is then off and submissions are refused.
  */
 let wired: { x: XPort | null } | undefined;
 

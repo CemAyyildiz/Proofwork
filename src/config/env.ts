@@ -80,11 +80,13 @@ const schema = z.object({
   /** Faucets besides Friendbot whose wallets must not be linked by funding source. */
   PUBLIC_FUNDING_SOURCES: optional(publicKeyList),
 
-  /** Sign in with X (OAuth 2.0 confidential client). All three or none, see `load`. */
+  /** X: Sign in with X (OAuth 2.0 confidential client) and the app-only token. All four or none, see `load`. */
   X_CLIENT_ID: optional(z.string().min(1)),
   X_CLIENT_SECRET: optional(z.string().min(1)),
   /** Must equal a callback URL registered on the X app. The flow cookie is only sent under /api/x. */
   X_REDIRECT_URI: optional(z.string().url().refine(isCallbackUrl, `must be https://<host>${X_CALLBACK_PATH} with nothing after the path`)),
+  /** App-only Bearer Token of the same X app: asks X who wrote a submitted post. It travels in a header, so no spaces or line breaks. */
+  X_BEARER_TOKEN: optional(z.string().regex(/^[\x21-\x7e]+$/, "must be the token alone, with no spaces or line breaks")),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -117,9 +119,9 @@ function load(): Env {
   if (new Set(seeds).size !== seeds.length) {
     throw new Error("Invalid environment: server signing keys must be distinct");
   }
-  const x = [env.X_CLIENT_ID, env.X_CLIENT_SECRET, env.X_REDIRECT_URI].filter((v) => v !== undefined);
-  if (x.length !== 0 && x.length !== 3) {
-    throw new Error("Invalid environment: set X_CLIENT_ID, X_CLIENT_SECRET and X_REDIRECT_URI together, or none of them");
+  const x = [env.X_CLIENT_ID, env.X_CLIENT_SECRET, env.X_REDIRECT_URI, env.X_BEARER_TOKEN].filter((v) => v !== undefined);
+  if (x.length !== 0 && x.length !== 4) {
+    throw new Error("Invalid environment: set X_CLIENT_ID, X_CLIENT_SECRET, X_REDIRECT_URI and X_BEARER_TOKEN together, or none of them");
   }
   return env;
 }
@@ -150,12 +152,16 @@ export interface XConfig {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+  bearerToken: string;
 }
 
-/** Sign in with X credentials, or null when the deployment has none: the feature is then off. */
+/**
+ * The X app's credentials, or null when the deployment has none. Sign in with
+ * X is then off and no post's author can be checked, so no submission is accepted.
+ */
 export function xConfig(): XConfig | null {
-  const { X_CLIENT_ID: clientId, X_CLIENT_SECRET: clientSecret, X_REDIRECT_URI: redirectUri } = env;
-  // `load` guarantees all three or none.
-  if (clientId === undefined || clientSecret === undefined || redirectUri === undefined) return null;
-  return { clientId, clientSecret, redirectUri };
+  const { X_CLIENT_ID: clientId, X_CLIENT_SECRET: clientSecret, X_REDIRECT_URI: redirectUri, X_BEARER_TOKEN: bearerToken } = env;
+  // `load` guarantees all four or none.
+  if (clientId === undefined || clientSecret === undefined || redirectUri === undefined || bearerToken === undefined) return null;
+  return { clientId, clientSecret, redirectUri, bearerToken };
 }

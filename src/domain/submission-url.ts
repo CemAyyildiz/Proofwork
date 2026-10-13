@@ -1,10 +1,20 @@
 import { z } from "zod";
 
 /**
- * Only X / Twitter status URLs are accepted (SOW: X is the only platform).
- * The server never fetches this URL; it is stored and displayed only.
+ * A post ID as X documents it (`^[0-9]{1,19}$`), kept to its one canonical
+ * spelling: no leading zero, so one post cannot be written as two IDs.
  */
-const STATUS_URL = /^https:\/\/(?:x\.com|twitter\.com)\/([A-Za-z0-9_]{1,15})\/status\/(\d{1,20})(?:[/?#].*)?$/;
+const POST_ID = "[1-9][0-9]{0,18}";
+
+export const postIdSchema = z.string().regex(new RegExp(`^${POST_ID}$`));
+
+/**
+ * Only X / Twitter status URLs are accepted (SOW: X is the only platform).
+ * The server never fetches this URL; it is stored and displayed. The post ID
+ * in it is what identifies the post: it is the key of the author lookup and of
+ * the one-submission-per-post rule, whatever handle or host the link carries.
+ */
+const STATUS_URL = new RegExp(`^https://(?:x\\.com|twitter\\.com)/([A-Za-z0-9_]{1,15})/status/(${POST_ID})(?:[/?#].*)?$`);
 
 export const submissionUrlSchema = z
   .string()
