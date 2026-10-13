@@ -14,6 +14,11 @@ vi.mock("next/link", () => ({
 }));
 vi.mock("@/wallet/kit", () => ({ login: async () => undefined, logout: async () => undefined }));
 vi.mock("@/lib/current-user", () => ({ currentUser: async () => session.user }));
+// No database here: none of these wallets owns a funded campaign. The lookup itself is covered in access.test.ts.
+vi.mock("@/db/client", () => ({ db: {} }));
+vi.mock("@/services/access", () => ({
+  campaignsNav: async (user: { roles: Set<string> }) => (user.roles.has("funder") ? "manage" : "request"),
+}));
 
 const { WalletButton } = await import("@/components/wallet-button");
 const { WorkspaceNav } = await import("@/components/workspace-nav");
@@ -54,23 +59,30 @@ describe("wallet control", () => {
 });
 
 describe("workspace nav", () => {
-  it("shows only the Public group for a wallet with no roles", () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { funder: false, reviewer: false, ops: false, variant: "side" }));
+  it("shows only the Public group when signed out", () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: null, reviewer: false, ops: false, variant: "side" }));
     expect(html).toContain("Public");
     expect(html).not.toContain("Workspace");
-    expect(html).not.toContain("Campaigns");
+    expect(html).not.toContain('href="/campaigns"');
     expect(html).not.toContain("Review");
   });
 
   it("shows only the items for the roles held", () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { funder: true, reviewer: false, ops: false, variant: "side" }));
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: "manage", reviewer: false, ops: false, variant: "side" }));
     expect(html).toContain("Campaigns");
+    expect(html).not.toContain("Run a campaign");
     expect(html).not.toContain(">Review<");
+  });
+
+  it("labels the campaigns item Run a campaign for a wallet that would find the request form there", () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: "request", reviewer: false, ops: false, variant: "side" }));
+    expect(html).toMatch(/href="\/campaigns"[^>]*>.*?Run a campaign<\/a>/);
+    expect(html).not.toContain("Campaigns");
   });
 
   it("marks the item that owns the current path", () => {
     nav.pathname = "/campaigns/try-proofwork";
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { funder: true, reviewer: true, ops: false, variant: "side" }));
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: "manage", reviewer: true, ops: false, variant: "side" }));
     expect(html).toMatch(/href="\/campaigns" aria-current="page"/);
     expect(html).not.toMatch(/href="\/review" aria-current="page"/);
   });
@@ -85,12 +97,28 @@ describe("workspace shell", () => {
     expect(html).toContain("page body");
   });
 
-  it("shows no workspace items for a signed-in wallet with zero roles", async () => {
+  it("links a signed-in wallet with zero roles to the request form, and to nothing else in the workspace", async () => {
     session.user = { pubkey: WALLET, roles: new Set() };
     const html = await renderWorkspace();
-    expect(html).not.toContain("Workspace");
-    expect(html).not.toContain(">Campaigns<");
+    expect(html).toContain("Workspace");
+    expect(html).toMatch(/href="\/campaigns"[^>]*>.*?Run a campaign<\/a>/);
+    expect(html).not.toContain("Campaigns");
+    expect(html).not.toContain('href="/review"');
+    expect(html).not.toContain('href="/admin"');
     expect(html).toContain("Public");
+  });
+
+  it("shows no workspace items when signed out", async () => {
+    const html = await renderWorkspace();
+    expect(html).not.toContain("Workspace");
+    expect(html).not.toContain('href="/campaigns"');
+  });
+
+  it("labels the item Campaigns for a funder", async () => {
+    session.user = { pubkey: WALLET, roles: new Set(["funder"]) };
+    const html = await renderWorkspace();
+    expect(html).toMatch(/href="\/campaigns"[^>]*>.*?Campaigns<\/a>/);
+    expect(html).not.toContain("Run a campaign");
   });
 });
 
@@ -118,19 +146,19 @@ describe("public shell", () => {
     expect(html).not.toContain("Launch app");
   });
 
-  it("shows only Review, and no Home item, for a reviewer", async () => {
+  it("shows Review and Run a campaign, and no Home item, for a reviewer", async () => {
     session.user = { pubkey: WALLET, roles: new Set(["reviewer"]) };
     const html = await renderPublic();
     expect(html).toContain('href="/review"');
-    expect(html).not.toContain('href="/campaigns"');
+    expect(html).toMatch(/href="\/campaigns"[^>]*>.*?Run a campaign<\/a>/);
     expect(html).not.toContain(">Home<");
   });
 
-  it("shows only Explore for a wallet with zero roles", async () => {
+  it("shows Explore and Run a campaign for a wallet with zero roles", async () => {
     session.user = { pubkey: WALLET, roles: new Set() };
     const html = await renderPublic();
     expect(html).toContain('href="/explore"');
-    expect(html).not.toContain('href="/campaigns"');
+    expect(html).toMatch(/href="\/campaigns"[^>]*>.*?Run a campaign<\/a>/);
     expect(html).not.toContain('href="/review"');
   });
 });

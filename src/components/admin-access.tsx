@@ -25,6 +25,8 @@ export interface AccessLogRow {
   id: string;
   pubkey: string;
   role: string;
+  /** Campaign the changed grant was scoped to; null for a global grant. */
+  campaignId: string | null;
   action: "grant" | "revoke";
   /** The ops wallet that acted; null when the change came from the script. */
   actor: string | null;
@@ -48,7 +50,21 @@ function Wallet({ pubkey }: { pubkey: string }) {
  * which checks the `ops` role again; the page reloads its data afterwards.
  * Nothing here decides on its own: every change is a click.
  */
-export function AdminAccess({ pending, funders, log }: { pending: PendingRequestRow[]; funders: FunderAccessRow[]; log: AccessLogRow[] }) {
+export function AdminAccess({
+  pending,
+  funders,
+  log,
+  pendingCut,
+  logCut,
+}: {
+  pending: PendingRequestRow[];
+  funders: FunderAccessRow[];
+  log: AccessLogRow[];
+  /** The number of requests shown when more are waiting than the page read; null when all are shown. */
+  pendingCut: number | null;
+  /** The number of entries shown when older ones exist than the page read; null when all are shown. */
+  logCut: number | null;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -118,6 +134,9 @@ export function AdminAccess({ pending, funders, log }: { pending: PendingRequest
             ))}
           </ul>
         )}
+        {pendingCut !== null ? (
+          <p className="text-[12.5px] text-muted">Showing the {pendingCut} oldest pending requests. More are waiting and appear as these are decided.</p>
+        ) : null}
       </section>
 
       <section className="space-y-3">
@@ -203,7 +222,10 @@ export function AdminAccess({ pending, funders, log }: { pending: PendingRequest
                     <td className={td}>
                       <Wallet pubkey={e.pubkey} />
                     </td>
-                    <td className={td}>{e.role}</td>
+                    <td className={td}>
+                      {e.role}
+                      {e.campaignId ? <span className="text-muted"> · campaign {e.campaignId}</span> : null}
+                    </td>
                     <td className={td}>
                       <Pill tone={e.action === "grant" ? "pass" : "fail"}>{e.action}</Pill>
                     </td>
@@ -214,6 +236,9 @@ export function AdminAccess({ pending, funders, log }: { pending: PendingRequest
             </table>
           </div>
         )}
+        {logCut !== null ? (
+          <p className="text-[12.5px] text-muted">Showing the {logCut} newest entries. Older entries stay in the access log table.</p>
+        ) : null}
       </section>
     </div>
   );

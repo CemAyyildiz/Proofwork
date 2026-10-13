@@ -3,15 +3,17 @@ import { Logo } from "@/components/ui/logo";
 import { TestnetBadge } from "@/components/ui/testnet-badge";
 import { WalletButton } from "@/components/wallet-button";
 import { WorkspaceNav } from "@/components/workspace-nav";
+import { db } from "@/db/client";
 import { currentUser } from "@/lib/current-user";
+import { campaignsNav } from "@/services/access";
 
 /**
  * Signed-in workspace shell: a 248px sidebar from lg up, a top bar below it.
- * Nav items follow the roles in the session; pages still enforce access.
+ * Nav items follow the session wallet's roles and campaigns; pages still enforce access.
  */
 export default async function WorkspaceLayout({ children }: { children: React.ReactNode }) {
   const user = await currentUser();
-  const funder = user?.roles.has("funder") ?? false;
+  const campaigns = user ? await campaignsNav(user, db) : null;
   const reviewer = user?.roles.has("reviewer") ?? false;
   const ops = user?.roles.has("ops") ?? false;
   const pubkey = user?.pubkey ?? null;
@@ -22,7 +24,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
         <Link href="/" className="mx-2.5 mb-5 mt-1.5 self-start rounded-sm" aria-label="Proofwork home">
           <Logo />
         </Link>
-        <WorkspaceNav funder={funder} reviewer={reviewer} ops={ops} variant="side" />
+        <WorkspaceNav campaigns={campaigns} reviewer={reviewer} ops={ops} variant="side" />
         <div className="mt-auto grid justify-items-start gap-2.5">
           <TestnetBadge />
           <WalletButton pubkey={pubkey} menuPlacement="up" className="flex-wrap" />
@@ -41,7 +43,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
                   <Logo />
                 </span>
               </Link>
-              <WorkspaceNav funder={funder} reviewer={reviewer} ops={ops} variant="top" />
+              <WorkspaceNav campaigns={campaigns} reviewer={reviewer} ops={ops} variant="top" />
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <span className="hidden sm:contents">

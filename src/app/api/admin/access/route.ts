@@ -3,6 +3,7 @@ import { db } from "@/db/client";
 import { pubkeySchema } from "@/domain/wallet-auth";
 import { requireUser } from "@/lib/current-user";
 import { jsonRoute } from "@/lib/http";
+import { enforce, limiters } from "@/lib/ratelimit";
 import { decideRequest, revokeFunder } from "@/services/access";
 
 export const runtime = "nodejs";
@@ -18,6 +19,7 @@ const schema = z.discriminatedUnion("action", [
  */
 export const POST = jsonRoute(schema, async (input) => {
   const user = await requireUser();
+  await enforce(limiters.admin, `admin:${user.pubkey}`);
   if (input.action === "revoke") return revokeFunder(input.pubkey, user, db);
   const r = await decideRequest({ requestId: input.requestId, decision: input.action }, user, db);
   return { id: r.id, status: r.status };

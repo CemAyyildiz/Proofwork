@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { getEscrow } from "@/escrow";
 import { requireUser } from "@/lib/current-user";
+import { AppError } from "@/lib/errors";
 import { jsonRoute } from "@/lib/http";
+import { canManageCampaign } from "@/services/access";
+import { getCampaignById } from "@/services/campaign";
 import { approveForPayout, confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp } from "@/services/payout";
 
 export const runtime = "nodejs";
@@ -13,15 +16,21 @@ const schema = z.discriminatedUnion("action", [
 ]);
 
 /**
- * Final approval, release and close. Signed in is enough here: every service
- * below checks that the caller owns the campaign. The funder role is not
- * asked for, so a funder whose access was revoked can still pay out and
- * close what it already funded (create, deploy and fund keep the role gate).
+ * Final approval, release and close, for the campaign's owner with the funder
+ * role or, without it, for the owner of a funded campaign (`canManageCampaign`):
+ * a funder whose access was revoked can still pay out and close what it
+ * already funded, and nothing else. Every service below checks ownership
+ * again. Create, deploy and fund keep the role gate.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
   const { id } = await ctx.params;
   return jsonRoute(schema, async (input) => {
     const user = await requireUser(id);
+    const c = await getCampaignById(id);
+    if (!c) throw AppError.notFound("campaign");
+    if (!canManageCampaign(c, user)) {
+      throw AppError.forbidden(c.funderPubkey === user.pubkey ? "requires funder role" : "not the funder of this campaign");
+    }
     const escrow = getEscrow();
     switch (input.action) {
       case "approve":

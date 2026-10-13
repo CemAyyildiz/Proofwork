@@ -89,8 +89,13 @@ const HOME: NavItem = {
 };
 
 export interface WorkspaceNavProps {
+  /**
+   * The /campaigns item, for any signed-in wallet: "manage" for a funder or
+   * the owner of a funded campaign, "request" for a wallet that would find the
+   * funder access form there, null when signed out.
+   */
+  campaigns: "manage" | "request" | null;
   /** Role flags come from the server session; the nav never decides access itself. */
-  funder: boolean;
   reviewer: boolean;
   ops: boolean;
   /** "side" is the ≥ lg rail with group headings; "top" is the compact row for narrow screens and the public bar. */
@@ -99,9 +104,10 @@ export interface WorkspaceNavProps {
   showPublic?: boolean;
 }
 
-export function WorkspaceNav({ funder, reviewer, ops, variant, showPublic = true }: WorkspaceNavProps) {
+export function WorkspaceNav({ campaigns, reviewer, ops, variant, showPublic = true }: WorkspaceNavProps) {
   const pathname = usePathname();
-  const workspace = [funder ? CAMPAIGNS : null, reviewer ? REVIEW : null, ops ? ADMIN : null].filter((i): i is NavItem => i !== null);
+  const campaignsItem = campaigns === "manage" ? CAMPAIGNS : campaigns === "request" ? { ...CAMPAIGNS, label: "Run a campaign" } : null;
+  const workspace = [campaignsItem, reviewer ? REVIEW : null, ops ? ADMIN : null].filter((i): i is NavItem => i !== null);
   const pub = showPublic ? [EXPLORE, HOME] : [EXPLORE];
 
   if (variant === "top") {

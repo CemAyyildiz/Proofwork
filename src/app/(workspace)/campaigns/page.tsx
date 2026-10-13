@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { AccessRequestForm } from "@/components/access-request-form";
 import { SignedOut } from "@/components/signed-out";
 import { Pill } from "@/components/ui/pill";
@@ -7,7 +6,7 @@ import { db } from "@/db/client";
 import type { Campaign, FunderRequest } from "@/db/schema";
 import { currentUser } from "@/lib/current-user";
 import { formatDate, formatUsdc } from "@/lib/format";
-import { canManageCampaign, latestFunderRequest } from "@/services/access";
+import { canManageCampaign, funderAccessState, type FunderAccessState } from "@/services/access";
 import { listCampaignsForFunder } from "@/services/campaign";
 
 export const dynamic = "force-dynamic";
@@ -31,14 +30,20 @@ export default async function CampaignsPage() {
 
   // Without the funder role a wallet still reaches the campaigns it funded, so it can pay out and close them.
   const kept = owned.filter((c) => canManageCampaign(c, user));
-  // A reviewer-only wallet belongs in the queue.
-  if (kept.length === 0 && user.roles.has("reviewer")) redirect("/review");
-  const request = await latestFunderRequest(user.pubkey, db);
+  const access = await funderAccessState(user.pubkey, db);
 
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-semibold">Campaigns</h1>
-      <FunderAccess request={request} />
+      {user.roles.has("reviewer") ? (
+        <p className="text-sm text-text-2">
+          Here to review?{" "}
+          <Link href="/review" className="font-medium text-accent hover:underline">
+            Open the review queue →
+          </Link>
+        </p>
+      ) : null}
+      <FunderAccess state={access.state} request={access.request} />
       {kept.length > 0 ? (
         <section className="space-y-3">
           <h2 className="font-medium">Campaigns you funded</h2>
@@ -72,12 +77,9 @@ function CampaignList({ rows }: { rows: Campaign[] }) {
   );
 }
 
-/**
- * What a wallet without the funder role sees: its pending request, or the
- * form. An approved request without the role means access was revoked later.
- */
-function FunderAccess({ request }: { request: FunderRequest | null }) {
-  if (request?.status === "pending") {
+/** What a wallet without the funder role sees: its pending request, or the form under what happened last. */
+function FunderAccess({ state, request }: { state: FunderAccessState; request: FunderRequest | null }) {
+  if (state === "pending" && request) {
     return (
       <section className="max-w-[560px] rounded-[20px] border border-line-strong bg-sunken p-[22px]">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -94,7 +96,7 @@ function FunderAccess({ request }: { request: FunderRequest | null }) {
   }
   return (
     <section className="max-w-[560px] rounded-[20px] border border-line-strong bg-sunken p-[22px]">
-      {request?.status === "rejected" ? (
+      {state === "rejected" && request ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold tracking-[-0.02em]">Request not approved</h2>
@@ -105,7 +107,7 @@ function FunderAccess({ request }: { request: FunderRequest | null }) {
             was not approved. You can send a new one.
           </p>
         </>
-      ) : request?.status === "approved" ? (
+      ) : state === "removed" ? (
         <>
           <h2 className="text-lg font-semibold tracking-[-0.02em]">Funder access removed</h2>
           <p className="mt-3 text-sm leading-normal text-text-2">

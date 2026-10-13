@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/client";
-import { accessLog, funderRequests, roleGrants, type AccessLogEntry, type FunderRequest } from "@/db/schema";
+import { accessLog, campaigns, funderRequests, roleGrants, type AccessLogEntry, type FunderRequest } from "@/db/schema";
 import { AppError, isUniqueViolation } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import type { Role } from "./auth";
@@ -119,6 +119,32 @@ export async function latestFunderRequest(pubkey: string, conn: Db): Promise<Fun
   return rows[0] ?? null;
 }
 
+export type FunderAccessState = "none" | "pending" | "rejected" | "removed";
+
+/**
+ * What a wallet without the funder role is shown on the campaigns page.
+ * `removed` comes from the access log, not from the requests: the wallet's
+ * last global funder entry is a revocation, however the role was granted. A
+ * request rejected after that revocation is shown as rejected.
+ */
+export async function funderAccessState(pubkey: string, conn: Db): Promise<{ state: FunderAccessState; request: FunderRequest | null }> {
+  const request = await latestFunderRequest(pubkey, conn);
+  if (request?.status === "pending") return { state: "pending", request };
+  const last = (
+    await conn
+      .select({ action: accessLog.action, at: accessLog.at })
+      .from(accessLog)
+      .where(and(eq(accessLog.pubkey, pubkey), eq(accessLog.role, "funder"), isNull(accessLog.campaignId)))
+      .orderBy(desc(accessLog.at), desc(accessLog.id))
+      .limit(1)
+  )[0];
+  const revokedAt = last?.action === "revoke" ? last.at : null;
+  if (request?.status === "rejected" && (revokedAt === null || (request.decidedAt ?? request.createdAt) > revokedAt)) {
+    return { state: "rejected", request };
+  }
+  return { state: revokedAt ? "removed" : "none", request };
+}
+
 /**
  * Operator decision on a pending request. Approval grants the funder role
  * through `changeRole` in the same transaction as the status change, so a
@@ -161,23 +187,34 @@ export interface FunderRow {
   team: string | null;
 }
 
+/** The admin page reads at most this many pending requests, oldest first. */
+export const PENDING_LIMIT = 100;
+/** The admin page reads at most this many log entries, newest first. */
+export const LOG_LIMIT = 200;
+
 export interface AccessOverview {
-  /** Pending requests, oldest first. */
+  /** Pending requests, oldest first, at most PENDING_LIMIT. */
   pending: FunderRequest[];
+  /** True when more pending requests exist than `pending` holds. */
+  pendingCut: boolean;
   /** Wallets holding the funder role, newest grant first. */
   funders: FunderRow[];
-  /** Every access-log entry, newest first. */
+  /** Access-log entries, newest first, at most LOG_LIMIT. */
   log: AccessLogEntry[];
+  /** True when older entries exist than `log` holds. */
+  logCut: boolean;
 }
 
 /** Everything the admin page shows. Ops only. */
 export async function accessOverview(actor: { pubkey: string }, conn: Db): Promise<AccessOverview> {
   await requireOps(actor.pubkey, conn);
+  // One row past each limit tells whether the list was cut.
   const pending = await conn
     .select()
     .from(funderRequests)
     .where(eq(funderRequests.status, "pending"))
-    .orderBy(asc(funderRequests.createdAt), asc(funderRequests.id));
+    .orderBy(asc(funderRequests.createdAt), asc(funderRequests.id))
+    .limit(PENDING_LIMIT + 1);
   const grants = await conn
     .select({ pubkey: roleGrants.pubkey, grantedAt: roleGrants.grantedAt })
     .from(roleGrants)
@@ -193,8 +230,14 @@ export async function accessOverview(actor: { pubkey: string }, conn: Db): Promi
     // Oldest first, so the latest approved request wins.
     for (const r of approved) teams.set(r.pubkey, r.team);
   }
-  const log = await conn.select().from(accessLog).orderBy(desc(accessLog.at), desc(accessLog.id));
-  return { pending, funders: grants.map((g) => ({ ...g, team: teams.get(g.pubkey) ?? null })), log };
+  const log = await conn.select().from(accessLog).orderBy(desc(accessLog.at), desc(accessLog.id)).limit(LOG_LIMIT + 1);
+  return {
+    pending: pending.slice(0, PENDING_LIMIT),
+    pendingCut: pending.length > PENDING_LIMIT,
+    funders: grants.map((g) => ({ ...g, team: teams.get(g.pubkey) ?? null })),
+    log: log.slice(0, LOG_LIMIT),
+    logCut: log.length > LOG_LIMIT,
+  };
 }
 
 /**
@@ -208,4 +251,20 @@ export function canManageCampaign(
   actor: { pubkey: string; roles: ReadonlySet<Role> },
 ): boolean {
   return campaign.funderPubkey === actor.pubkey && (actor.roles.has("funder") || campaign.fundedAt !== null);
+}
+
+/**
+ * The /campaigns nav item for a signed-in wallet. `manage`: it has campaigns
+ * to run there, as a funder or as the owner of a funded campaign that it must
+ * still be able to pay out and close. `request`: the page offers it the
+ * funder access form.
+ */
+export async function campaignsNav(actor: { pubkey: string; roles: ReadonlySet<Role> }, conn: Db): Promise<"manage" | "request"> {
+  if (actor.roles.has("funder")) return "manage";
+  const funded = await conn
+    .select({ id: campaigns.id })
+    .from(campaigns)
+    .where(and(eq(campaigns.funderPubkey, actor.pubkey), isNotNull(campaigns.fundedAt)))
+    .limit(1);
+  return funded.length > 0 ? "manage" : "request";
 }

@@ -5,7 +5,7 @@ import { db } from "@/db/client";
 import { currentUser } from "@/lib/current-user";
 import { isAppError } from "@/lib/errors";
 import { formatDate, formatTimestamp } from "@/lib/format";
-import { accessOverview } from "@/services/access";
+import { accessOverview, LOG_LIMIT, PENDING_LIMIT } from "@/services/access";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,9 @@ export default async function AdminPage() {
       <AdminAccess
         pending={view.pending.map((r) => ({ id: r.id, pubkey: r.pubkey, team: r.team, note: r.note, requestedAt: formatDate(r.createdAt) }))}
         funders={view.funders.map((f) => ({ pubkey: f.pubkey, team: f.team, grantedAt: formatDate(f.grantedAt) }))}
-        log={view.log.map((e) => ({ id: e.id, pubkey: e.pubkey, role: e.role, action: e.action, actor: e.actorPubkey, via: e.via, at: formatTimestamp(e.at) }))}
+        log={view.log.map((e) => ({ id: e.id, pubkey: e.pubkey, role: e.role, action: e.action, actor: e.actorPubkey, via: e.via, campaignId: e.campaignId, at: formatTimestamp(e.at) }))}
+        pendingCut={view.pendingCut ? PENDING_LIMIT : null}
+        logCut={view.logCut ? LOG_LIMIT : null}
       />
     </div>
   );

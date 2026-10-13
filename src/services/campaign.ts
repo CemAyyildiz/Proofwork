@@ -1,9 +1,9 @@
 import "server-only";
 import { StrKey } from "@stellar/stellar-sdk";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Db } from "@/db/client";
-import { campaigns, type Campaign, type EscrowOp } from "@/db/schema";
+import { campaigns, escrowOps, type Campaign, type EscrowOp } from "@/db/schema";
 import { assertPositiveAmount, toStroops } from "@/escrow/amount";
 import type { EscrowPort, Submitted } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
@@ -170,6 +170,20 @@ export async function confirmDeploy(
   if (!res.contractId) throw new AppError("ESCROW", "deploy confirmed but provider returned no contract id", { txHash: res.txHash });
   await deployConfirmed(input.campaignId, conn)(res.op);
   return { txHash: res.txHash, contractId: res.contractId };
+}
+
+/**
+ * True when a fund transaction for this campaign has already gone to the
+ * network: its op is past `intent`. The budget may be in the escrow while
+ * `funded_at` is still empty, and only another prepare reconciles that.
+ */
+export async function fundSubmitted(campaignId: string, conn: Db = db): Promise<boolean> {
+  const rows = await conn
+    .select({ id: escrowOps.id })
+    .from(escrowOps)
+    .where(and(eq(escrowOps.campaignId, campaignId), eq(escrowOps.kind, "fund"), inArray(escrowOps.status, ["submitted", "failed", "confirmed"])))
+    .limit(1);
+  return rows.length > 0;
 }
 
 /** Step 2 of funding: move the budget into escrow. */

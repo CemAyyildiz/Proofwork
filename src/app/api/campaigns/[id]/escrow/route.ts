@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { getEscrow, getPlatformKeys } from "@/escrow";
-import { requireUserRole } from "@/lib/current-user";
+import { requireUser } from "@/lib/current-user";
+import { AppError } from "@/lib/errors";
 import { jsonRoute } from "@/lib/http";
-import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/services/campaign";
+import { confirmDeploy, confirmFund, fundSubmitted, prepareDeploy, prepareFund } from "@/services/campaign";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,16 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function POST(req: Request, ctx: Ctx): Promise<Response> {
   const { id } = await ctx.params;
   return jsonRoute(schema, async (input) => {
-    const user = await requireUserRole("funder", id);
+    const user = await requireUser(id);
+    // Deploy and a first fund put new money in, so they need the funder role.
+    // A fund already sent to the network is different: the budget may be in
+    // the escrow with the campaign not yet marked funded, and its owner must
+    // be able to reconcile that after losing the role. A rebuilt fund is back
+    // at `intent`, so it cannot be submitted without the role either. The
+    // services check ownership.
+    if (!user.roles.has("funder") && !(input.kind === "fund" && (await fundSubmitted(id)))) {
+      throw AppError.forbidden("requires funder role");
+    }
     const keys = getPlatformKeys();
     const escrow = getEscrow();
     const actor = { pubkey: user.pubkey, platformAdmin: keys.admin, platformOps: keys.ops };

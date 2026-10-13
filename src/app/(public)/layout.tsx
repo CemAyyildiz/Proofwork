@@ -3,7 +3,9 @@ import { HeaderAction } from "@/components/header-action";
 import { Logo } from "@/components/ui/logo";
 import { TestnetBadge } from "@/components/ui/testnet-badge";
 import { WorkspaceNav } from "@/components/workspace-nav";
+import { db } from "@/db/client";
 import { currentUser } from "@/lib/current-user";
+import { campaignsNav } from "@/services/access";
 
 /** Public shell: sticky blurred top bar over a centred main. */
 export default async function PublicLayout({ children }: { children: React.ReactNode }) {
@@ -22,7 +24,7 @@ export default async function PublicLayout({ children }: { children: React.React
               </span>
             </Link>
             <WorkspaceNav
-              funder={user?.roles.has("funder") ?? false}
+              campaigns={user ? await campaignsNav(user, db) : null}
               reviewer={user?.roles.has("reviewer") ?? false}
               ops={user?.roles.has("ops") ?? false}
               variant="top"

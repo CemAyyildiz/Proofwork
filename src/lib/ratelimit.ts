@@ -28,7 +28,7 @@ function makeLimiter(requests: number, windowSeconds: number): Limiter {
   };
 }
 
-const cache: Partial<Record<"auth" | "submit" | "appeal" | "x" | "access", Limiter>> = {};
+const cache: Partial<Record<"auth" | "submit" | "appeal" | "x" | "access" | "accessIp" | "admin", Limiter>> = {};
 /** Limiters are created on first use so importing this module never touches the environment. */
 export const limiters = {
   get auth(): Limiter {
@@ -47,6 +47,14 @@ export const limiters = {
   /** Funder access requests. A wallet has one pending request at a time, so this is ample for retries. */
   get access(): Limiter {
     return (cache.access ??= makeLimiter(5, 3600));
+  },
+  /** Funder access requests from one address, whatever the wallet: a fresh keypair per request must not get past the limit. */
+  get accessIp(): Limiter {
+    return (cache.accessIp ??= makeLimiter(20, 3600));
+  },
+  /** Operator decisions on funder access, per session wallet. */
+  get admin(): Limiter {
+    return (cache.admin ??= makeLimiter(60, 600));
   },
 };
 
