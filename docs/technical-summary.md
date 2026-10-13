@@ -10,12 +10,14 @@ Proofwork runs a paid campaign on Stellar testnet: a project funds a budget into
  Contributor  ───┤ /c/<slug>         wallet · USDC trustline · connect X · submit own post URL     │
  Reviewer     ───┤ /review           blind queue · six signals · reason code · one re-review       │
  Anyone       ───┤ /verify/<id>      canonical record + SHA-256 recomputed in the browser          │
+ Operator     ───┤ /admin            funder access: approve · reject · revoke · access log         │
                  │                                                                                │
                  │ services (zod at every boundary, role + ownership check on every mutation)     │
                  │   ├─ escrow-ops: intent → submitted → confirmed, idempotency key per write     │
                  │   ├─ EscrowPort ── TrustlessWorkAdapter ──► Trustless Work Core API v1         │
                  │   └─ DecisionLedger ── @stellar/stellar-sdk ──► Horizon (classic tx)           │
-                 │ Postgres (Neon): campaigns, submissions, decisions, payouts, escrow ops        │
+                 │ Postgres (Neon): campaigns, submissions, decisions, payouts, escrow ops,       │
+                 │   roles, access requests, access log                                           │
                  └────────────────────────────────────────────────────────────────────────────────┘
                                    │                                   │
                         Soroban escrow contract              decision ledger account
@@ -107,13 +109,26 @@ A submission enters the review queue only when the submitted post was written by
 
 The request shape comes from X's OpenAPI document (v2.170, read 2026-10-13) and has not been sent to X yet. What the tests and a local run cover, and the live rows still open, are in [x-connect.md](evidence/x-connect.md).
 
+## Funder access
+
+In Month 1 a wallet became a funder only when the operator ran a database script, and a role could be granted or removed without a trace. A team now asks for funder access in the app, the operator decides on an admin page, and every change of a role is written to a log.
+
+- **Request.** A signed-in wallet without the funder role sees a form on `/campaigns`: a team name and a short note, and no email or other contact field. `POST /api/access/requests` stores it as pending. A wallet has at most one pending request, held by a partial unique index, so the second of two requests sent at once is refused by the database. A wallet that already has funder access is refused too. The endpoint is rate limited by IP and wallet together and by wallet alone (5 requests an hour each). The page then shows the request as pending, as not approved with the form again, or, after a revocation, that access was removed with the form again.
+- **Decision.** `/admin` lists pending requests, the wallets that hold the funder role, and the access log. Approve and Reject act on a request; Revoke, behind a confirm step, removes funder access. Nothing is approved, rejected or revoked automatically. Approval takes effect on the wallet's next request with the session it already has, because roles are read from the database on every request and never from the cookie. A request that is no longer pending cannot be decided again.
+- **Who is the operator.** The wallet that holds the `ops` role. The page and its mutations check that role in the service against the session wallet. Any other signed-in wallet gets the not-found page and a 403 from `POST /api/admin/access`. The first `ops` grant is made once with `pnpm role:grant` ([deployment](deployment.md#roles)). Reviewer and ops roles cannot be requested in the app.
+- **One path for role changes.** `changeRole` in `src/services/access.ts` is the only code that inserts into or deletes from `role_grant`; a test searches the source for any other write. It changes the role and writes the log entry in one database transaction, so a change that fails leaves no entry and an entry never exists without its change. Approval runs in the same transaction as the request's status change. Granting a role already held, or revoking one not held, changes nothing and writes nothing. `pnpm role:grant` calls the same function, one role at a time, and its entries are marked `script`.
+- **Access log.** `access_log` holds one row per grant or revocation: wallet, role, action, the ops wallet that acted (empty for the script), `admin` or `script`, the request behind an approval, and the time. No code updates or deletes a row. The admin page shows every entry, newest first. A rejection is recorded on the request, not in the log: the log is the history of roles, and a rejection changes none.
+- **Revocation and money already in escrow.** A revoked wallet cannot create a campaign or deploy or fund an escrow: those routes ask for the funder role. Everything after funding is keyed on ownership instead: final approval, release, close, the campaign page and the review log stay open to the wallet that funded the campaign, so revoking access never strands money in an escrow. The rule is one function (`canManageCampaign`), and the payout and close services check ownership themselves on every call.
+
+A local run of the whole flow, and what the tests cover, are in [funder-access.md](evidence/funder-access.md).
+
 ## Security model
 
 - **No custody by the app.** The platform keys cannot move funds; release needs the funder's wallet, the remainder needs the dispute resolver (see Known limits for who holds that key in Month 1).
 - **Money state comes from chain.** Every escrow write is recorded as intent → submitted → confirmed with an idempotency key, and confirmed only after the escrow is read back and shows the effect. A retry never submits a second transaction. Nothing is shown as paid from a database write alone.
 - **Wallet login.** Single-use signed nonce with expiry; httpOnly, Secure, SameSite=Lax session cookie; logout revokes server-side.
 - **X.** Only the X account ID is kept from Sign in with X, and nothing from the post-author lookup. Tokens, codes, the PKCE verifier, handles and post text are never stored or logged, and the X credentials are server environment only (see X account connection and Post author check).
-- **Authorization** is checked in the service layer on every mutation against the caller's wallet, role and campaign ownership.
+- **Authorization** is checked in the service layer on every mutation against the caller's wallet, role and campaign ownership. Roles change only through one function that logs the change in the same transaction (see Funder access).
 - **Input.** Every route and server action validates with zod. Submission URLs must be `https://x.com/<handle>/status/<id>` (or twitter.com); the server never fetches them. It asks X's API, on a fixed host, about the numeric post ID alone.
 - **Secrets** live only in server environment, validated at startup, never logged and never in the client bundle. Security headers (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none) on every response; public write endpoints are rate limited.
 - **Blind review.** The queue shows no contributor identity beyond the post URL, in a stable non-chronological order. The shared-funding warning adds a count, never an address. The list of planted fakes was never stored in the app database; it was joined to the exported review log only after scoring ([results](results.md)).
@@ -136,7 +151,11 @@ The request shape comes from X's OpenAPI document (v2.170, read 2026-10-13) and 
 - **A connect flow is single-use only in the browser that ran it.** The callback clears the flow cookie; the server has no used-flow record. A copy of the cookie replayed inside its 10 minutes would get as far as X, which refuses a second use of the authorization code.
 - **An X connection is permanent.** There is no unlink or relink: a wallet that connects the wrong account, or a contributor who loses a wallet, has no way to move the X account in the app.
 - **The authorization code appears in the request URL.** X returns it as a query parameter, so the hosting platform's request log holds it. It is single use, expires 30 seconds after X issues it, and is useless without the client secret and the PKCE verifier. The app's own logs carry only the failed step and HTTP status.
-- **X only, USDC only**, and the campaign is created and run by hand; this is not a self-service platform.
+- **Roles granted before the access log existed have no entry.** The log starts with migration `0006`. Wallets that already held a role appear under Funders on the admin page, marked as granted with the script, with nothing in the log until their role next changes.
+- **The access log is append-only by code, not by the database.** No code path updates or deletes a row and a test checks that, but the application's database user could. Nothing in Postgres forbids it.
+- **A team is not told about a decision.** No contact detail is collected, so there is nothing to send: the team opens `/campaigns` again to see whether the request was approved. A wallet with no role has no menu link to that page; the operator gives the team the address.
+- **Revocation freezes a campaign that is deployed but not funded.** The wallet can no longer fund it and no longer sees its page. No money is in that escrow. Granting access again restores it.
+- **X only, USDC only.** A team can get funder access and create a campaign without the operator touching the database, but nothing yet caps what one funder can open, and a wallet is not checked for funds before it deploys.
 
 ## Month 2 next steps
 

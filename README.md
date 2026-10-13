@@ -44,10 +44,10 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Grant roles to wallets (global):
+Grant the operator and reviewer roles (global). A team asks for funder access in the app at `/campaigns`, and the operator approves it at `/admin`:
 
 ```bash
-pnpm role:grant G...FUNDER funder
+pnpm role:grant G...OPERATOR ops
 pnpm role:grant G...REVIEWER reviewer
 ```
 

@@ -113,12 +113,26 @@ The release that adds the post-author check goes out in this order:
 2. Apply migration `0005`, preview first and then production, with steps 1 to 4 above.
 3. Merge to `main`; Vercel deploys production. A scope left without the four values takes no submissions.
 
-Role grants go to the same database the same way:
+Migration `0006` adds the tables `funder_request` and `access_log` and three enum types. It changes no existing table, so the deployed code keeps working on the new schema. Apply it, preview first and then production, before the release that adds funder access requests and the admin page. That release needs no new environment variable.
+
+### Roles
+
+Teams ask for funder access in the app and the operator decides on `/admin` ([technical summary → Funder access](technical-summary.md#funder-access)). The admin page is open only to a wallet with the `ops` role, and that first grant cannot be made in the app. Make it once per database, with the script, after migration `0006`:
 
 ```bash
-pnpm role:grant G...FUNDER funder
-pnpm role:grant G...REVIEWER reviewer
+read -rs DATABASE_URL && export DATABASE_URL   # the target branch's connection string
+pnpm role:grant G...OPERATOR ops
 ```
+
+Sign in with that wallet and open `/admin`. From then on funder access is granted and revoked there. The script stays for the roles the app does not hand out, and as a fallback:
+
+```bash
+pnpm role:grant G...REVIEWER reviewer
+pnpm role:grant G...FUNDER funder
+pnpm role:grant G...REVIEWER reviewer --revoke
+```
+
+Every run goes through the same function as the admin page and writes an access-log entry marked `script`. `--revoke` removes the one role named, not every role of the wallet as it did before this release. Granting a role the wallet already has, or revoking one it does not have, changes nothing, writes no entry and says so.
 
 `role:grant` runs with `node --env-file=.env`, so a `.env` file must exist in the repository root (Node refuses to start without it). A `DATABASE_URL` already exported in the shell takes precedence over the value in the file.
 
