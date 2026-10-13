@@ -1,12 +1,12 @@
 # Funder limits and funding readiness evidence
 
-Each funder is capped on open campaigns and open budget, and before an escrow is deployed or funded the funder's wallet is read on Stellar and shown as ready or not, with what is missing ([technical summary → Funder limits and funding readiness](../technical-summary.md#funder-limits-and-funding-readiness)). This page records what has been checked: the unit tests, one testnet read per wallet state with the app's own code, and a run through a local instance of the app. No escrow was deployed or funded in these runs; that is listed as open at the end.
+Each funder is capped on open campaigns and open budget, and before an escrow is deployed or funded the funder's wallet is read on Stellar and shown as ready or not, with what is missing. A deployed campaign that was never funded can be abandoned so that it stops counting ([technical summary → Funder limits and funding readiness](../technical-summary.md#funder-limits-and-funding-readiness)). This page records what has been checked: the unit tests, one testnet read per wallet state with the app's own code, and a run through a local instance of the app. No escrow was deployed or funded in these runs; that is listed as open at the end. Runs 2 and 3 were made before the changes that review asked for; Run 2 was read again afterwards, Run 3 was not, and each says what that means for it.
 
 ## Run 1: unit tests
 
-Run: 2026-10-13 · `pnpm test --maxWorkers=2` · 722 tests in 31 files pass. The tests for this feature are in `tests/unit/campaign.test.ts` (45 tests), `tests/unit/onboarding.test.ts` (51) and `tests/unit/env.test.ts` (53).
+Run: 2026-10-13 · `pnpm vitest run` on the five files the last changes touch: `tests/unit/campaign.test.ts` (66 tests), `tests/unit/onboarding.test.ts` (52), `tests/unit/access.test.ts` (87), `tests/unit/escrow-ops.test.ts` and `tests/unit/payout.test.ts` (66 together) · 271 tests pass. `tests/unit/env.test.ts` (53) was not touched by them. The whole suite last ran at commit `b2af8c5`, before the changes that review asked for: 722 tests in 31 files.
 
-The service tests run on an in-process Postgres with every migration applied and the in-memory escrow. The route and page tests call the real route handlers and server components with a signed session cookie; only the database, the escrow provider and Horizon (a fetch stub) are swapped. Those tests set the caps in the environment to 3 campaigns and 250 USDC, so a page or a message that shows those numbers read them from there.
+The service tests run on an in-process Postgres with every migration applied and the in-memory escrow. The route and page tests call the real route handlers and server components with a signed session cookie; only the database, the escrow provider and Horizon (a fetch stub) are swapped. The stub answers the account read for a G-address and fails on any other request. Those tests set the caps in the environment to 3 campaigns and 250 USDC, with the environment and the modules loaded fresh for each test, so a page or a message that shows those numbers read them from there.
 
 | Scenario | What the tests assert |
 |---|---|
@@ -15,33 +15,43 @@ The service tests run on an in-process Postgres with every migration applied and
 | Budget cap | With 80 USDC open, 30 more is refused; the message names 100 and 80. 20.0000001 is refused and 20 is accepted |
 | Budget above the cap alone | With nothing open, 150 is refused on the budget cap and 100 is accepted |
 | Both caps at once | One refusal names both |
-| Drafts pile up | Three drafts are saved with usage still at zero; two deploy; the third deploy is refused on the campaign cap before the wallet is read, with no escrow operation recorded for it |
-| Budget at deploy | Two drafts of 60 USDC: the first deploys, the second deploy is refused with "60 of 100 USDC in use and this campaign adds 60 USDC" |
+| Drafts pile up | Three campaigns are saved with usage still at zero; two deploy; the third deploy is refused on the campaign cap before the wallet is read, with no escrow operation recorded for it |
+| Budget at deploy | Two saved campaigns of 60 USDC: the first deploys, the second deploy is refused with "60 of 100 USDC in use, which leaves no room for a 60 USDC campaign" |
+| Caps at submit | Three deploys are requested while nothing is open, so each passes; two are submitted; the third signed deploy is refused with 409 before it is sent: the network is reached twice, its record stays `intent`, the campaign has no contract. The same for the budget cap, and through the route with four deploys under a cap of 3 |
+| A confirmed deploy is replayed first | A deploy is confirmed but the campaign's contract id is cleared, as after a lost write. Requesting the deploy again with caps of 1 campaign and 1 USDC and a wallet with no account answers "deploy already confirmed", restores the contract id, and reads the wallet zero times |
+| Limit shown on the campaign page | A saved campaign of a funder at 3 of 3 shows the refusal on its page with the deploy button off although the wallet reads as ready; once another campaign is abandoned the line is gone and the button is on. The same for the budget cap |
+| Abandon | A deployed, never funded campaign is closed by its owner: nothing is sent to the network, usage drops, and a new campaign is created and deployed. A new fund request and the submit of a fund prepared before the abandon are both refused with "campaign is closed", and the escrow balance stays 0 |
+| Abandon refused | For a funded campaign; when the campaign's fund record is `submitted`, `failed` or `confirmed`; for a campaign without an escrow; for a wallet that does not own it (403 with and without the funder role); and a second time |
+| Abandon on the page | The control shows on a deployed campaign and not on a draft, a funded campaign, a closed one, or a deployed one whose fund was already sent |
+| Close without submissions | A funded campaign with no submissions shows Close campaign, enabled; the close is prepared and submitted through the payouts route |
+| Rate limits | The 21st save in ten minutes from one wallet answers 429 and stores nothing; another wallet has its own count. The 31st request for an escrow transaction answers 429 without a Horizon read |
 | Closed frees the cap | After one of two open campaigns is funded and closed through the close service, a new campaign is created and deployed |
 | Each funder on its own | Another funder's open campaigns do not count |
 | Caps follow configuration | With limits of 1 and 25 the check and the message use 1 and 25; through the routes with 3 and 250 in the environment, the new-campaign page shows "of 3" and "of 250 USDC", a 300 USDC campaign is refused naming 250, and a 150 USDC one is accepted |
-| Caps shown | The new-campaign page shows both limits and the usage; a draft changes nothing, a deploy does. At the campaign cap the page says so and the save button is off |
+| Caps shown | The new-campaign page shows both limits and the usage; a saved campaign changes nothing, a deploy does. With the campaign limit reached, and with the budget used up while a campaign slot is free, the page says a new campaign cannot be created and the save button is off |
 | Environment values | Unset or empty gives 2 and 100. `0`, `-1`, `1.5`, `2e1`, `two`, `+2`, `10000` and `0x2` are refused as the campaign count; `0`, `0.0`, `-5`, `1e2`, `100 USDC`, `1,5`, `.5` and an eighth decimal are refused as the budget |
 | Ready | The deploy and the fund transactions are built, each after one read of the funder's wallet; the page shows "Ready" and the deploy button is on |
 | No account | Deploy refused with 409; all four missing items are in one answer; no operation recorded |
 | No trustline | Deploy refused: the trustline and the USDC are named |
 | Short of USDC | Deploy and fund refused; the message gives the balance, the budget and Circle's faucet; the page shows the same and the fund button is off |
-| Short of XLM | Deploy refused with the amount needed. Deploy needs 1 XLM free and fund 0.5 |
+| Short of XLM | Deploy refused with the amount needed. Deploy needs 1 XLM free and fund 0.5. On the page, a deployed campaign whose wallet has 0.7 XLM free reads as ready with the fund button on, and the same wallet on a draft is short |
+| Trustline reserve | A wallet with 2.2 XLM and no trustline has 1.2 XLM free; before deploy it needs 1.5, so the trustline, the USDC and the XLM are all listed. With the line in place 1.2 XLM free is enough |
+| A fault in the rules | A budget that is not an amount makes the readiness check throw a validation error; it is not reported as "not checked" and nothing is logged as a failed read |
 | Every missing item at once | For a wallet with no account the campaign page lists the account, the trustline, the USDC and the XLM in one render |
 | Horizon down | A 503, a timeout, a body that is not an account: readiness is "not checked" with a retry on the page, deploy and fund answer 502 with "couldn't check your wallet on Stellar, try again", nothing is recorded, and one line is logged per failed read |
 | The wallet read | Balances, subentries and selling liabilities are read from one request to `/accounts/<wallet>` at the configured host. Spendable XLM is checked for 0 and 5 subentries, selling and buying liabilities, sponsoring and sponsored entries, and never goes below zero. A USDC line from another issuer, or one the issuer has not authorised, is no line. Anything that is not a G-address is refused before a URL is built |
 | Amounts | Compared to the stroop: 49.9999999 against 50 is short, and a value past what a float holds exactly is still compared exactly |
-| A fund already on chain | A fund that landed while its record stayed `submitted` is confirmed and the campaign becomes funded without the wallet being read, although the wallet now holds 0 USDC. The page keeps the fund button on in that state |
+| A fund already on chain | A fund that landed while its record stayed `submitted` is confirmed and the campaign becomes funded without the wallet being read, although the wallet now holds 0 USDC. The page keeps the fund button on in that state and the panel says the button stays on so the fund can be read back from the escrow, also when Horizon cannot be read; it does not say that deploy and fund stay off |
 | A fund that failed without landing | It is rebuilt only for a wallet that is ready; for one that is not, the record stays `failed` |
 | After funding | A funded campaign whose funder has 4 of 3 campaigns and 400 of 250 USDC open, and whose wallet has no account: approve, release and close each answer 200, the campaign page shows no readiness panel, and Horizon is not asked once |
 
-Three of these tests were also run against deliberately broken code: the readiness check moved in front of the chain read in the fund step, the cap check removed from deploy, and the fund button always off for a wallet that is not ready. Six tests failed, among them the three written for those rules.
+The tests were also run against deliberately broken code, twice. First: the readiness check moved in front of the chain read in the fund step, the cap check removed from the deploy request, and the fund button always off for a wallet that is not ready; six tests failed. Then: the cap check removed from the deploy submit, the closed check removed from the fund submit, and the trustline reserve left out; seven tests failed. Both times the tests written for those rules were among them.
 
 ## Run 2: one testnet read per wallet state
 
-Run: 2026-10-13T10:16:12Z · Network: Stellar testnet · Horizon: `https://horizon-testnet.stellar.org` · USDC issuer: `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`
+Run: 2026-10-13T10:16:12Z, read again at 2026-10-13T14:36:46Z after the trustline reserve was added to the rule; the balances were the same both times and the table shows the second read · Network: Stellar testnet · Horizon: `https://horizon-testnet.stellar.org` · USDC issuer: `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5`
 
-Five freshly generated keypairs stood in for funder wallets; their secrets were never in the repository and were discarded after the runs. Each was read with the app's own `readFunderAccount` (`src/wallet/onboarding.ts`) and judged with `assessFunding` (`src/domain/funding-readiness.ts`) for a campaign budget of 50 USDC before deploy, which needs 1 XLM free.
+Five freshly generated keypairs stood in for funder wallets; their secrets were never in the repository and were discarded after the runs. Each was read with the app's own `readFunderAccount` (`src/wallet/onboarding.ts`) and judged with `assessFunding` (`src/domain/funding-readiness.ts`) for a campaign budget of 50 USDC before deploy, which needs 1 XLM free, or 1.5 XLM while the trustline is missing.
 
 How each wallet got into its state:
 
@@ -59,8 +69,8 @@ What the app read and concluded:
 
 | State | Wallet | Read from Horizon | Spendable | Result for a 50 USDC budget, before deploy |
 |---|---|---|---|---|
-| No account | A | 404 | 0 USDC, 0 XLM | Not ready: account, trustline, USDC (0 of 50), XLM (0 of 1) |
-| No trustline | B | 10000 XLM, 0 subentries, no USDC line | 0 USDC, 9999 XLM | Not ready: trustline, USDC (0 of 50) |
+| No account | A | 404 | 0 USDC, 0 XLM | Not ready: account, trustline, USDC (0 of 50), XLM (0 of 1.5) |
+| No trustline | B | 10000 XLM, 0 subentries, no USDC line | 0 USDC, 9999 XLM | Not ready: trustline, USDC (0 of 50). XLM is enough: 9999 of 1.5 |
 | Short of USDC | C | 9999.99999 XLM, 1 subentry, 0 USDC | 0 USDC, 9998.49999 XLM | Not ready: USDC (0 of 50) |
 | Ready | D | 9868.509548 XLM, 1 subentry, 65 USDC | 65 USDC, 9867.009548 XLM | Ready |
 | Short of XLM | E | 1.99999 XLM, 1 subentry, 55 USDC | 55 USDC, 0.49999 XLM | Not ready: XLM (0.49999 of 1) |
@@ -87,6 +97,8 @@ The floor is 0.5 XLM per transaction still to sign, about seven times the larger
 ## Run 3: local app
 
 Run: 2026-10-13, 11:22 to 13:07 UTC · App: a local instance of this repository (`next dev`) with the working tree of this change, on a scratch Postgres 17 database with every migration applied through `pnpm db:migrate`. Throwaway server keys. Horizon was the real testnet host; the Trustless Work host pointed at a closed local port, so no escrow request left the machine. The five wallets of Run 2 signed in with the wallet challenge and were given the funder role with `pnpm role:grant` against the scratch database.
+
+This run has not been repeated since the changes that review asked for, and the wallets' keys are gone. The tables show what the app answered at the time. Four outputs read differently now: the budget refusal ends "which leaves no room for a 150 USDC campaign" where it said "and this campaign adds 150 USDC"; the limits box says "50 USDC left" and words the rule as in the technical summary; the notice at a limit reads "You have reached the open-campaign limit, so a new campaign can't be created"; and wallet A is told it needs 1.5 XLM, not 1. The behaviour added after the run is covered by Run 1 only: the cap check at submit, the refusal shown on a saved campaign's page, the abandon action, Close on a funded campaign without submissions, and the two rate limits.
 
 Each wallet saved a 50 USDC campaign, opened its page and asked for the deploy transaction:
 
@@ -134,6 +146,8 @@ A first attempt at this last part used an `http://` address for Horizon. The cre
 ## What this does not show
 
 - **A ready wallet deploying and funding through Trustless Work.** Not recorded yet. Steps: on a deployment with a Trustless Work key, a wallet shown as ready deploys and funds a campaign from the campaign page; record the two transaction hashes and the fees charged against the 0.5 XLM floor.
-- **The panel's buttons in a browser.** Activate, Add USDC trustline, Check again and the faucet link were rendered and their code paths are the contributor page's helpers, but nobody has clicked them with a wallet extension in this run.
+- **The panel's buttons in a browser.** Activate, Add USDC trustline, Check again, the faucet link and the abandon confirm step were rendered and the first two use the contributor page's helpers, but nobody has clicked them with a wallet extension.
+- **Abandon on a real escrow.** Covered against the in-memory escrow and through the route in tests only. It has not been run in the local app or on a campaign whose escrow exists on testnet, and it never reads the escrow: that nothing is in it rests on the app's own records.
+- **Two submits at the same moment.** The tests run on a database with one connection, so a deploy submit is always checked after the one before it finished. Two handled at once are not covered and can both pass the caps.
 - **A fund reconciled on testnet with an emptied wallet.** Covered against the in-memory escrow only.
 - **Run on proofwork.online.** Not recorded yet. No migration is needed; the two variables are optional.

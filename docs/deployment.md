@@ -94,6 +94,7 @@ Each funder is capped on the number of open campaigns and on their total budget 
 - `FUNDER_MAX_OPEN_CAMPAIGNS` is a whole number from 1 to 9999, default `2`. `FUNDER_MAX_OPEN_BUDGET` is a USDC amount with at most 7 decimals, default `100`. Left unset or empty, the defaults apply. A value the config module refuses (zero, a negative number, `1.5` campaigns, `1e2`) rejects the whole environment, so every route that reads it fails until the value is fixed.
 - The environment is read once per server process, so a changed value takes effect with the next deployment, on the new-campaign page and in the refusal messages alike.
 - Lowering a cap below what a funder already has open closes nothing. That funder can still approve, release and close; it cannot create or deploy until it is back under the cap.
+- Saving a campaign (20 in ten minutes) and asking for a deploy or fund transaction (30 in ten minutes) are rate limited per wallet, through the same Upstash limiter as the other write endpoints.
 - No migration and no new host. The readiness check reads `GET <HORIZON_URL>/accounts/<wallet>`, the host the app already uses. `HORIZON_URL` must be an `https://` address: the Stellar SDK behind the escrow routes refuses plain `http://` and those routes then answer 500.
 - The XLM a wallet must hold for fees is a constant in `src/domain/funding-readiness.ts`, not a variable: 0.5 XLM for each escrow transaction still to sign. It was measured on two testnet transactions and needs revisiting if network fees rise.
 
