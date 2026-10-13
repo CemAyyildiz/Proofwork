@@ -28,7 +28,7 @@ function makeLimiter(requests: number, windowSeconds: number): Limiter {
   };
 }
 
-const cache: Partial<Record<"auth" | "submit" | "appeal" | "x" | "access" | "accessIp" | "admin", Limiter>> = {};
+const cache: Partial<Record<"auth" | "submit" | "appeal" | "x" | "access" | "accessIp" | "admin" | "campaign" | "escrowPrepare", Limiter>> = {};
 /** Limiters are created on first use so importing this module never touches the environment. */
 export const limiters = {
   get auth(): Limiter {
@@ -55,6 +55,14 @@ export const limiters = {
   /** Operator decisions on funder access, per session wallet. */
   get admin(): Limiter {
     return (cache.admin ??= makeLimiter(60, 600));
+  },
+  /** Saving a campaign, per session wallet. */
+  get campaign(): Limiter {
+    return (cache.campaign ??= makeLimiter(20, 600));
+  },
+  /** Asking for a deploy or fund transaction, per session wallet: each one reads the wallet on Horizon. */
+  get escrowPrepare(): Limiter {
+    return (cache.escrowPrepare ??= makeLimiter(30, 600));
   },
 };
 

@@ -9,7 +9,7 @@ import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/servic
 import { prepareOp, recordServerOp, STALE_SUBMITTED_MS, submitOp } from "@/services/escrow-ops";
 import { confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp } from "@/services/payout";
 import { makeTestDb } from "./db";
-import { openGate } from "./funder-wallet";
+import { LIMITS, openGate } from "./funder-wallet";
 
 const FUNDER = "G_FUNDER";
 const actor = { pubkey: FUNDER, platformAdmin: "G_ADMIN", platformOps: "G_OPS" };
@@ -48,7 +48,7 @@ async function opRow(id: string) {
 /** Deploy and fund through the services, as the funder's wallet would. */
 async function funded(): Promise<string> {
   const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
-  const { contractId } = await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn);
+  const { contractId } = await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn);
   const f = await prepareFund(CAMPAIGN, actor, escrow, openGate().account, conn);
   await confirmFund({ campaignId: CAMPAIGN, opId: f.opId, signedXdr: f.unsignedXdr }, actor, escrow, conn);
   return contractId;
@@ -345,7 +345,7 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
 
   it("reconciled fund sets fundedAt", async () => {
     const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
-    await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn);
+    await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn);
     const f = await prepareFund(CAMPAIGN, actor, escrow, openGate().account, conn);
     await escrow.submit(f.unsignedXdr);
     await age(f.opId, "submitted", STALE_SUBMITTED_MS + 1_000);
@@ -356,7 +356,7 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
 
   it("confirmed deploy whose contract id write was lost: prepare replays it from the op", async () => {
     const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
-    const { contractId } = await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn);
+    const { contractId } = await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn);
     expect((await opRow(d.opId)).payload).toMatchObject({ contractId });
     await conn.update(campaigns).set({ escrowContractId: null }).where(eq(campaigns.id, CAMPAIGN));
     await expect(prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn)).rejects.toMatchObject({ code: "CONFLICT" });
@@ -368,14 +368,14 @@ describe("verify closures reject an accepted tx without effect", () => {
   it("deploy: op failed, escrowContractId stays null", async () => {
     const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
     escrow.failNextSubmit("accept-without-effect");
-    await expect(confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn)).rejects.toMatchObject({ code: "ESCROW" });
+    await expect(confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn)).rejects.toMatchObject({ code: "ESCROW" });
     expect((await opRow(d.opId)).status).toBe("failed");
     expect((await campaign()).escrowContractId).toBeNull();
   });
 
   it("fund: op failed, fundedAt stays null", async () => {
     const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
-    await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn);
+    await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn);
     const f = await prepareFund(CAMPAIGN, actor, escrow, openGate().account, conn);
     escrow.failNextSubmit("accept-without-effect");
     await expect(confirmFund({ campaignId: CAMPAIGN, opId: f.opId, signedXdr: f.unsignedXdr }, actor, escrow, conn)).rejects.toMatchObject({ code: "ESCROW" });

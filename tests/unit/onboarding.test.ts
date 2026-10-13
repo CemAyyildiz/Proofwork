@@ -313,6 +313,21 @@ describe("default Horizon readers", () => {
     expect(seen).toEqual([`${env.HORIZON_URL}/accounts/${ADDR}`, `${env.HORIZON_URL}/accounts/${ADDR}`]);
   });
 
+  it("the funder reader gives up after the timeout it was built with, not the default", async () => {
+    stubServerEnv();
+    // A Horizon that never answers: the request ends only when its signal aborts it.
+    vi.stubGlobal("fetch", ((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      })) as typeof fetch);
+    const started = performance.now();
+    await expect(horizonFunderAccountReader(150)(ADDR)).rejects.toMatchObject({ kind: "unreachable" });
+    const elapsed = performance.now() - started;
+    // Near 150 ms: not before it, and nowhere near the 10 s a read waits by default.
+    expect(elapsed).toBeGreaterThanOrEqual(140);
+    expect(elapsed).toBeLessThan(2_000);
+  });
+
   it("reads the funding source from the configured Horizon host, with the wallet as the only variable", async () => {
     stubServerEnv();
     const seen: string[] = [];

@@ -1,4 +1,5 @@
 import type { FunderLimits } from "@/config/env";
+import { fakeFetch, type FakeReply } from "./fake-fetch";
 import type { FunderAccountReader } from "@/services/campaign";
 import type { FunderAccount, Holding } from "@/wallet/onboarding";
 
@@ -22,6 +23,19 @@ export function horizonAccount(usdc: string | null, xlm = "10000.0000000", issue
   };
   const native = { asset_type: "native", balance: xlm, buying_liabilities: "0.0000000", selling_liabilities: "0.0000000" };
   return { sequence: "4242", subentry_count: usdc === null ? 0 : 1, num_sponsoring: 0, num_sponsored: 0, balances: usdc === null ? [native] : [line, native] };
+}
+
+/**
+ * `fetch` stand-in that answers one request only: Horizon's account read for
+ * a G-address. Any other URL throws, so a test fails if the code under it
+ * starts asking for something else.
+ */
+export function horizonAccountsOnly(reply: (url: string) => FakeReply, asked: string[] = []): typeof fetch {
+  return fakeFetch((url) => {
+    if (!/^https:\/\/[^/]+\/accounts\/G[A-Z2-7]{55}$/.test(url)) throw new Error(`unexpected fetch: ${url}`);
+    asked.push(url);
+    return reply(url);
+  });
 }
 
 const holds = (spendable: string): Holding => ({ balance: spendable, sellingLiabilities: "0", spendable });

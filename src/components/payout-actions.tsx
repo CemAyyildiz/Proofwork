@@ -82,7 +82,8 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
 
   return (
     <div className="space-y-4">
-      <table className="w-full text-sm">
+      {/* No rows, no table: the controls below still render, so a campaign without submissions can be closed. */}
+      <table className={rows.length > 0 ? "w-full text-sm" : "hidden"}>
         <thead className="text-left text-xs text-neutral-500">
           <tr>
             <th className="py-1" />

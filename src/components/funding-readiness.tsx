@@ -102,8 +102,8 @@ export function FundingReadinessPanel({
         </p>
       ) : readiness.status === "unchecked" ? (
         <p className="mt-2 text-[13.5px] leading-normal text-text-2">
-          Stellar testnet didn&apos;t answer, so this wallet hasn&apos;t been checked. Deploy and fund stay off until it has. Try
-          again in a moment.
+          Stellar testnet didn&apos;t answer, so this wallet hasn&apos;t been checked.{" "}
+          {fundSent ? "Try again in a moment." : "Deploy and fund stay off until it has. Try again in a moment."}
         </p>
       ) : (
         <>
@@ -144,9 +144,10 @@ export function FundingReadinessPanel({
       )}
 
       {fundSent && readiness.status !== "ready" ? (
-        <p className="mt-3 text-[12.5px] leading-normal text-muted">
-          A fund transaction was already sent for this campaign. If it reached the escrow, the budget has left this wallet: press
-          Fund budget and the escrow is read before anything new is built.
+        <p className="mt-3 text-[12.5px] leading-normal text-text-2">
+          A fund transaction was already sent for this campaign, so the Fund budget button stays on. Pressing it reads the escrow
+          first: if the budget is there, the campaign is marked funded and nothing new is built or signed. That is also why this
+          wallet may read as short of USDC.
         </p>
       ) : null}
       {cancelled ? <p className="mt-3 text-[12.5px] text-muted">Signature cancelled in your wallet. Nothing was sent.</p> : null}

@@ -1,6 +1,6 @@
 import "server-only";
 import { StrKey } from "@stellar/stellar-sdk";
-import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, notExists } from "drizzle-orm";
 import { z } from "zod";
 import { env, type FunderLimits } from "@/config/env";
 import { db, type Db } from "@/db/client";
@@ -12,7 +12,7 @@ import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { readFunderAccount, type FunderAccount } from "@/wallet/onboarding";
-import { campaignOwnedBy, prepareOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
+import { campaignOwnedBy, findOp, prepareOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
 
 const CLOSE_MILESTONE_AMOUNT = "0.0000001";
 const MAX_REWARDS = 49n;
@@ -80,10 +80,11 @@ export async function funderUsage(pubkey: string, conn: Db = db): Promise<Funder
 }
 
 /**
- * Refuses a campaign of `budget` that would take the funder over a cap. The
- * message names each cap it breaks, with the limit and what is in use now.
+ * The refusal for a campaign of `budget` that does not fit under the funder's
+ * caps, or null when it fits. The message names each cap it breaks, with the
+ * limit and what is in use now.
  */
-async function assertWithinLimits(pubkey: string, budget: string, limits: FunderLimits, conn: Db): Promise<void> {
+export async function limitRefusal(pubkey: string, budget: string, limits: FunderLimits, conn: Db = db): Promise<AppError | null> {
   const usage = await funderUsage(pubkey, conn);
   const refusals: string[] = [];
   const caps: Array<{ cap: "open_campaigns" | "open_budget"; limit: string; used: string }> = [];
@@ -93,11 +94,16 @@ async function assertWithinLimits(pubkey: string, budget: string, limits: Funder
   }
   if (toStroops(usage.openBudget) + toStroops(budget) > toStroops(limits.maxOpenBudget)) {
     refusals.push(
-      `open-budget limit exceeded: this wallet has ${usage.openBudget} of ${limits.maxOpenBudget} USDC in use and this campaign adds ${fromStroops(toStroops(budget))} USDC`,
+      `open-budget limit exceeded: this wallet has ${usage.openBudget} of ${limits.maxOpenBudget} USDC in use, which leaves no room for a ${fromStroops(toStroops(budget))} USDC campaign`,
     );
     caps.push({ cap: "open_budget", limit: limits.maxOpenBudget, used: usage.openBudget });
   }
-  if (refusals.length > 0) throw new AppError("CONFLICT", refusals.join("; "), { caps });
+  return refusals.length > 0 ? new AppError("CONFLICT", refusals.join("; "), { caps }) : null;
+}
+
+async function assertWithinLimits(pubkey: string, budget: string, limits: FunderLimits, conn: Db): Promise<void> {
+  const refusal = await limitRefusal(pubkey, budget, limits, conn);
+  if (refusal) throw refusal;
 }
 
 export async function createCampaign(
@@ -110,7 +116,7 @@ export async function createCampaign(
   if (taken.has(input.disputeResolverPubkey)) {
     throw AppError.validation("dispute resolver must be a neutral key, not the funder or a platform key");
   }
-  // The early warning: the check that holds is the one at deploy, where the campaign starts to count.
+  // A new campaign is not created while a limit is reached. It starts to count only at deploy, where the caps are checked again.
   await assertWithinLimits(actor.pubkey, input.budget, limits, conn);
   const [row] = await conn
     .insert(campaigns)
@@ -187,12 +193,15 @@ export function horizonFunderAccountReader(timeoutMs?: number): FunderAccountRea
  * as ready.
  */
 export async function fundingReadiness(pubkey: string, budget: string, step: FundingStep, account: FunderAccountReader): Promise<FundingReadiness> {
+  let held: FunderAccount;
+  // Only the read is caught: an error in the rules below is a bug, not Stellar failing to answer.
   try {
-    return assessFunding(await account(pubkey), budget, step);
+    held = await account(pubkey);
   } catch (e) {
     log.warn("funder wallet read failed", { wallet: pubkey, step, err: e instanceof Error ? e.message : String(e) });
     return { status: "unchecked" };
   }
+  return assessFunding(held, budget, step);
 }
 
 /** Refuses to go on to building a transaction the wallet could not pay for, naming every missing item. */
@@ -209,6 +218,8 @@ async function assertReady(pubkey: string, budget: string, step: FundingStep, ac
  * Step 1 of funding: build the deploy transaction for the funder's wallet.
  * The caps and the wallet are checked inside `build`, so they run only when a
  * transaction is about to be built and before any op row is written for it.
+ * A deploy that is already confirmed is replayed by `prepareOp` before `build`
+ * and never meets either check.
  */
 export async function prepareDeploy(
   campaignId: string,
@@ -253,9 +264,14 @@ export async function confirmDeploy(
   input: { campaignId: string; opId: string; signedXdr: string },
   actor: { pubkey: string },
   escrow: EscrowPort,
+  limits: FunderLimits,
   conn: Db = db,
 ): Promise<{ txHash: string; contractId: string }> {
   const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
+  // Deploys prepared for several drafts while under the caps must not all go out, so the caps are
+  // checked again while this one is still unsent. An op past `intent` gets `submitOp`'s own answer.
+  const op = await findOp(input.opId, input.campaignId, conn);
+  if (op.status === "intent" && !c.escrowContractId) await assertWithinLimits(actor.pubkey, c.budget, limits, conn);
   const res = await submitOp({ ...input, expectedKind: "deploy", verify: deployVisible(escrow, c.slug) }, escrow, conn);
   if (!res.contractId) throw new AppError("ESCROW", "deploy confirmed but provider returned no contract id", { txHash: res.txHash });
   await deployConfirmed(input.campaignId, conn)(res.op);
@@ -293,6 +309,7 @@ export async function prepareFund(
   const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("deploy the escrow first");
   if (c.fundedAt) throw AppError.conflict("campaign already funded");
+  if (c.closedAt) throw AppError.conflict("campaign is closed");
   const contractId = c.escrowContractId;
   return prepareOp(
     {
@@ -317,7 +334,37 @@ export async function confirmFund(
   conn: Db = db,
 ): Promise<{ txHash: string }> {
   const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
+  // An abandoned campaign takes no money, even through a fund that was prepared before it was abandoned.
+  if (c.closedAt) throw AppError.conflict("campaign is closed");
   const res = await submitOp({ ...input, expectedKind: "fund", verify: fundVisible(escrow, c.escrowContractId, c.budget) }, escrow, conn);
   await fundConfirmed(input.campaignId, conn)(res.op);
   return { txHash: res.txHash };
+}
+
+/**
+ * Gives up a campaign whose escrow was deployed and never funded, so that it
+ * stops counting against its funder's caps. Allowed only while no fund
+ * transaction was ever sent for it: then nothing is in the escrow as far as
+ * the app's records go, and marking the campaign closed is all there is to
+ * do. Nothing is read from or written to the chain. A closed campaign cannot
+ * be funded afterwards (`prepareFund`, `confirmFund`).
+ */
+export async function abandonCampaign(campaignId: string, actor: { pubkey: string }, conn: Db = db): Promise<Campaign> {
+  const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
+  if (!c.escrowContractId) throw AppError.conflict("the escrow is not deployed, so there is nothing to abandon");
+  if (c.closedAt) throw AppError.conflict("campaign already closed");
+  if (c.fundedAt) throw AppError.conflict("campaign is funded; close it to return the budget");
+  if (await fundSubmitted(campaignId, conn)) throw AppError.conflict("a fund transaction was sent for this campaign; finish funding it, then close it");
+  // One statement decides: a fund sent or confirmed since the checks above leaves the row as it is.
+  const sent = conn
+    .select({ id: escrowOps.id })
+    .from(escrowOps)
+    .where(and(eq(escrowOps.campaignId, campaignId), eq(escrowOps.kind, "fund"), inArray(escrowOps.status, ["submitted", "failed", "confirmed"])));
+  const [row] = await conn
+    .update(campaigns)
+    .set({ closedAt: new Date() })
+    .where(and(eq(campaigns.id, campaignId), isNotNull(campaigns.escrowContractId), isNull(campaigns.fundedAt), isNull(campaigns.closedAt), notExists(sent)))
+    .returning();
+  if (!row) throw AppError.conflict("campaign changed; reload and try again");
+  return row;
 }

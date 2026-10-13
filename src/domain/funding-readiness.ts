@@ -22,6 +22,9 @@ import type { FunderAccount } from "@/wallet/onboarding";
  */
 export const TX_FEE_FLOOR_XLM = "0.5";
 
+/** One base reserve: what a new trustline locks up in the account that opens it. */
+export const TRUSTLINE_RESERVE_XLM = "0.5";
+
 /** Circle's testnet faucet; it lists Stellar Testnet. Checked 2026-10-13. */
 export const USDC_FAUCET_URL = "https://faucet.circle.com";
 
@@ -33,7 +36,8 @@ export type MissingItem =
   | { item: "account" }
   | { item: "trustline" }
   | { item: "usdc"; have: string; need: string }
-  | { item: "xlm"; have: string; need: string };
+  /** `forTrustline`: the need includes the reserve the missing USDC trustline will lock up. */
+  | { item: "xlm"; have: string; need: string; forTrustline?: true };
 
 export type FundingReadiness =
   | { status: "ready"; usdc: string; xlm: string }
@@ -52,14 +56,17 @@ export function feeFloor(step: FundingStep): string {
  * account also has no trustline, no USDC and no XLM, and all four are listed.
  */
 export function assessFunding(account: FunderAccount, budget: string, step: FundingStep): Exclude<FundingReadiness, { status: "unchecked" }> {
-  const need = { usdc: fromStroops(toStroops(budget)), xlm: feeFloor(step) };
+  const noLine = account.kind === "no-account" || !account.usdc;
+  // Adding the trustline takes one base reserve out of what is free now, so the fees must be free on top of it.
+  const fees = toStroops(feeFloor(step)) + (noLine ? toStroops(TRUSTLINE_RESERVE_XLM) : 0n);
+  const need = { usdc: fromStroops(toStroops(budget)), xlm: fromStroops(fees) };
   const usdc = account.kind === "account" && account.usdc ? account.usdc.spendable : "0";
   const xlm = account.kind === "account" ? account.xlm.spendable : "0";
   const missing: MissingItem[] = [];
   if (account.kind === "no-account") missing.push({ item: "account" });
-  if (account.kind === "no-account" || !account.usdc) missing.push({ item: "trustline" });
+  if (noLine) missing.push({ item: "trustline" });
   if (toStroops(usdc) < toStroops(need.usdc)) missing.push({ item: "usdc", have: usdc, need: need.usdc });
-  if (toStroops(xlm) < toStroops(need.xlm)) missing.push({ item: "xlm", have: xlm, need: need.xlm });
+  if (toStroops(xlm) < fees) missing.push({ item: "xlm", have: xlm, need: need.xlm, ...(noLine ? { forTrustline: true as const } : {}) });
   return missing.length === 0 ? { status: "ready", usdc, xlm } : { status: "not-ready", missing };
 }
 
@@ -73,6 +80,8 @@ export function describeMissing(m: MissingItem): string {
     case "usdc":
       return `The wallet has ${m.have} USDC to spend and the budget is ${m.need} USDC. Testnet USDC comes from Circle's faucet (${USDC_FAUCET_URL}, network Stellar Testnet).`;
     case "xlm":
-      return `The wallet has ${m.have} XLM free for network fees and needs ${m.need} XLM. Send testnet XLM to it; reserves and open offers are not counted as free.`;
+      return `The wallet has ${m.have} XLM free for network fees and needs ${m.need} XLM${
+        m.forTrustline ? `, ${TRUSTLINE_RESERVE_XLM} XLM of it for the reserve the USDC trustline will hold` : ""
+      }. Send testnet XLM to it; reserves and open offers are not counted as free.`;
   }
 }

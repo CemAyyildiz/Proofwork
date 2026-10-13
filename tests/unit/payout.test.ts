@@ -6,7 +6,7 @@ import { FakeEscrow } from "@/escrow/fake";
 import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/services/campaign";
 import { approveForPayout, confirmClose, prepareClose } from "@/services/payout";
 import { makeTestDb } from "./db";
-import { openGate } from "./funder-wallet";
+import { LIMITS, openGate } from "./funder-wallet";
 
 const FUNDER = "G_FUNDER";
 const actor = { pubkey: FUNDER, platformAdmin: "G_ADMIN", platformOps: "G_OPS" };
@@ -40,7 +40,7 @@ afterEach(async () => {
 /** Deploy and fund through the services, as the funder's wallet would. */
 async function funded(): Promise<string> {
   const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
-  const { contractId } = await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, conn);
+  const { contractId } = await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn);
   const f = await prepareFund(CAMPAIGN, actor, escrow, openGate().account, conn);
   await confirmFund({ campaignId: CAMPAIGN, opId: f.opId, signedXdr: f.unsignedXdr }, actor, escrow, conn);
   return contractId;

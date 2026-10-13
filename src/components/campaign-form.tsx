@@ -19,12 +19,12 @@ export interface FunderLimitsView {
 export function CampaignForm({ defaultDisputeResolver, now, limits }: { defaultDisputeResolver: string; now: number; limits: FunderLimitsView }) {
   const router = useRouter();
   const budgetLeft = toStroops(limits.maxOpenBudget) - toStroops(limits.openBudget);
-  // Nothing left under a cap: the server would refuse the campaign, so say it before the form is filled in.
+  // A limit is reached: the server refuses a new campaign, so say it before the form is filled in.
   const blocked =
     limits.openCampaigns >= limits.maxOpenCampaigns
-      ? "You are at the open-campaign limit. Close a campaign before creating another."
+      ? "You have reached the open-campaign limit, so a new campaign can't be created. Close a campaign first."
       : budgetLeft <= 0n
-        ? "You are at the open-budget limit. Close a campaign before creating another."
+        ? "You have reached the open-budget limit, so a new campaign can't be created. Close a campaign first."
         : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,11 +71,12 @@ export function CampaignForm({ defaultDisputeResolver, now, limits }: { defaultD
           <dt>Open budget</dt>
           <dd>
             {formatUsdc(limits.openBudget)} of {formatUsdc(limits.maxOpenBudget)} in use
-            {budgetLeft > 0n ? `, ${formatUsdc(fromStroops(budgetLeft))} left for this campaign` : ""}
+            {budgetLeft > 0n ? `, ${formatUsdc(fromStroops(budgetLeft))} left` : ""}
           </dd>
         </dl>
         <p className="mt-2 text-xs text-muted">
-          A campaign counts from the moment its escrow is deployed until it is closed. Drafts do not count.
+          A campaign starts to count when its escrow is deployed and stops when it is closed. A new campaign can&apos;t be
+          created while a limit is reached, or with a budget larger than what is left.
         </p>
         {blocked ? (
           <p role="alert" className="mt-2 text-fail">

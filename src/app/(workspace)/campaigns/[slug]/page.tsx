@@ -3,11 +3,12 @@ import { EscrowActions } from "@/components/escrow-actions";
 import { CopyLink } from "@/components/copy-link";
 import { FundingReadinessPanel } from "@/components/funding-readiness";
 import { PayoutActions } from "@/components/payout-actions";
+import { funderLimits } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import { currentUser } from "@/lib/current-user";
 import { formatDate, formatUsdc } from "@/lib/format";
 import { canManageCampaign } from "@/services/access";
-import { fundingReadiness, fundSubmitted, getCampaignBySlug, horizonFunderAccountReader } from "@/services/campaign";
+import { fundingReadiness, fundSubmitted, getCampaignBySlug, horizonFunderAccountReader, limitRefusal } from "@/services/campaign";
 import { listOps } from "@/services/escrow-ops";
 import { submissionsForFunder } from "@/services/payout";
 
@@ -46,6 +47,8 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
   const readiness = step ? await fundingReadiness(user.pubkey, c.budget, step, horizonFunderAccountReader(READINESS_TIMEOUT_MS)) : null;
   // A fund already sent may have landed, and then the budget has left the wallet: the button stays on so the escrow can be read.
   const fundSent = stage === "deployed" && (await fundSubmitted(c.id));
+  // A draft that does not fit under the funder's limits is refused at deploy; say so here, before the click.
+  const overLimit = stage === "draft" ? ((await limitRefusal(user.pubkey, c.budget, funderLimits()))?.message ?? null) : null;
 
   return (
     <div className="space-y-8">
@@ -69,12 +72,18 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
         ) : (
           <p className="text-sm text-neutral-600">Not deployed yet.</p>
         )}
+        {overLimit ? (
+          <p role="alert" className="max-w-[640px] text-sm text-fail">
+            This campaign can&apos;t be deployed while a limit is reached: {overLimit}. Deploy stays off until it fits.
+          </p>
+        ) : null}
         {step && readiness ? <FundingReadinessPanel address={user.pubkey} step={step} readiness={readiness} fundSent={fundSent} /> : null}
         <EscrowActions
           campaignId={c.id}
           funderPubkey={c.funderPubkey}
           stage={stage}
-          blocked={readiness !== null && readiness.status !== "ready" && !fundSent}
+          blocked={overLimit !== null || (readiness !== null && readiness.status !== "ready" && !fundSent)}
+          canAbandon={stage === "deployed" && !fundSent}
         />
       </section>
 
@@ -87,11 +96,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
       {c.fundedAt ? (
         <section className="space-y-2">
           <h2 className="font-medium">Submissions and payouts</h2>
-          {rows.length === 0 ? (
-            <p className="text-sm text-neutral-600">No submissions yet.</p>
-          ) : (
-            <PayoutActions campaignId={c.id} funderPubkey={c.funderPubkey} rows={rows} counts={counts} closed={c.closedAt !== null} />
-          )}
+          {rows.length === 0 ? <p className="text-sm text-neutral-600">No submissions yet.</p> : null}
+          {/* Rendered without submissions too: it holds Close, and a funded campaign must always be closable. */}
+          <PayoutActions campaignId={c.id} funderPubkey={c.funderPubkey} rows={rows} counts={counts} closed={c.closedAt !== null} />
           {rows.some((r) => r.decisionId) ? (
             <p className="text-sm">
               <a className="underline" href={`/api/campaigns/${encodeURIComponent(c.id)}/review-log`}>
