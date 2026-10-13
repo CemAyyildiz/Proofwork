@@ -2,6 +2,7 @@ import { Keypair, Networks, Operation, TransactionBuilder, type Transaction } fr
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { onboardingView } from "@/components/contributor-state";
 import { env } from "@/config/env";
+import { horizonFunderAccountReader } from "@/services/campaign";
 import { horizonFundingSourceReader, horizonTrustlineReader } from "@/services/submission";
 import {
   OnboardingError,
@@ -10,10 +11,13 @@ import {
   hasUsdcTrustline,
   isSignatureRejection,
   readAccount,
+  readFunderAccount,
   readFundingSource,
   submitSignedXdr,
+  walletErrorMessage,
 } from "@/wallet/onboarding";
 import { fakeFetch } from "./fake-fetch";
+import { horizonAccount } from "./funder-wallet";
 
 const ADDR = "GCDSL5MRXQ44BWITRLP23BUUKH3OA4ITCLYAMNDDASH4BGONXKWY2NX5";
 const ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -92,6 +96,114 @@ describe("readAccount", () => {
   it("refuses anything that is not a G-address before building a URL", async () => {
     const { cfg, seen } = horizonReplying(200, {});
     await expect(readAccount("../../evil", cfg)).rejects.toMatchObject({ kind: "rejected" });
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("readFunderAccount", () => {
+  /** The native and USDC lines of an account body, with any fields replaced. */
+  function account(over: { subentries?: number; sponsoring?: number; sponsored?: number; xlm?: Record<string, unknown>; usdc?: Record<string, unknown> | null }) {
+    const base = horizonAccount("25.5000000", "10.0000000");
+    const [line, native] = base.balances;
+    return {
+      ...base,
+      subentry_count: over.subentries ?? 1,
+      num_sponsoring: over.sponsoring ?? 0,
+      num_sponsored: over.sponsored ?? 0,
+      balances: [...(over.usdc === null ? [] : [{ ...line, ...over.usdc }]), { ...native, ...over.xlm }],
+    };
+  }
+
+  it("reads the native and USDC balances with one request to the account", async () => {
+    const { cfg, seen } = horizonReplying(200, account({}));
+    expect(await readFunderAccount(ADDR, cfg)).toEqual({
+      kind: "account",
+      subentries: 1,
+      // 10 XLM minus (2 + 1 subentry) × 0.5 XLM of reserve.
+      xlm: { balance: "10", sellingLiabilities: "0", spendable: "8.5" },
+      usdc: { balance: "25.5", sellingLiabilities: "0", spendable: "25.5" },
+    });
+    expect(seen).toEqual([`${HORIZON}/accounts/${ADDR}`]);
+  });
+
+  it("reads no-account on a Horizon 404", async () => {
+    expect(await readFunderAccount(ADDR, horizonReplying(404, { status: 404 }).cfg)).toEqual({ kind: "no-account" });
+  });
+
+  it.each([
+    ["no subentries", { subentries: 0 }, "9"],
+    ["five subentries", { subentries: 5 }, "6.5"],
+    ["selling liabilities come off", { xlm: { selling_liabilities: "3.2500000" } }, "5.25"],
+    ["buying liabilities do not", { xlm: { buying_liabilities: "4.0000000" } }, "8.5"],
+    ["entries it sponsors for others add to the reserve", { sponsoring: 2 }, "7.5"],
+    ["entries sponsored for it come off the reserve", { sponsored: 1 }, "9"],
+  ])("spendable XLM is balance minus reserve minus selling liabilities: %s", async (_label, over, spendable) => {
+    const read = await readFunderAccount(ADDR, horizonReplying(200, account(over)).cfg);
+    expect(read).toMatchObject({ kind: "account", xlm: { balance: "10", spendable } });
+  });
+
+  it("never reports less than zero spendable XLM", async () => {
+    const read = await readFunderAccount(ADDR, horizonReplying(200, account({ subentries: 30 })).cfg);
+    expect(read).toMatchObject({ xlm: { balance: "10", spendable: "0" } });
+    const exact = await readFunderAccount(ADDR, horizonReplying(200, account({ xlm: { balance: "1.5000000" } })).cfg);
+    expect(exact).toMatchObject({ xlm: { spendable: "0" } });
+  });
+
+  it("keeps amounts exact where a float would not", async () => {
+    const big = account({ xlm: { balance: "9007199254740993.0000001" }, usdc: { balance: "0.1000000", selling_liabilities: "0.0000001" } });
+    expect(await readFunderAccount(ADDR, horizonReplying(200, big).cfg)).toMatchObject({
+      xlm: { balance: "9007199254740993.0000001", spendable: "9007199254740991.5000001" },
+      usdc: { balance: "0.1", sellingLiabilities: "0.0000001", spendable: "0.0999999" },
+    });
+  });
+
+  it("spendable USDC is the balance minus selling liabilities", async () => {
+    const read = await readFunderAccount(ADDR, horizonReplying(200, account({ usdc: { selling_liabilities: "5.5000000" } })).cfg);
+    expect(read).toMatchObject({ usdc: { balance: "25.5", sellingLiabilities: "5.5", spendable: "20" } });
+  });
+
+  it("reports no USDC line when there is none, when the issuer is another, or when the line is not authorised", async () => {
+    const other = "GCKFBEIYV2U22IO2BJ4KVJOIP7XPWQGQFKKWXR6DOSJBV7STMAQSMTGG";
+    for (const body of [account({ usdc: null }), account({ usdc: { asset_issuer: other } }), account({ usdc: { is_authorized: false } })]) {
+      expect(await readFunderAccount(ADDR, horizonReplying(200, body).cfg)).toMatchObject({ kind: "account", usdc: null });
+    }
+  });
+
+  it("throws unreachable on a non-200, a body it does not recognise or no answer", async () => {
+    for (const status of [429, 500, 503]) {
+      await expect(readFunderAccount(ADDR, horizonReplying(status, {}).cfg)).rejects.toMatchObject({ kind: "unreachable" });
+    }
+    const garbage = [{ nope: true }, { ...account({}), subentry_count: "1" }, account({ xlm: { balance: "1e3" } }), { ...account({}), balances: [] }];
+    for (const body of garbage) {
+      await expect(readFunderAccount(ADDR, horizonReplying(200, body).cfg)).rejects.toMatchObject({ kind: "unreachable" });
+    }
+    const timedOut = {
+      horizonUrl: HORIZON,
+      usdcIssuer: ISSUER,
+      fetch: (async () => {
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      }) as typeof fetch,
+    };
+    await expect(readFunderAccount(ADDR, timedOut)).rejects.toMatchObject({ kind: "unreachable" });
+  });
+
+  it("gives up after the timeout it is given", async () => {
+    const hangs = {
+      horizonUrl: HORIZON,
+      usdcIssuer: ISSUER,
+      timeoutMs: 20,
+      fetch: ((_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        })) as typeof fetch,
+    };
+    await expect(readFunderAccount(ADDR, hangs)).rejects.toMatchObject({ kind: "unreachable" });
+  });
+
+  it("refuses anything that is not a G-address before building a URL", async () => {
+    const { cfg, seen } = horizonReplying(200, account({}));
+    await expect(readFunderAccount("../../evil", cfg)).rejects.toMatchObject({ kind: "rejected" });
+    await expect(readFunderAccount(`${ADDR}/../x`, cfg)).rejects.toMatchObject({ kind: "rejected" });
     expect(seen).toEqual([]);
   });
 });
@@ -186,6 +298,21 @@ describe("default Horizon readers", () => {
     expect(seen).toEqual([`${env.HORIZON_URL}/accounts/${ADDR}`]);
   });
 
+  it("reads a funder's wallet from the configured Horizon host and matches the configured USDC issuer", async () => {
+    stubServerEnv();
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch((url) => {
+        seen.push(url);
+        return { status: 200, body: horizonAccount("40.0000000", "10.0000000", env.USDC_ISSUER) };
+      }),
+    );
+    expect(await horizonFunderAccountReader()(ADDR)).toMatchObject({ kind: "account", usdc: { spendable: "40" }, xlm: { spendable: "8.5" } });
+    expect(await horizonFunderAccountReader(4_000)(ADDR)).toMatchObject({ kind: "account" });
+    expect(seen).toEqual([`${env.HORIZON_URL}/accounts/${ADDR}`, `${env.HORIZON_URL}/accounts/${ADDR}`]);
+  });
+
   it("reads the funding source from the configured Horizon host, with the wallet as the only variable", async () => {
     stubServerEnv();
     const seen: string[] = [];
@@ -269,6 +396,15 @@ describe("isSignatureRejection", () => {
     expect(isSignatureRejection(new OnboardingError("rejected", "Stellar rejected the transaction (tx_bad_seq)"))).toBe(false);
     expect(isSignatureRejection({ code: -1, message: "Freighter is not connected" })).toBe(false);
     expect(isSignatureRejection("nope")).toBe(false);
+  });
+});
+
+describe("walletErrorMessage", () => {
+  it("reads the message of an Error and of a wallet's plain rejection object", () => {
+    expect(walletErrorMessage(new Error("boom"))).toBe("boom");
+    expect(walletErrorMessage({ code: -1, message: "Freighter is not connected" })).toBe("Freighter is not connected");
+    expect(walletErrorMessage({ code: -1 })).toBe("wallet error");
+    expect(walletErrorMessage("nope")).toBe("wallet error");
   });
 });
 

@@ -58,6 +58,55 @@ describe("publicFundingSources", () => {
   });
 });
 
+describe("funderLimits", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** The environment is parsed once per module instance, so each case loads its own. */
+  async function withLimits(values: { campaigns?: string; budget?: string }) {
+    vi.resetModules();
+    // A value stubbed by an earlier call in the same test must not carry over.
+    vi.unstubAllEnvs();
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@localhost/db");
+    vi.stubEnv("STELLAR_NETWORK", "testnet");
+    vi.stubEnv("TW_API_KEY", "k".repeat(16));
+    // Throwaway seeds generated per run: the env schema needs three distinct valid ones.
+    vi.stubEnv("PLATFORM_ADMIN_SECRET", Keypair.random().secret());
+    vi.stubEnv("PLATFORM_OPS_SECRET", Keypair.random().secret());
+    vi.stubEnv("DECISION_LEDGER_SECRET", Keypair.random().secret());
+    vi.stubEnv("SESSION_SECRET", "s".repeat(43));
+    if (values.campaigns !== undefined) vi.stubEnv("FUNDER_MAX_OPEN_CAMPAIGNS", values.campaigns);
+    if (values.budget !== undefined) vi.stubEnv("FUNDER_MAX_OPEN_BUDGET", values.budget);
+    return (await import("@/config/env")).funderLimits();
+  }
+
+  it("defaults to 2 open campaigns and 100 USDC when unset, or left empty as in .env.example", async () => {
+    expect(await withLimits({})).toEqual({ maxOpenCampaigns: 2, maxOpenBudget: "100" });
+    expect(await withLimits({ campaigns: "", budget: " " })).toEqual({ maxOpenCampaigns: 2, maxOpenBudget: "100" });
+  });
+
+  it("takes both values from the environment", async () => {
+    expect(await withLimits({ campaigns: "5", budget: "2500" })).toEqual({ maxOpenCampaigns: 5, maxOpenBudget: "2500" });
+    expect(await withLimits({ campaigns: " 1 ", budget: " 0.5 " })).toEqual({ maxOpenCampaigns: 1, maxOpenBudget: "0.5" });
+    expect(await withLimits({ budget: "75" })).toEqual({ maxOpenCampaigns: 2, maxOpenBudget: "75" });
+  });
+
+  it("keeps the budget as a decimal string, without trailing zeros", async () => {
+    expect((await withLimits({ budget: "100.5000000" })).maxOpenBudget).toBe("100.5");
+    expect((await withLimits({ budget: "0.0000001" })).maxOpenBudget).toBe("0.0000001");
+    expect((await withLimits({ budget: "9007199254740993.0000001" })).maxOpenBudget).toBe("9007199254740993.0000001");
+  });
+
+  it.each(["0", "-1", "1.5", "2e1", "two", "+2", "10000", "0x2"])("refuses %s as the number of open campaigns", async (campaigns) => {
+    await expect(withLimits({ campaigns })).rejects.toThrow(/FUNDER_MAX_OPEN_CAMPAIGNS: must be a whole number from 1 to 9999/);
+  });
+
+  it.each(["0", "0.0", "-5", "1e2", "100 USDC", "1,5", ".5", "0.00000001"])("refuses %s as the open budget", async (budget) => {
+    await expect(withLimits({ budget })).rejects.toThrow(/FUNDER_MAX_OPEN_BUDGET: must be a positive USDC amount with at most 7 decimals/);
+  });
+});
+
 describe("xConfig", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
