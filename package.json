@@ -21,7 +21,8 @@
     "escrow:close": "node --conditions=react-server --env-file=.env --import tsx scripts/close-escrow.ts",
     "role:grant": "node --env-file=.env --import tsx scripts/grant-role.ts",
     "results": "tsx scripts/results.ts",
-    "evidence:dump": "node --env-file=.env --import tsx scripts/evidence-dump.ts"
+    "evidence:dump": "node --env-file=.env --import tsx scripts/evidence-dump.ts",
+    "x:check": "node --conditions=react-server --env-file=.env --import tsx scripts/x-check.ts"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.6.0",
