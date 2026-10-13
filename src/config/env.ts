@@ -1,6 +1,7 @@
 import "server-only";
 import { StrKey } from "@stellar/stellar-sdk";
 import { z } from "zod";
+import { assertPositiveAmount, fromStroops, toStroops } from "@/escrow/amount";
 
 /**
  * Server environment. Parsed once, on first access (see `env` below), so
@@ -50,9 +51,31 @@ function isCallbackUrl(value: string): boolean {
   return url.pathname === X_CALLBACK_PATH;
 }
 
-/** `.env` templates leave optional values as empty strings; treat those as unset. */
-const optional = <T extends z.ZodTypeAny>(inner: T) =>
-  z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), inner.optional());
+/** `.env` templates leave unset values as empty strings; treat those as unset. */
+const blankAsUnset = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+
+const optional = <T extends z.ZodTypeAny>(inner: T) => z.preprocess(blankAsUnset, inner.optional());
+
+/** Whole number from 1 to 9999, digits only: no sign, decimal point or exponent. */
+const positiveInteger = z
+  .string()
+  .trim()
+  .regex(/^[1-9]\d{0,3}$/, "must be a whole number from 1 to 9999")
+  .transform(Number);
+
+/** Positive USDC amount under the rules of `src/escrow/amount.ts`, kept as a decimal string without trailing zeros. */
+const usdcAmount = z
+  .string()
+  .trim()
+  .refine((v) => {
+    try {
+      assertPositiveAmount(v);
+      return true;
+    } catch {
+      return false;
+    }
+  }, "must be a positive USDC amount with at most 7 decimals")
+  .transform((v) => fromStroops(toStroops(v)));
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -79,6 +102,11 @@ const schema = z.object({
 
   /** Faucets besides Friendbot whose wallets must not be linked by funding source. */
   PUBLIC_FUNDING_SOURCES: optional(publicKeyList),
+
+  /** Per-funder caps. A campaign counts from its escrow deploy until it is closed. */
+  FUNDER_MAX_OPEN_CAMPAIGNS: z.preprocess(blankAsUnset, positiveInteger.default(2)),
+  /** Sum of the budgets of a funder's open campaigns, in USDC. */
+  FUNDER_MAX_OPEN_BUDGET: z.preprocess(blankAsUnset, usdcAmount.default("100")),
 
   /** X: Sign in with X (OAuth 2.0 confidential client) and the app-only token. All four or none, see `load`. */
   X_CLIENT_ID: optional(z.string().min(1)),
@@ -146,6 +174,18 @@ export const env: Env = new Proxy({} as Env, {
  */
 export function publicFundingSources(): ReadonlySet<string> {
   return new Set([FRIENDBOT_ACCOUNT, ...(env.PUBLIC_FUNDING_SOURCES ?? [])]);
+}
+
+export interface FunderLimits {
+  /** Campaigns one funder may have open at once. */
+  maxOpenCampaigns: number;
+  /** Total budget one funder may have open at once: a USDC decimal string. */
+  maxOpenBudget: string;
+}
+
+/** The per-funder caps of this deployment. The same values for every funder; there is no override. */
+export function funderLimits(): FunderLimits {
+  return { maxOpenCampaigns: env.FUNDER_MAX_OPEN_CAMPAIGNS, maxOpenBudget: env.FUNDER_MAX_OPEN_BUDGET };
 }
 
 export interface XConfig {
