@@ -2,11 +2,30 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { fromStroops, toStroops } from "@/escrow/amount";
+import { formatUsdc } from "@/lib/format";
 
 const field = "w-full rounded border border-neutral-300 px-3 py-2 text-sm";
 
-export function CampaignForm({ defaultDisputeResolver, now }: { defaultDisputeResolver: string; now: number }) {
+/** The per-funder caps and what this wallet has open, as the server read them for this page. */
+export interface FunderLimitsView {
+  maxOpenCampaigns: number;
+  openCampaigns: number;
+  /** USDC decimal strings. */
+  maxOpenBudget: string;
+  openBudget: string;
+}
+
+export function CampaignForm({ defaultDisputeResolver, now, limits }: { defaultDisputeResolver: string; now: number; limits: FunderLimitsView }) {
   const router = useRouter();
+  const budgetLeft = toStroops(limits.maxOpenBudget) - toStroops(limits.openBudget);
+  // Nothing left under a cap: the server would refuse the campaign, so say it before the form is filled in.
+  const blocked =
+    limits.openCampaigns >= limits.maxOpenCampaigns
+      ? "You are at the open-campaign limit. Close a campaign before creating another."
+      : budgetLeft <= 0n
+        ? "You are at the open-budget limit. Close a campaign before creating another."
+        : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(7);
@@ -42,6 +61,28 @@ export function CampaignForm({ defaultDisputeResolver, now }: { defaultDisputeRe
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
+      <section aria-label="Your limits" className="max-w-[560px] rounded-[14px] border border-line-strong bg-sunken p-4 text-sm">
+        <h2 className="font-semibold">Your limits</h2>
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-text-2">
+          <dt>Open campaigns</dt>
+          <dd>
+            {limits.openCampaigns} of {limits.maxOpenCampaigns} in use
+          </dd>
+          <dt>Open budget</dt>
+          <dd>
+            {formatUsdc(limits.openBudget)} of {formatUsdc(limits.maxOpenBudget)} in use
+            {budgetLeft > 0n ? `, ${formatUsdc(fromStroops(budgetLeft))} left for this campaign` : ""}
+          </dd>
+        </dl>
+        <p className="mt-2 text-xs text-muted">
+          A campaign counts from the moment its escrow is deployed until it is closed. Drafts do not count.
+        </p>
+        {blocked ? (
+          <p role="alert" className="mt-2 text-fail">
+            {blocked}
+          </p>
+        ) : null}
+      </section>
       <label className="block text-sm">
         <span className="font-medium">Title</span>
         <input name="title" required minLength={3} maxLength={100} className={field} />
@@ -85,7 +126,7 @@ export function CampaignForm({ defaultDisputeResolver, now }: { defaultDisputeRe
         <span className="text-xs text-neutral-500">A neutral key (the chapter lead). It can only return the remainder to you; it cannot pay anyone else.</span>
       </label>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      <button type="submit" disabled={busy} className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50">
+      <button type="submit" disabled={busy || blocked !== null} className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50">
         {busy ? "Saving…" : "Save campaign"}
       </button>
     </form>

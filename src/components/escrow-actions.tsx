@@ -10,7 +10,18 @@ type Stage = "draft" | "deployed" | "funded" | "closed";
  * Drives one wallet-signed escrow op: prepare → sign in wallet → submit.
  * The server refuses a signed XDR whose hash differs from what it prepared.
  */
-export function EscrowActions({ campaignId, funderPubkey, stage }: { campaignId: string; funderPubkey: string; stage: Stage }) {
+export function EscrowActions({
+  campaignId,
+  funderPubkey,
+  stage,
+  blocked = false,
+}: {
+  campaignId: string;
+  funderPubkey: string;
+  stage: Stage;
+  /** The wallet is not ready, or could not be checked: deploy and fund stay off. The server refuses them as well. */
+  blocked?: boolean;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,12 +45,12 @@ export function EscrowActions({ campaignId, funderPubkey, stage }: { campaignId:
   return (
     <div className="flex items-center gap-3">
       {stage === "draft" ? (
-        <button type="button" disabled={busy !== null} onClick={() => run("deploy")} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+        <button type="button" disabled={busy !== null || blocked} onClick={() => run("deploy")} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
           {busy === "deploy" ? "Waiting for wallet…" : "1 · Deploy escrow"}
         </button>
       ) : null}
       {stage === "deployed" ? (
-        <button type="button" disabled={busy !== null} onClick={() => run("fund")} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+        <button type="button" disabled={busy !== null || blocked} onClick={() => run("fund")} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
           {busy === "fund" ? "Waiting for wallet…" : "2 · Fund budget"}
         </button>
       ) : null}

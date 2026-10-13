@@ -1,16 +1,20 @@
 import { notFound } from "next/navigation";
 import { EscrowActions } from "@/components/escrow-actions";
 import { CopyLink } from "@/components/copy-link";
+import { FundingReadinessPanel } from "@/components/funding-readiness";
 import { PayoutActions } from "@/components/payout-actions";
 import { publicEnv } from "@/config/public-env";
 import { currentUser } from "@/lib/current-user";
 import { formatDate, formatUsdc } from "@/lib/format";
 import { canManageCampaign } from "@/services/access";
-import { getCampaignBySlug } from "@/services/campaign";
+import { fundingReadiness, fundSubmitted, getCampaignBySlug, horizonFunderAccountReader } from "@/services/campaign";
 import { listOps } from "@/services/escrow-ops";
 import { submissionsForFunder } from "@/services/payout";
 
 export const dynamic = "force-dynamic";
+
+/** The page waits this long for Horizon before it shows the wallet as not checked. */
+const READINESS_TIMEOUT_MS = 4_000;
 
 export default async function CampaignPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -37,6 +41,12 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
 
   const stage = c.closedAt ? "closed" : c.fundedAt ? "funded" : c.escrowContractId ? "deployed" : "draft";
 
+  // Only before the budget is in escrow: a funded or closed campaign never reads the wallet, and nothing there depends on it.
+  const step = stage === "draft" ? "deploy" : stage === "deployed" ? "fund" : null;
+  const readiness = step ? await fundingReadiness(user.pubkey, c.budget, step, horizonFunderAccountReader(READINESS_TIMEOUT_MS)) : null;
+  // A fund already sent may have landed, and then the budget has left the wallet: the button stays on so the escrow can be read.
+  const fundSent = stage === "deployed" && (await fundSubmitted(c.id));
+
   return (
     <div className="space-y-8">
       <div>
@@ -59,7 +69,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
         ) : (
           <p className="text-sm text-neutral-600">Not deployed yet.</p>
         )}
-        <EscrowActions campaignId={c.id} funderPubkey={c.funderPubkey} stage={stage} />
+        {step && readiness ? <FundingReadinessPanel address={user.pubkey} step={step} readiness={readiness} fundSent={fundSent} /> : null}
+        <EscrowActions
+          campaignId={c.id}
+          funderPubkey={c.funderPubkey}
+          stage={stage}
+          blocked={readiness !== null && readiness.status !== "ready" && !fundSent}
+        />
       </section>
 
       <section className="space-y-2">
