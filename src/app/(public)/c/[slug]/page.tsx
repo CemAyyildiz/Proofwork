@@ -16,6 +16,7 @@ import { WalletButton } from "@/components/wallet-button";
 import { WalletOnboarding } from "@/components/wallet-onboarding";
 import { XConnectStep } from "@/components/x-connect";
 import { campaignFor } from "./campaign";
+import { xConfig } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import type { Decision } from "@/db/schema";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
@@ -80,6 +81,7 @@ export default async function ContributorCampaignPage({
   // The X step belongs to the submit panel only: open campaign, nothing submitted yet.
   const submitting = stage === "open" && !mine;
   const xConnected = submitting && user ? (await xAccountFor(user.pubkey)) !== null : false;
+  const xAvailable = xConfig() !== null;
   const xOutcome = xOutcomeSchema.safeParse((await searchParams).x);
   const notice = submitting ? xNotice(xOutcome.success ? xOutcome.data : null, { signedIn: user !== null, connected: xConnected }) : null;
 
@@ -141,7 +143,7 @@ export default async function ContributorCampaignPage({
       <div className="mt-12 grid items-start gap-10 lg:mt-[72px] lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-12">
         <aside id="submit" className="scroll-mt-24 lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1" aria-label="Your submission">
           <Card style={rise(4).style} className={cx("p-6", rise(4).className)}>
-            <SubmissionPanel c={c} stage={stage} signedIn={user !== null} pubkey={user?.pubkey ?? null} mine={mine} xConnected={xConnected} xNote={notice} />
+            <SubmissionPanel c={c} stage={stage} signedIn={user !== null} pubkey={user?.pubkey ?? null} mine={mine} xConnected={xConnected} xAvailable={xAvailable} xNote={notice} />
           </Card>
         </aside>
 
@@ -223,6 +225,7 @@ function SubmissionPanel({
   pubkey,
   mine,
   xConnected,
+  xAvailable,
   xNote,
 }: {
   c: PublicCampaign;
@@ -231,6 +234,8 @@ function SubmissionPanel({
   pubkey: string | null;
   mine: MySubmission | null;
   xConnected: boolean;
+  /** False when the deployment has no X credentials: the step is shown, with nothing to press. */
+  xAvailable: boolean;
   xNote: XNotice | null;
 }) {
   if (mine) {
@@ -288,7 +293,7 @@ function SubmissionPanel({
   return (
     <>
       <h2 className="text-lg font-semibold tracking-[-0.02em]">Submit your post</h2>
-      <XConnectStep campaignSlug={c.slug} connected={xConnected} notice={xNote} />
+      <XConnectStep campaignSlug={c.slug} connected={xConnected} available={xAvailable} notice={xNote} />
       <WalletOnboarding key={pubkey} campaignSlug={c.slug} address={pubkey} />
     </>
   );

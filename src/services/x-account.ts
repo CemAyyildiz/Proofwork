@@ -12,7 +12,7 @@ import { log } from "@/lib/logger";
 import type { XPort } from "@/x/port";
 
 /**
- * Connecting an X account to a wallet (SPEC CAP-6). One X account per wallet
+ * Connecting an X account to a wallet. One X account per wallet
  * and one wallet per X account, enforced by `x_account`'s two unique keys.
  * Only the X account ID is written; there is no unlink.
  */
@@ -56,7 +56,10 @@ export async function xAccountFor(pubkey: string, conn: Db = db): Promise<{ xUse
 /**
  * The state of one connect attempt travels in a signed cookie: `state`, the
  * PKCE verifier, the wallet that started it, the campaign to return to and
- * the expiry. Nothing about a flow is stored server-side.
+ * the expiry. Nothing about a flow is stored server-side, so a flow is spent
+ * by the callback clearing the cookie, not by a used-flow record: a request
+ * replaying a copied cookie would pass these checks and reach X, where the
+ * single-use authorization code stops it.
  */
 export const FLOW_COOKIE = "pw_x_flow";
 /** How long a started flow may be finished. */
@@ -171,6 +174,17 @@ export const callbackQuerySchema = z.object({
 });
 export type CallbackQuery = z.infer<typeof callbackQuerySchema>;
 
+/** The `error` values an authorization server may return (RFC 6749 §4.1.2.1). Anything else is logged as "other". */
+const AUTHORIZE_ERRORS: ReadonlySet<string> = new Set([
+  "invalid_request",
+  "unauthorized_client",
+  "access_denied",
+  "unsupported_response_type",
+  "invalid_scope",
+  "server_error",
+  "temporarily_unavailable",
+]);
+
 export type Started =
   | { to: "x"; url: string; flowToken: string }
   | { to: "campaign"; outcome: XOutcome };
@@ -181,6 +195,17 @@ export function startConnect(input: { pubkey: string | null; slug: string; x: XP
   if (!input.x) return { to: "campaign", outcome: "unavailable" };
   const flow = createFlow(input.pubkey, input.slug, input.now);
   return { to: "x", url: input.x.authorizeUrl({ state: flow.state, codeChallenge: flow.codeChallenge }), flowToken: flow.token };
+}
+
+/**
+ * What a route answers when a step threw: the rate limit's own outcome, or a
+ * failure logged by kind alone. The message is left out because a database
+ * error quotes the query's values.
+ */
+export function failedOutcome(route: "connect" | "callback", e: unknown): XOutcome {
+  if (isAppError(e) && e.code === "RATE_LIMITED") return "rate_limited";
+  log.error("x route failed", { route, error: isAppError(e) ? e.code : e instanceof Error ? e.name : "unknown" });
+  return "x_failed";
 }
 
 export interface FinishInput {
@@ -206,7 +231,12 @@ export async function finishConnect(input: FinishInput): Promise<{ slug: string 
   if (!input.pubkey) return done("signin");
   const flow = verifyFlow(input.flowToken, { pubkey: input.pubkey, state: input.query.state }, input.now);
   if (!flow) return done("retry");
-  if (input.query.error !== undefined) return done(input.query.error === "access_denied" ? "cancelled" : "x_failed");
+  if (input.query.error === "access_denied") return done("cancelled");
+  if (input.query.error !== undefined) {
+    // The value comes from the URL, so only a known code is written down.
+    log.warn("x refused the authorization", { error: AUTHORIZE_ERRORS.has(input.query.error) ? input.query.error : "other" });
+    return done("x_failed");
+  }
   if (input.query.code === undefined) return done("retry");
   if (!input.x) return done("unavailable");
 
@@ -219,11 +249,14 @@ export async function finishConnect(input: FinishInput): Promise<{ slug: string 
     return done("x_failed");
   }
 
+  let outcome: XOutcome = "connected";
   try {
     await bindXAccount(input.pubkey, xUserId, input.conn);
   } catch (e) {
-    if (isAppError(e) && e.code === "CONFLICT") return done(e.details?.["reason"] === "x_taken" ? "taken" : "wallet_bound");
-    throw e;
+    if (!isAppError(e) || e.code !== "CONFLICT") throw e;
+    outcome = e.details?.["reason"] === "x_taken" ? "taken" : "wallet_bound";
   }
-  return done("connected");
+  // The wallet and what happened; the X account ID stays out of the logs.
+  log.info("x account bind", { wallet: input.pubkey, outcome });
+  return done(outcome);
 }

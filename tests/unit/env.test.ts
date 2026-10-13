@@ -65,8 +65,10 @@ describe("xConfig", () => {
 
   const CALLBACK = "https://proofwork.test/api/x/callback";
 
+  type XValues = { id?: string; pass?: string; redirect?: string };
+
   /** The environment is parsed once per module instance, so each case loads its own. */
-  async function withX(values: { id?: string; pass?: string; redirect?: string }) {
+  function stubX(values: XValues): void {
     vi.resetModules();
     vi.stubEnv("DATABASE_URL", "postgres://u:p@localhost/db");
     vi.stubEnv("STELLAR_NETWORK", "testnet");
@@ -79,7 +81,17 @@ describe("xConfig", () => {
     if (values.id !== undefined) vi.stubEnv("X_CLIENT_ID", values.id);
     if (values.pass !== undefined) vi.stubEnv("X_CLIENT_SECRET", values.pass);
     if (values.redirect !== undefined) vi.stubEnv("X_REDIRECT_URI", values.redirect);
+  }
+
+  async function withX(values: XValues) {
+    stubX(values);
     return (await import("@/config/env")).xConfig();
+  }
+
+  /** The composition root, as the routes get it. */
+  async function getXWith(values: XValues) {
+    stubX(values);
+    return (await import("@/x")).getX();
   }
 
   it("is null when no X value is set, or all are left empty as in .env.example", async () => {
@@ -104,16 +116,40 @@ describe("xConfig", () => {
     await expect(withX(values)).rejects.toThrow(/X_CLIENT_ID, X_CLIENT_SECRET and X_REDIRECT_URI together/);
   });
 
-  it("refuses a redirect URI that is not a URL or does not end at the callback route", async () => {
-    await expect(withX({ id: "client-1", pass: "pass-1", redirect: "not a url" })).rejects.toThrow(/X_REDIRECT_URI/);
-    await expect(withX({ id: "client-1", pass: "pass-1", redirect: "https://proofwork.test/callback" })).rejects.toThrow(
-      /X_REDIRECT_URI: path must be \/api\/x\/callback/,
-    );
+  it.each([
+    ["not a URL", "not a url"],
+    ["another path", "https://proofwork.test/callback"],
+    ["a trailing slash", `${CALLBACK}/`],
+    ["plain http on a public host", "http://proofwork.test/api/x/callback"],
+    ["http on a host that only starts with localhost", "http://localhost.evil.test/api/x/callback"],
+    ["another scheme", "ftp://proofwork.test/api/x/callback"],
+    ["a query", `${CALLBACK}?next=1`],
+    ["an empty query", `${CALLBACK}?`],
+    ["a fragment", `${CALLBACK}#frag`],
+    ["an empty fragment", `${CALLBACK}#`],
+    ["a user name", "https://user@proofwork.test/api/x/callback"],
+    ["a user name and password", "https://user:pass@proofwork.test/api/x/callback"],
+  ])("refuses a redirect URI with %s", async (_label, redirect) => {
+    await expect(withX({ id: "client-1", pass: "pass-1", redirect })).rejects.toThrow(/X_REDIRECT_URI/);
   });
 
-  it("accepts a localhost callback for development", async () => {
-    expect((await withX({ id: "client-1", pass: "pass-1", redirect: "http://localhost:3000/api/x/callback" }))?.redirectUri).toBe(
-      "http://localhost:3000/api/x/callback",
-    );
+  it.each(["http://localhost:3000/api/x/callback", "http://127.0.0.1:3000/api/x/callback", "https://proofwork.test:8443/api/x/callback"])(
+    "accepts %s",
+    async (redirect) => {
+      expect((await withX({ id: "client-1", pass: "pass-1", redirect }))?.redirectUri).toBe(redirect);
+    },
+  );
+
+  it("wires no adapter when no X value is set", async () => {
+    expect(await getXWith({})).toBeNull();
+  });
+
+  it("wires an adapter that sends the browser to X with the configured client and callback", async () => {
+    const x = await getXWith({ id: "client-1", pass: "pass-1", redirect: CALLBACK });
+    const url = new URL(x?.authorizeUrl({ state: "state-1", codeChallenge: "challenge-1" }) ?? "");
+    expect(url.origin).toBe("https://x.com");
+    expect(url.searchParams.get("client_id")).toBe("client-1");
+    expect(url.searchParams.get("redirect_uri")).toBe(CALLBACK);
+    expect(url.toString()).not.toContain("pass-1");
   });
 });

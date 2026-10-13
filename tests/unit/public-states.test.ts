@@ -1,12 +1,12 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { stageOf, timelineView, xNotice } from "@/components/contributor-state";
+import { stageOf, timelineView, xExploreNotice, xNotice, type XNotice } from "@/components/contributor-state";
 import { sealFor } from "@/components/hash-check";
 import type { Decision, Payout, Submission } from "@/db/schema";
 import type { MySubmission } from "@/services/submission";
 import { submissionUrlSchema } from "@/domain/submission-url";
-import { returnPath, X_OUTCOMES, xOutcomeSchema } from "@/domain/x-connect";
+import { noCampaignPath, returnPath, X_OUTCOMES, xOutcomeSchema } from "@/domain/x-connect";
 import { budgetMeter } from "@/lib/format";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined }) }));
@@ -159,37 +159,84 @@ describe("timelineView", () => {
 
 describe("X connect step", () => {
   const signedIn = { signedIn: true, connected: false };
+  const step = (props: { connected: boolean; available?: boolean; notice?: XNotice | null }) =>
+    renderToStaticMarkup(createElement(XConnectStep, { campaignSlug: "camp-1", available: true, notice: null, ...props }));
 
   it("offers a plain link that starts the flow for this campaign, and shows no account detail", () => {
-    const html = renderToStaticMarkup(createElement(XConnectStep, { campaignSlug: "camp-1", connected: false, notice: null }));
+    const html = step({ connected: false });
     expect(html).toMatch(/<a[^>]*href="\/api\/x\/connect\?slug=camp-1"[^>]*>Connect X<\/a>/);
     expect(html).not.toContain("<form");
     expect(html).not.toContain("X account connected");
   });
 
+  it("says what X will ask for and what Proofwork reads", () => {
+    const html = step({ connected: false });
+    expect(html).toContain("X will ask you to let Proofwork read your posts and profile");
+    expect(html).toContain("Proofwork reads only the account&#x27;s ID");
+    expect(html).not.toContain("no access to post");
+  });
+
   it("says connected, with no link to connect again", () => {
-    const html = renderToStaticMarkup(createElement(XConnectStep, { campaignSlug: "camp-1", connected: true, notice: null }));
+    const html = step({ connected: true });
     expect(html).toContain("X account connected");
     expect(html).not.toContain("/api/x/connect");
   });
 
-  it("has a message for every outcome a failed attempt can return with", () => {
-    expect(xNotice("taken", signedIn)?.text).toBe("This X account is connected to another wallet.");
-    expect(xNotice("cancelled", signedIn)?.text).toBe("The X connection was cancelled. Nothing was saved.");
-    expect(xNotice("retry", signedIn)?.text).toBe("That X sign-in could not be completed. Try again.");
-    expect(xNotice("x_failed", signedIn)?.text).toBe("X did not answer. Try again in a moment.");
-    expect(xNotice("unavailable", signedIn)?.text).toBe("X sign-in is not available right now.");
-    expect(xNotice("rate_limited", signedIn)?.text).toBe("Too many attempts. Try again in a few minutes.");
-    expect(xNotice("wallet_bound", { signedIn: true, connected: true })?.text).toBe(
-      "This wallet already has an X account. It stays connected to that one.",
-    );
-    expect(xNotice("signin", { signedIn: false, connected: false })?.text).toBe("Connect your wallet first, then connect your X account.");
+  it("shows a failed attempt as an alert under the link", () => {
+    const html = step({ connected: false, notice: xNotice("taken", signedIn) });
+    expect(html).toMatch(/<p role="alert" class="[^"]*text-fail[^"]*">This X account is connected to another wallet\.<\/p>/);
+    expect(html).toContain("Connect X");
+  });
+
+  it("shows a cancelled attempt as a status, not an alert", () => {
+    const html = step({ connected: false, notice: xNotice("cancelled", signedIn) });
+    expect(html).toMatch(/<p role="status" class="[^"]*text-muted[^"]*">The X connection was cancelled\. Nothing was saved\.<\/p>/);
+    expect(html).not.toContain('role="alert"');
+  });
+
+  it("keeps the connected state and says the wallet already has an account", () => {
+    const html = step({ connected: true, notice: xNotice("wallet_bound", { signedIn: true, connected: true }) });
+    expect(html).toContain("X account connected");
+    expect(html).toMatch(/<p role="alert"[^>]*>This wallet already has an X account\. It stays connected to that one\.<\/p>/);
+    expect(html).not.toContain("/api/x/connect");
+  });
+
+  it("is muted with nothing to press, and no red message, when X is not configured", () => {
+    const html = step({ connected: false, available: false, notice: xNotice("unavailable", signedIn) });
+    expect(html).toContain("Connect your X account");
+    expect(html).toContain("Not available yet.");
+    expect(html).not.toContain("<a");
+    expect(html).not.toContain("/api/x/connect");
+    expect(html).not.toContain('role="alert"');
+    expect(html).not.toContain("text-fail");
+  });
+
+  it("still says connected when X is not configured any more", () => {
+    expect(step({ connected: true, available: false })).toContain("X account connected");
+  });
+
+  it("has a message and a tone for every outcome a failed attempt can return with", () => {
+    expect(xNotice("taken", signedIn)).toEqual({ tone: "fail", text: "This X account is connected to another wallet." });
+    expect(xNotice("cancelled", signedIn)).toEqual({ tone: "muted", text: "The X connection was cancelled. Nothing was saved." });
+    expect(xNotice("retry", signedIn)).toEqual({ tone: "fail", text: "That X sign-in could not be completed. Try again." });
+    expect(xNotice("x_failed", signedIn)).toEqual({ tone: "fail", text: "X did not answer. Try again in a moment." });
+    expect(xNotice("unavailable", signedIn)).toEqual({ tone: "fail", text: "X sign-in is not available right now." });
+    expect(xNotice("rate_limited", signedIn)).toEqual({ tone: "fail", text: "Too many attempts. Try again in a few minutes." });
+    expect(xNotice("wallet_bound", { signedIn: true, connected: true })).toEqual({
+      tone: "fail",
+      text: "This wallet already has an X account. It stays connected to that one.",
+    });
+    expect(xNotice("signin", { signedIn: false, connected: false })).toEqual({
+      tone: "muted",
+      text: "Connect your wallet first, then connect your X account.",
+    });
   });
 
   it("never claims a connection from the URL: connected comes from the database alone", () => {
     expect(xNotice("connected", signedIn)).toBeNull();
     expect(xNotice("connected", { signedIn: false, connected: false })).toBeNull();
     expect(xNotice(null, signedIn)).toBeNull();
+    expect(xExploreNotice("connected")).toBeNull();
   });
 
   it("drops a message that no longer fits the wallet", () => {
@@ -201,9 +248,20 @@ describe("X connect step", () => {
     expect(xNotice("wallet_bound", signedIn)).toBeNull();
   });
 
-  it("reads only the fixed outcome codes from the URL and returns only to a campaign path", () => {
+  it("has a message on the campaign list for an attempt that names no campaign", () => {
+    expect(xExploreNotice("retry")).toEqual({ tone: "fail", text: "That X sign-in could not be completed. Open the campaign and try again." });
+    expect(xExploreNotice("signin")).toEqual({ tone: "muted", text: "Connect your wallet on the campaign page first, then connect your X account." });
+    expect(xExploreNotice("x_failed")).toEqual({ tone: "fail", text: "The X sign-in did not go through. Open the campaign and try again in a moment." });
+    expect(xExploreNotice("rate_limited")).toEqual({ tone: "fail", text: "Too many attempts. Try again in a few minutes." });
+    for (const outcome of ["connected", "taken", "wallet_bound", "cancelled", "unavailable"] as const) expect(xExploreNotice(outcome)).toBeNull();
+    expect(xExploreNotice(null)).toBeNull();
+  });
+
+  it("reads only the fixed outcome codes from the URL and returns only to this site's own paths", () => {
     expect(xOutcomeSchema.safeParse("taken").success).toBe(true);
     for (const bad of ["", "TAKEN", "<script>", ["taken", "retry"], undefined]) expect(xOutcomeSchema.safeParse(bad).success).toBe(false);
-    expect(returnPath("camp-1", "taken")).toBe("/c/camp-1?x=taken");
+    // The anchor puts the submit panel, where the message is, in view.
+    expect(returnPath("camp-1", "taken")).toBe("/c/camp-1?x=taken#submit");
+    expect(noCampaignPath("retry")).toBe("/explore?x=retry");
   });
 });

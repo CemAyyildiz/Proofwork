@@ -114,9 +114,9 @@ describe("XApi.identify", () => {
     for (const leak of [BEARER, HANDLE, NAME]) expect(text).not.toContain(leak);
   });
 
-  it("keeps a 64-bit account ID exact", async () => {
-    const x = xStub(tokenOk, { status: 200, body: { data: { id: "18446744073709551615", username: HANDLE } } });
-    await expect(new XApi(config, x.fetch).identify({ code: CODE, codeVerifier: VERIFIER })).resolves.toEqual({ xUserId: "18446744073709551615" });
+  it("keeps a 19-digit account ID exact", async () => {
+    const x = xStub(tokenOk, { status: 200, body: { data: { id: "9223372036854775807", username: HANDLE } } });
+    await expect(new XApi(config, x.fetch).identify({ code: CODE, codeVerifier: VERIFIER })).resolves.toEqual({ xUserId: "9223372036854775807" });
   });
 
   describe("failures", () => {
@@ -168,7 +168,8 @@ describe("XApi.identify", () => {
     it.each([
       ["no data", { errors: [{ detail: "not found" }] }],
       ["a non-numeric id", { data: { id: "abc", username: HANDLE } }],
-      ["an id longer than 64 bits can be", { data: { id: "1".repeat(21), username: HANDLE } }],
+      ["an id longer than the 19 digits X documents", { data: { id: "1".repeat(20), username: HANDLE } }],
+      ["an id with a leading zero", { data: { id: "0111", username: HANDLE } }],
       ["a numeric id that is not a string", { data: { id: 111, username: HANDLE } }],
     ])("is a typed X error when the identity reply has %s", async (_label, body) => {
       const x = xStub(tokenOk, { status: 200, body });

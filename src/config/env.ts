@@ -35,6 +35,21 @@ export const FRIENDBOT_ACCOUNT = "GAIH3ULLFQ4DGSECF2AR555KZ4KNDGEKN4AFI4SU2M7B43
 /** Where X sends the contributor back; `src/app/api/x/callback/route.ts` answers it. */
 export const X_CALLBACK_PATH = "/api/x/callback";
 
+/**
+ * The callback and nothing else: https (http only on this machine), the
+ * callback path, and no query, fragment or credentials in the URL.
+ */
+function isCallbackUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) return false;
+  if (url.username !== "" || url.password !== "") return false;
+  // `search` and `hash` are empty for a bare "?" or "#", so the raw value is checked too.
+  if (url.search !== "" || url.hash !== "" || value.includes("?") || value.includes("#")) return false;
+  return url.pathname === X_CALLBACK_PATH;
+}
+
 /** `.env` templates leave optional values as empty strings; treat those as unset. */
 const optional = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), inner.optional());
@@ -69,12 +84,7 @@ const schema = z.object({
   X_CLIENT_ID: optional(z.string().min(1)),
   X_CLIENT_SECRET: optional(z.string().min(1)),
   /** Must equal a callback URL registered on the X app. The flow cookie is only sent under /api/x. */
-  X_REDIRECT_URI: optional(
-    z
-      .string()
-      .url()
-      .refine((v) => URL.canParse(v) && new URL(v).pathname === X_CALLBACK_PATH, `path must be ${X_CALLBACK_PATH}`),
-  ),
+  X_REDIRECT_URI: optional(z.string().url().refine(isCallbackUrl, `must be https://<host>${X_CALLBACK_PATH} with nothing after the path`)),
 });
 
 export type Env = z.infer<typeof schema>;

@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { stageOf, type Stage } from "@/components/contributor-state";
+import { stageOf, xExploreNotice, type Stage } from "@/components/contributor-state";
 import { Card } from "@/components/ui/card";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Pill, type PillTone } from "@/components/ui/pill";
+import { xOutcomeSchema } from "@/domain/x-connect";
 import { formatDateShort, formatUsdc } from "@/lib/format";
 import { listPublicCampaigns } from "@/services/submission";
 
@@ -28,8 +29,11 @@ const HOW = [
 ] as const;
 
 /** Public campaign directory: no wallet needed to browse; one is asked for only on submit. */
-export default async function ExplorePage() {
+export default async function ExplorePage({ searchParams }: { searchParams: Promise<{ x?: string | string[] }> }) {
   const list = await listPublicCampaigns();
+  // An X connect attempt that could not be tied to a campaign ends here with its outcome.
+  const xOutcome = xOutcomeSchema.safeParse((await searchParams).x);
+  const notice = xExploreNotice(xOutcome.success ? xOutcome.data : null);
 
   return (
     <div className="mx-auto max-w-[1180px] pb-24 pt-4 md:pt-6">
@@ -39,6 +43,11 @@ export default async function ExplorePage() {
         Every campaign here is funded into escrow on Stellar testnet before it opens. Pick one, do the task, and connect a wallet
         only when you submit.
       </p>
+      {notice ? (
+        <p role={notice.tone === "fail" ? "alert" : "status"} className={notice.tone === "fail" ? "mt-4 text-sm text-fail" : "mt-4 text-sm text-muted"}>
+          {notice.text}
+        </p>
+      ) : null}
 
       {list.length === 0 ? (
         <Card className="mt-10 p-8 text-center">

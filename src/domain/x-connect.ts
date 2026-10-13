@@ -5,8 +5,8 @@ import { z } from "zod";
  * page. No I/O.
  */
 
-/** X account IDs are unsigned 64-bit integers, kept as decimal strings. */
-export const xUserIdSchema = z.string().regex(/^\d{1,20}$/);
+/** X documents a user ID as `^[0-9]{1,19}$`. Kept as a decimal string, in its one canonical spelling: no leading zero. */
+export const xUserIdSchema = z.string().regex(/^[1-9][0-9]{0,18}$/);
 
 /**
  * Where the contributor goes back to after the flow: a campaign slug, never a
@@ -31,7 +31,12 @@ export type XOutcome = (typeof X_OUTCOMES)[number];
 
 export const xOutcomeSchema = z.enum(X_OUTCOMES);
 
-/** The campaign page with the outcome attached. Both parts come from fixed alphabets. */
+/** The campaign page's submit panel with the outcome attached. Both parts come from fixed alphabets. */
 export function returnPath(slug: string, outcome: XOutcome): string {
-  return `/c/${slug}?x=${outcome}`;
+  return `/c/${slug}?x=${outcome}#submit`;
+}
+
+/** Where an attempt ends when nothing says which campaign started it: the campaign list, with the outcome. */
+export function noCampaignPath(outcome: XOutcome): string {
+  return `/explore?x=${outcome}`;
 }

@@ -97,3 +97,19 @@ export function xNotice(outcome: XOutcome | null, state: { signedIn: boolean; co
   }
   return X_NOTICES[outcome] ?? null;
 }
+
+const X_EXPLORE_NOTICES: Partial<Record<XOutcome, XNotice>> = {
+  retry: { tone: "fail", text: "That X sign-in could not be completed. Open the campaign and try again." },
+  signin: { tone: "muted", text: "Connect your wallet on the campaign page first, then connect your X account." },
+  x_failed: { tone: "fail", text: "The X sign-in did not go through. Open the campaign and try again in a moment." },
+  rate_limited: { tone: "fail", text: "Too many attempts. Try again in a few minutes." },
+};
+
+/**
+ * The same on the campaign list, where an attempt lands when nothing says
+ * which campaign it started from: X sent the contributor back to another
+ * browser, or the flow cookie was gone.
+ */
+export function xExploreNotice(outcome: XOutcome | null): XNotice | null {
+  return outcome === null ? null : (X_EXPLORE_NOTICES[outcome] ?? null);
+}

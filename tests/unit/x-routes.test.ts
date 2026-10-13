@@ -97,6 +97,18 @@ async function startAndApprove(): Promise<string> {
   return `/api/x/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(CODE)}`;
 }
 
+// What a failing database says; it quotes request data, so none of it may reach a log line.
+const BROKEN = "failed query sentinel";
+
+/** A database whose every call throws, the way a lost connection does. */
+function brokenDb(): Db {
+  return new Proxy({} as Db, {
+    get() {
+      throw new Error(`${BROKEN} ${WALLET_A} ${CODE}`);
+    },
+  });
+}
+
 function captureLogs(): () => string {
   const lines: string[] = [];
   const keep = (chunk: unknown) => {
@@ -123,7 +135,7 @@ describe("GET /api/x/connect", () => {
   it("returns to the campaign page with a sign-in message without a wallet session", async () => {
     const res = await get(connect, `/api/x/connect?slug=${SLUG}`);
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=signin`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=signin#submit`);
     expect(world.sets).toEqual([]);
   });
 
@@ -131,27 +143,44 @@ describe("GET /api/x/connect", () => {
     signIn(WALLET_A);
     await conn.insert(sessionRevocations).values({ pubkey: WALLET_A, revokedBefore: new Date(Date.now() + 60_000) });
     const res = await get(connect, `/api/x/connect?slug=${SLUG}`);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=signin`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=signin#submit`);
   });
 
   it("does not redirect to X when X is not configured", async () => {
     world.x = null satisfies XPort | null;
     signIn(WALLET_A);
     const res = await get(connect, `/api/x/connect?slug=${SLUG}`);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=unavailable`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=unavailable#submit`);
     expect(world.sets).toEqual([]);
   });
 
   it.each(["", "?slug=", "?slug=https://evil.test", "?slug=a/b", "?slug=//evil.test", "?next=/c/camp-1"])(
-    "answers 400 and redirects nowhere for %j",
+    "goes to the campaign list, never to X or the named target, for %j",
     async (query) => {
       signIn(WALLET_A);
+      const logs = captureLogs();
       const res = await get(connect, `/api/x/connect${query}`);
-      expect(res.status).toBe(400);
-      expect(res.headers.get("location")).toBeNull();
+      expect(res.status).toBe(307);
+      expect(res.headers.get("location")).toBe("/explore?x=retry");
       expect(world.sets).toEqual([]);
+      expect(logs()).toContain("x connect without a campaign slug");
+      expect(logs()).not.toContain("evil");
     },
   );
+
+  it("redirects back with x_failed when something breaks, and logs no request data", async () => {
+    signIn(WALLET_A);
+    world.conn = brokenDb();
+    const logs = captureLogs();
+    const res = await get(connect, `/api/x/connect?slug=${SLUG}`);
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=x_failed#submit`);
+    expect(world.sets).toEqual([]);
+    const lines = logs().trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toMatchObject({ level: "error", msg: "x route failed", route: "connect", error: "Error" });
+    for (const leak of [BROKEN, WALLET_A, SLUG]) expect(lines[0]).not.toContain(leak);
+  });
 
   it("is rate limited per address and wallet", async () => {
     signIn(WALLET_A);
@@ -160,7 +189,7 @@ describe("GET /api/x/connect", () => {
       expect(res.headers.get("location")).toMatch(/^https:\/\/x\.test\//);
     }
     const res = await get(connect, `/api/x/connect?slug=${SLUG}`);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=rate_limited`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=rate_limited#submit`);
   });
 });
 
@@ -169,7 +198,7 @@ describe("GET /api/x/callback", () => {
     signIn(WALLET_A);
     const res = await get(callback, await startAndApprove());
     expect(res.status).toBe(307);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=connected`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=connected#submit`);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(await conn.select().from(xAccounts)).toMatchObject([{ pubkey: WALLET_A, xUserId: "111" }]);
   });
@@ -182,9 +211,64 @@ describe("GET /api/x/callback", () => {
     expect(world.sets.at(-1)).toMatchObject({ name: "pw_x_flow", value: "", options: { path: "/api/x", maxAge: 0 } });
 
     const again = await get(callback, url);
-    expect(again.headers.get("location")).toBe("/explore");
+    expect(again.headers.get("location")).toBe("/explore?x=retry");
     expect(x.identified).toHaveLength(1);
     expect(await conn.select().from(xAccounts)).toHaveLength(1);
+  });
+
+  it("says try again on the campaign list when no flow cookie arrives, as from another browser, and logs one line", async () => {
+    signIn(WALLET_A);
+    const url = await startAndApprove();
+    world.jar.delete("pw_x_flow");
+    const state = new URL(`${ORIGIN}${url}`).searchParams.get("state") ?? "";
+    const logs = captureLogs();
+    const res = await get(callback, url);
+    expect(res.headers.get("location")).toBe("/explore?x=retry");
+    expect(x.identified).toEqual([]);
+    expect(await conn.select().from(xAccounts)).toHaveLength(0);
+
+    const lines = logs().trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toMatchObject({ level: "warn", msg: "x callback without a usable flow cookie", outcome: "retry" });
+    for (const leak of [CODE, state, WALLET_A]) expect(lines[0]).not.toContain(leak);
+  });
+
+  it("says sign in on the campaign list when neither a flow cookie nor a session arrives", async () => {
+    const res = await get(callback, `/api/x/callback?state=abc&code=${encodeURIComponent(CODE)}`);
+    expect(res.headers.get("location")).toBe("/explore?x=signin");
+    expect(x.identified).toEqual([]);
+  });
+
+  it("treats a session revoked by logout as signed out", async () => {
+    signIn(WALLET_A);
+    const url = await startAndApprove();
+    await conn.insert(sessionRevocations).values({ pubkey: WALLET_A, revokedBefore: new Date(Date.now() + 60_000) });
+    const res = await get(callback, url);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=signin#submit`);
+    expect(x.identified).toEqual([]);
+    expect(await conn.select().from(xAccounts)).toHaveLength(0);
+  });
+
+  it("redirects with x_failed when something breaks after the cookie is cleared, and logs no request data", async () => {
+    signIn(WALLET_A);
+    const url = await startAndApprove();
+    const state = new URL(`${ORIGIN}${url}`).searchParams.get("state") ?? "";
+    world.conn = brokenDb();
+    const logs = captureLogs();
+    const res = await get(callback, url);
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=x_failed#submit`);
+    expect(world.jar.has("pw_x_flow")).toBe(false);
+    expect(x.identified).toEqual([]);
+
+    const lines = logs().trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toMatchObject({ level: "error", msg: "x route failed", route: "callback", error: "Error" });
+    for (const leak of [BROKEN, CODE, state, WALLET_A]) expect(lines[0]).not.toContain(leak);
+
+    // The same failure with no flow cookie has no campaign to name.
+    const again = await get(callback, url);
+    expect(again.headers.get("location")).toBe("/explore?x=x_failed");
   });
 
   it("spends the flow cookie on a failed attempt too", async () => {
@@ -192,7 +276,7 @@ describe("GET /api/x/callback", () => {
     x.failNext();
     const url = await startAndApprove();
     const first = await get(callback, url);
-    expect(first.headers.get("location")).toBe(`/c/${SLUG}?x=x_failed`);
+    expect(first.headers.get("location")).toBe(`/c/${SLUG}?x=x_failed#submit`);
     x.approveAs("111");
     await get(callback, url);
     expect(x.identified).toHaveLength(1);
@@ -203,7 +287,7 @@ describe("GET /api/x/callback", () => {
     signIn(WALLET_A);
     const approved = new URL(`${ORIGIN}${await startAndApprove()}`);
     const res = await get(callback, `/api/x/callback?state=${encodeURIComponent(approved.searchParams.get("state") ?? "")}&error=access_denied`);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=cancelled`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=cancelled#submit`);
     expect(x.identified).toEqual([]);
     expect(await conn.select().from(xAccounts)).toHaveLength(0);
   });
@@ -213,7 +297,7 @@ describe("GET /api/x/callback", () => {
     const url = await startAndApprove();
     signIn(WALLET_B);
     const res = await get(callback, url);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=retry`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=retry#submit`);
     expect(x.identified).toEqual([]);
     expect(await conn.select().from(xAccounts)).toHaveLength(0);
   });
@@ -223,7 +307,7 @@ describe("GET /api/x/callback", () => {
     const url = await startAndApprove();
     world.jar.delete("pw_session");
     const res = await get(callback, url);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=signin`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=signin#submit`);
     expect(x.identified).toEqual([]);
     expect(await conn.select().from(xAccounts)).toHaveLength(0);
   });
@@ -232,7 +316,7 @@ describe("GET /api/x/callback", () => {
     signIn(WALLET_A);
     const url = await startAndApprove();
     const res = await get(callback, `${url}&error=${"e".repeat(101)}`);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=retry`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=retry#submit`);
     expect(x.identified).toEqual([]);
   });
 
@@ -254,7 +338,7 @@ describe("GET /api/x/callback", () => {
     for (let i = 0; i < 10; i++) await get(callback, "/api/x/callback?state=nope&code=nope");
     const url = await startAndApprove();
     const res = await get(callback, url);
-    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=rate_limited`);
+    expect(res.headers.get("location")).toBe(`/c/${SLUG}?x=rate_limited#submit`);
     expect(x.identified).toEqual([]);
     expect(world.jar.has("pw_x_flow")).toBe(false);
   });

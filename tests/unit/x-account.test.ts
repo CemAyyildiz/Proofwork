@@ -102,7 +102,9 @@ describe("bindXAccount", () => {
   });
 
   it("rejects anything that is not a numeric X account ID or a wallet key", async () => {
-    await expect(bindXAccount(WALLET_A, "deniz_k", conn)).rejects.toThrow();
+    for (const id of ["deniz_k", "", "0", "0111", "1".repeat(20), " 111", "111\n"]) await expect(bindXAccount(WALLET_A, id, conn)).rejects.toThrow();
+    await expect(bindXAccount(WALLET_A, "1".repeat(19), conn)).resolves.toBeUndefined();
+    await conn.delete(xAccounts);
     await expect(bindXAccount("not-a-wallet", "111", conn)).rejects.toThrow();
     expect(await conn.select().from(xAccounts)).toHaveLength(0);
   });
@@ -202,6 +204,29 @@ describe("flow state", () => {
   });
 });
 
+describe("flow cookie", () => {
+  /** The environment is parsed once per module instance, so each case loads its own. */
+  async function optionsUnder(nodeEnv: string) {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", nodeEnv);
+    try {
+      return (await import("@/services/x-account")).flowCookieOptions();
+    } finally {
+      vi.stubEnv("NODE_ENV", "test");
+    }
+  }
+
+  it("is Secure in production and only there", async () => {
+    expect((await optionsUnder("production")).secure).toBe(true);
+    expect((await optionsUnder("development")).secure).toBe(false);
+    expect((await optionsUnder("test")).secure).toBe(false);
+  });
+
+  it("is httpOnly, SameSite=Lax and sent only to the X routes", async () => {
+    expect(await optionsUnder("production")).toMatchObject({ httpOnly: true, sameSite: "lax", path: "/api/x" });
+  });
+});
+
 describe("startConnect", () => {
   it("sends a signed-in wallet to X with a state and challenge that match the cookie", () => {
     const x = new FakeX();
@@ -286,13 +311,44 @@ describe("finishConnect", () => {
     expect(await conn.select().from(xAccounts)).toHaveLength(0);
   });
 
-  it("treats any other error from X's authorize step as X failing, without calling X", async () => {
+  it.each([
+    ["server_error", "server_error"],
+    ["invalid_scope", "invalid_scope"],
+    ["made.up.sentinel", "other"],
+  ])("treats the authorize error %s as X failing, without calling X, and logs it as %s", async (error, logged) => {
     const x = new FakeX();
     x.approveAs("111");
     const flow = approved(WALLET_A, x);
-    const out = await finishConnect({ pubkey: WALLET_A, flowToken: flow.flowToken, query: { state: flow.state, error: "server_error", code: CODE }, x, conn, now: NOW });
+    const logs = captureLogs();
+    const out = await finishConnect({ pubkey: WALLET_A, flowToken: flow.flowToken, query: { state: flow.state, error, code: CODE }, x, conn, now: NOW });
     expect(out).toEqual({ slug: SLUG, outcome: "x_failed" });
     expect(x.identified).toEqual([]);
+
+    const lines = logs().trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toMatchObject({ level: "warn", msg: "x refused the authorization", error: logged });
+    for (const leak of ["made.up.sentinel", CODE, flow.state]) expect(lines[0]).not.toContain(leak);
+  });
+
+  it("leaves one log line per bind with the wallet and the outcome, never the X account ID", async () => {
+    const x = new FakeX();
+    const logs = captureLogs();
+    const attempt = async (wallet: string, account: string) => {
+      x.approveAs(account);
+      const flow = approved(wallet, x);
+      return (await finishConnect({ pubkey: wallet, flowToken: flow.flowToken, query: flow.query, x, conn, now: NOW })).outcome;
+    };
+    expect(await attempt(WALLET_A, "7770001")).toBe("connected");
+    expect(await attempt(WALLET_B, "7770001")).toBe("taken");
+    expect(await attempt(WALLET_A, "7770002")).toBe("wallet_bound");
+
+    const lines = logs().trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(lines).toMatchObject([
+      { level: "info", msg: "x account bind", wallet: WALLET_A, outcome: "connected" },
+      { level: "info", msg: "x account bind", wallet: WALLET_B, outcome: "taken" },
+      { level: "info", msg: "x account bind", wallet: WALLET_A, outcome: "wallet_bound" },
+    ]);
+    expect(logs()).not.toContain("777000");
   });
 
   describe("bad state", () => {
@@ -371,13 +427,13 @@ describe("finishConnect", () => {
       return new XApi(config, fakeFetch((url) => (url.endsWith("/2/oauth2/token") ? token : me)));
     }
 
-    it.each<[string, FakeReply, FakeReply, string]>([
-      ["the token exchange answers 400 and echoes the code", { status: 400, body: { error_description: `invalid code ${CODE}` } }, tokenOk, "token"],
-      ["the token reply has no token", { status: 200, body: { handle: HANDLE } }, tokenOk, "token"],
-      ["the account lookup answers 401 and echoes the token", tokenOk, { status: 401, body: { detail: `bad ${BEARER} for ${HANDLE}` } }, "identity"],
-      ["the account lookup answers 503 with a page", tokenOk, new Response(`<html>${HANDLE}</html>`, { status: 503 }), "identity"],
-      ["the account reply has a handle but no usable ID", tokenOk, { status: 200, body: { data: { id: "n/a", username: HANDLE } } }, "identity"],
-    ])("stores nothing and logs only the failed step when %s", async (_label, token, me, step) => {
+    it.each<[string, FakeReply, FakeReply, string, number]>([
+      ["the token exchange answers 400 and echoes the code", { status: 400, body: { error_description: `invalid code ${CODE}` } }, tokenOk, "token", 400],
+      ["the token reply has no token", { status: 200, body: { handle: HANDLE } }, tokenOk, "token", 200],
+      ["the account lookup answers 401 and echoes the token", tokenOk, { status: 401, body: { detail: `bad ${BEARER} for ${HANDLE}` } }, "identity", 401],
+      ["the account lookup answers 503 with a page", tokenOk, new Response(`<html>${HANDLE}</html>`, { status: 503 }), "identity", 503],
+      ["the account reply has a handle but no usable ID", tokenOk, { status: 200, body: { data: { id: "n/a", username: HANDLE } } }, "identity", 200],
+    ])("stores nothing and logs only the failed step and HTTP status when %s", async (_label, token, me, step, status) => {
       const x = failingX(token, me);
       const flow = approved(WALLET_A, new FakeX());
       const logs = captureLogs();
@@ -386,17 +442,25 @@ describe("finishConnect", () => {
       expect(await conn.select().from(xAccounts)).toHaveLength(0);
 
       const text = logs();
-      expect(text).toContain(`"step":"${step}"`);
+      const lines = text.trim().split("\n");
+      expect(lines).toHaveLength(1);
+      const line = JSON.parse(lines[0] ?? "") as Record<string, unknown>;
+      expect(line).toMatchObject({ level: "warn", msg: "x did not identify the account", step, status });
+      // Timestamp, level, message, and the adapter's step, reason and status: nothing else rides along.
+      expect(Object.keys(line).sort()).toEqual(["level", "msg", "reason", "status", "step", "t"]);
       for (const leak of [CODE, peek(flow.flowToken).cv, BEARER, HANDLE, config.clientSecret, flow.state]) expect(text).not.toContain(leak);
     });
 
-    it("stores the ID and logs nothing when X answers, handle and name included", async () => {
-      const x = failingX(tokenOk, { status: 200, body: { data: { id: "111", name: "Name Sentinel", username: HANDLE } } });
+    it("stores the ID and logs only the bind when X answers, handle and name included", async () => {
+      const x = failingX(tokenOk, { status: 200, body: { data: { id: "7770001", name: "Name Sentinel", username: HANDLE } } });
       const flow = approved(WALLET_A, new FakeX());
       const logs = captureLogs();
       const out = await finishConnect({ pubkey: WALLET_A, flowToken: flow.flowToken, query: flow.query, x, conn, now: NOW });
       expect(out.outcome).toBe("connected");
-      expect(logs()).toBe("");
+      const text = logs();
+      expect(text.trim().split("\n")).toHaveLength(1);
+      expect(text).toContain('"msg":"x account bind"');
+      for (const leak of [HANDLE, "Name Sentinel", "7770001", BEARER, CODE]) expect(text).not.toContain(leak);
       expect(JSON.stringify(await conn.select().from(xAccounts))).not.toContain(HANDLE);
     });
   });
