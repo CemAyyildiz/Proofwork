@@ -14,6 +14,7 @@ import {
   isSignatureRejection,
   readAccount,
   submitSignedXdr,
+  walletErrorMessage,
 } from "@/wallet/onboarding";
 
 type Busy = null | "fund" | "sign" | "submit";
@@ -72,7 +73,7 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
       await action();
     } catch (e) {
       if (isSignatureRejection(e)) setCancelled(true);
-      else setError(messageOf(e));
+      else setError(walletErrorMessage(e));
     } finally {
       setBusy(null);
       busyRef.current = null;
@@ -204,11 +205,4 @@ function Node({ state, n, children }: { state: OnboardingNode; n: number; childr
 
 function Sub({ children }: { children: ReactNode }) {
   return <span className="mt-1 block text-[12.5px] font-normal leading-normal text-muted">{children}</span>;
-}
-
-/** Wallets Kit rejects with plain `{ code, message }` objects, not Errors. */
-function messageOf(e: unknown): string {
-  if (e instanceof Error) return e.message;
-  const message = e && typeof e === "object" ? (e as { message?: unknown }).message : undefined;
-  return typeof message === "string" && message ? message : "wallet error";
 }

@@ -1,12 +1,14 @@
 import { z } from "zod";
+import { fromStroops, toStroops } from "@/escrow/amount";
 
 /**
- * Contributor wallet onboarding against Horizon testnet: read the account,
- * fund it with Friendbot, open the USDC trustline. Isomorphic on purpose: the
- * browser drives the flow, and the server reuses `readAccount` to refuse a
- * submission from a wallet that cannot be paid and `readFundingSource` to
- * record which account created it. No key ever passes through here; the
- * contributor's own wallet signs the trustline.
+ * Wallet onboarding against Horizon testnet: read the account, fund it with
+ * Friendbot, open the USDC trustline. Isomorphic on purpose: the browser
+ * drives the flow, and the server reuses `readAccount` to refuse a submission
+ * from a wallet that cannot be paid, `readFundingSource` to record which
+ * account created it, and `readFunderAccount` to refuse an escrow transaction
+ * a funder's wallet could not pay for. No key ever passes through here; the
+ * wallet's owner signs the trustline.
  *
  * Hosts come from config, never from user input. The only interpolated value
  * is a public key, checked against the G-address shape first.
@@ -56,6 +58,57 @@ const accountSchema = z.object({
   ),
 });
 
+/** Horizon prints every balance and liability with up to seven decimals. */
+const horizonAmount = z.string().regex(/^\d+(\.\d{1,7})?$/);
+
+const funderAccountSchema = z.object({
+  subentry_count: z.number().int().nonnegative(),
+  num_sponsoring: z.number().int().nonnegative().optional(),
+  num_sponsored: z.number().int().nonnegative().optional(),
+  balances: z.array(
+    z.object({
+      asset_type: z.string(),
+      asset_code: z.string().optional(),
+      asset_issuer: z.string().optional(),
+      is_authorized: z.boolean().optional(),
+      balance: horizonAmount,
+      selling_liabilities: horizonAmount.optional(),
+    }),
+  ),
+});
+
+/** One base reserve, in stroops: 0.5 XLM. */
+const BASE_RESERVE = 5_000_000n;
+
+/** What a wallet holds of one asset. Amounts are decimal strings. */
+export interface Holding {
+  balance: string;
+  /** Committed to open sell offers, so not free to send. */
+  sellingLiabilities: string;
+  /** What a transaction can take: for USDC, balance − selling liabilities; for XLM, also minus the minimum reserve. Never below zero. */
+  spendable: string;
+}
+
+export type FunderAccount =
+  | { kind: "no-account" }
+  | {
+      kind: "account";
+      /** Trustlines, offers, signers and data entries; each holds one base reserve. */
+      subentries: number;
+      xlm: Holding;
+      /** The authorised USDC line from the configured issuer, or null when the account has none. */
+      usdc: Holding | null;
+    };
+
+function holding(balance: string, sellingLiabilities: string, reserve = 0n): Holding {
+  const free = toStroops(balance) - toStroops(sellingLiabilities) - reserve;
+  return {
+    balance: fromStroops(toStroops(balance)),
+    sellingLiabilities: fromStroops(toStroops(sellingLiabilities)),
+    spendable: fromStroops(free > 0n ? free : 0n),
+  };
+}
+
 function checkAddress(address: string): void {
   if (!G_ADDRESS.test(address)) throw new OnboardingError("rejected", "not a Stellar public key");
 }
@@ -84,6 +137,43 @@ export async function readAccount(address: string, cfg: HorizonConfig): Promise<
   if (res.status === 404) return { kind: "no-account" };
   if (!res.ok) throw new OnboardingError("unreachable", `Horizon answered ${res.status}`);
   return classifyAccount(await res.json().catch(() => null), cfg.usdcIssuer);
+}
+
+/**
+ * A Horizon account body as a funder's holdings. Spendable XLM is the balance
+ * minus the minimum reserve and selling liabilities. The reserve is two base
+ * reserves plus one per subentry; entries the account sponsors for others add
+ * to it and entries sponsored for it come off, both zero on an ordinary wallet.
+ */
+export function funderAccountFrom(body: unknown, usdcIssuer: string): FunderAccount {
+  const parsed = funderAccountSchema.safeParse(body);
+  if (!parsed.success) throw new OnboardingError("unreachable", "unexpected account response from Horizon");
+  const acct = parsed.data;
+  const native = acct.balances.find((b) => b.asset_type === "native");
+  if (!native) throw new OnboardingError("unreachable", "unexpected account response from Horizon");
+  const entries = 2 + acct.subentry_count + (acct.num_sponsoring ?? 0) - (acct.num_sponsored ?? 0);
+  const reserve = BASE_RESERVE * BigInt(Math.max(0, entries));
+  // An unauthorized line cannot send, so it counts as no line, as in `classifyAccount`.
+  const line = acct.balances.find((b) => b.asset_code === "USDC" && b.asset_issuer === usdcIssuer && b.is_authorized !== false);
+  return {
+    kind: "account",
+    subentries: acct.subentry_count,
+    xlm: holding(native.balance, native.selling_liabilities ?? "0", reserve),
+    usdc: line ? holding(line.balance, line.selling_liabilities ?? "0") : null,
+  };
+}
+
+/**
+ * One Horizon read of what a funder's wallet holds. 404 means the account was
+ * never funded; any other failure throws `unreachable`. `timeoutMs` shortens
+ * the wait for a page render.
+ */
+export async function readFunderAccount(address: string, cfg: HorizonConfig & { timeoutMs?: number }): Promise<FunderAccount> {
+  checkAddress(address);
+  const res = await call(cfg.fetch ?? fetch, `${cfg.horizonUrl}/accounts/${address}`, { headers: { accept: "application/json" } }, cfg.timeoutMs);
+  if (res.status === 404) return { kind: "no-account" };
+  if (!res.ok) throw new OnboardingError("unreachable", `Horizon answered ${res.status}`);
+  return funderAccountFrom(await res.json().catch(() => null), cfg.usdcIssuer);
 }
 
 const firstOperationSchema = z.object({
@@ -189,4 +279,11 @@ export function isSignatureRejection(e: unknown): boolean {
   const { code, message } = e as { code?: unknown; message?: unknown };
   if (code === -4) return true;
   return typeof message === "string" && /reject|declin|cancel|denied/i.test(message);
+}
+
+/** A message for any thrown value: Wallets Kit rejects with plain `{ code, message }` objects, not Errors. */
+export function walletErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  const message = e && typeof e === "object" ? (e as { message?: unknown }).message : undefined;
+  return typeof message === "string" && message ? message : "wallet error";
 }
