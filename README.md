@@ -18,7 +18,7 @@ Live: **https://proofwork.online** (Stellar testnet). Hosting, environment and m
 |---|---|---|
 | Create campaign, deploy escrow | Funder wallet | Multi-release escrow deployed with a "campaign close" milestone |
 | Fund budget | Funder wallet | USDC moves into the escrow contract |
-| Submit work | Contributor wallet (login only) | Nothing; the URL is stored |
+| Submit work | Contributor wallet (login only) | Nothing; the URL is stored once X names the contributor's connected account as the post's author |
 | Review | Reviewer wallet (login only) | One `manage_data` + `memo_hash` transaction per decision from the decision ledger account |
 | Re-review (once) | Contributor requests, reviewer decides | Second decision, ledger key `pw:<id>:a1`, linked to the first by hash |
 | Approve for payout | Platform keys | Milestone appended per approved submission, marked delivered and approved |
@@ -123,7 +123,7 @@ src/domain     rubric, reason codes, submission URL rules, wallet signature chec
 src/escrow     EscrowPort + Trustless Work adapter + in-memory fake
 src/ledger     canonical decision record + on-chain commit
 src/services   auth, campaign, escrow-ops, submission, review, payout, x-account
-src/x          XPort + Sign in with X adapter + in-memory fake
+src/x          XPort + X adapter (Sign in with X, post-author lookup) + in-memory fake
 src/app        routes: /campaigns (funder), /c/[slug] (contributor), /review, /verify/[id]
 src/wallet     browser wallet layer (Wallets Kit)
 scripts        key generation, account prep, spike, escrow close, role grant, results, evidence dump

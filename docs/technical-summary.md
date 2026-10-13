@@ -7,7 +7,7 @@ Proofwork runs a paid campaign on Stellar testnet: a project funds a budget into
 ```
                  ┌──────────────────────── Next.js app (proofwork.online) ────────────────────────┐
  Funder wallet ──┤ /campaigns        create · deploy · fund · approve · release · close            │
- Contributor  ───┤ /c/<slug>         connect or create wallet · USDC trustline · submit post URL   │
+ Contributor  ───┤ /c/<slug>         wallet · USDC trustline · connect X · submit own post URL     │
  Reviewer     ───┤ /review           blind queue · six signals · reason code · one re-review       │
  Anyone       ───┤ /verify/<id>      canonical record + SHA-256 recomputed in the browser          │
                  │                                                                                │
@@ -69,27 +69,52 @@ Read back on testnet in [funding-source.md](evidence/funding-source.md).
 
 ## X account connection
 
-Month 1 knew a contributor only by a wallet, so nothing tied the wallet to the X account whose post it submitted. A signed-in wallet can now connect its X account with Sign in with X. Connecting is not yet required to submit; that check is a later step.
+Month 1 knew a contributor only by a wallet, so nothing tied the wallet to the X account whose post it submitted. A signed-in wallet can now connect its X account with Sign in with X. A submission is accepted only from a wallet with a connected account, and only for a post that account wrote (see [Post author check](#post-author-check)).
 
 - **Flow.** OAuth 2.0 authorization code with PKCE (S256), with Proofwork as a confidential client. `GET /api/x/connect?slug=<campaign>` sends the session wallet to X's authorize page; X sends the contributor back to `GET /api/x/callback`. The server trades the code for an access token at `api.x.com/2/oauth2/token`, reads the account from `api.x.com/2/users/me`, keeps the numeric account ID and drops the token. Those two hosts and `x.com` are fixed in code. A redirect from either API call is treated as a failure, not followed.
-- **What is asked of X.** The scopes `users.read tweet.read`, the least X accepts for that one lookup. No `offline.access`, so there is no refresh token. The app reads no posts and can post nothing.
+- **What is asked of X.** The scopes `users.read tweet.read`, the least X accepts for that one lookup. No `offline.access`, so there is no refresh token. With the contributor's token the app reads no posts and can post nothing.
 - **What is stored.** One row in `x_account`: wallet public key, X account ID, time connected. The wallet is the primary key and the account ID is unique, so the database itself holds the rule of one X account per wallet and one wallet per X account. The access token, authorization code, PKCE verifier, handle and display name are never written and never logged; the adapter does not parse the handle or name out of X's reply. There is no unlink.
 - **Flow state.** `state`, the PKCE verifier, the wallet that started the flow, the campaign to return to and a 10-minute expiry travel in an httpOnly, SameSite=Lax cookie sent only to `/api/x`. It is signed with a key derived from the session secret for this purpose alone, so neither cookie verifies as the other. The callback binds only when the cookie is intact and unexpired, its `state` equals the one X returned, and the session wallet is the wallet that started the flow. Otherwise X is not called. A flow is spent by clearing the cookie on every callback, so the same callback URL opened again in that browser finds no flow state. The server keeps no record of used flows: a concurrent or replayed request that still carries the cookie would pass these checks and reach X, where the single-use authorization code stops it.
 - **Outcomes.** Both routes are reached by navigation and always answer with a redirect, never JSON: to `/c/<slug>?x=<outcome>#submit`, where the slug matches a fixed alphabet (never a URL), or to `/explore?x=<outcome>` when nothing says which campaign the attempt started on, as when X sends the contributor back to another browser. The outcome is one of a fixed list: connected, X account already on another wallet, wallet already has an X account, cancelled on X, try again, sign in first, X did not answer, not available, too many attempts. An unexpected failure in either route is logged by kind and shown as "X did not answer". The page shows "X account connected" from the database, never from the URL.
 - **Logs.** A bind or a refused bind leaves one line with the wallet and the outcome. A failed call to X leaves the step and HTTP status; an error X returns on the authorize step is logged only when it is one of the OAuth error codes. No line carries the X account ID, a handle, a token, the code or the verifier.
-- **Without credentials.** `X_CLIENT_ID`, `X_CLIENT_SECRET` and `X_REDIRECT_URI` are optional as a set. A deployment without them shows the step as "Not available yet", with nothing to press.
+- **Without credentials.** `X_CLIENT_ID`, `X_CLIENT_SECRET`, `X_REDIRECT_URI` and `X_BEARER_TOKEN` are optional as a set of four. A deployment without them shows the step as "Not available yet", with nothing to press, says that submissions are not possible, and refuses every submission on the server.
 - **Review stays blind.** The X account ID is used only on the server. It is not shown on the campaign page, and the review queue shows neither it nor a handle.
 
 What the tests cover, and the live run that is still open, are in [x-connect.md](evidence/x-connect.md).
+
+## Post author check
+
+A submission enters the review queue only when the submitted post was written by the X account connected to the submitting wallet. The check decides acceptance and nothing else: it sets no signal, outcome or reason code, and every decision stays with the reviewer.
+
+- **Rule.** The wallet must have a connected X account, and the author ID X reports for the post must equal that account's ID. The handle in the link decides nothing: identity comes from the post ID and the author ID. The stored link keeps the handle as the contributor typed it.
+- **Lookup.** One request per submission: `GET https://api.x.com/2/tweets/<post id>?expansions=author_id`, sent with the app-only Bearer Token (`X_BEARER_TOKEN`), never a contributor's token. The host is fixed in code and the only variable is the numeric post ID parsed from the validated link: 1 to 19 digits with no leading zero, so one post has one spelling. The submitted URL itself is never fetched, and a redirect from X is a failure, not followed.
+- **What X returns and what is kept.** X's reply always carries the post's text, and the expansion adds the author's handle and display name. The adapter reads `data.author_id` through a schema that strips every other field, so nothing else can reach the service, the database or a log line. The author ID is compared with the wallet's stored account ID and then dropped. The only new value stored is the post ID, which was already part of the link.
+- **Nothing is accepted unverified.** Every refusal is a typed error and writes no submission row:
+
+  | Case | Answer |
+  |---|---|
+  | The wallet has no connected X account | 409, "connect your X account first". X is not asked |
+  | The post is already submitted, under any handle or host | 409, "this post has already been submitted". X is not asked |
+  | X names another account as the author | 403, "this post was written by another X account" |
+  | X reports the post as missing, deleted or not visible to the app (a protected account) | 404, "this post could not be found on X, it must be public" |
+  | X gives no usable answer: timeout, 429, 5xx, the app's token refused, an unexpected body; or the deployment has no X credentials | 502, "couldn't check the post with X, try again" |
+
+- **Order.** Campaign checks, the link, the duplicate checks, the X account, the wallet's USDC trustline, and only then X. Quota at X is spent only on a submission that could otherwise be accepted.
+- **One post, one submission.** `submission.post_id` holds the post ID under a unique index, so the same post cannot be stored twice across the app whatever handle spelling or host (`x.com`, `twitter.com`) the link carries. Two requests racing for one post both pass the check; the database refuses the second and it gets the same "already submitted" answer. Migration `0005` added the column and filled it for earlier rows from their link. Where two earlier rows carry the same post ID (one post stored under two handle spellings) neither gets one, so the migration cannot fail on existing data; such rows are still matched by their exact link.
+- **Logs.** A failed lookup leaves one line: campaign, wallet, the failed step, the reason, the HTTP status and, on a 429, when X's limit resets. No body, token, author ID or handle. The other refusals are not logged.
+- **Page.** The submit form stays locked until the wallet has a connected X account, and the X step says the post must be written by that account. The lock is a convenience; the rule is enforced in the service on every submission.
+- **Earlier decisions.** The check touches only new submissions. The migration changes no decision row, so Month 1 decisions keep their canonical JSON, hash, signals and outcome, and the review log export has the same columns.
+
+The request shape comes from X's OpenAPI document (v2.170, read 2026-10-13) and has not been sent to X yet. What the tests and a local run cover, and the live rows still open, are in [x-connect.md](evidence/x-connect.md).
 
 ## Security model
 
 - **No custody by the app.** The platform keys cannot move funds; release needs the funder's wallet, the remainder needs the dispute resolver (see Known limits for who holds that key in Month 1).
 - **Money state comes from chain.** Every escrow write is recorded as intent → submitted → confirmed with an idempotency key, and confirmed only after the escrow is read back and shows the effect. A retry never submits a second transaction. Nothing is shown as paid from a database write alone.
 - **Wallet login.** Single-use signed nonce with expiry; httpOnly, Secure, SameSite=Lax session cookie; logout revokes server-side.
-- **X sign-in.** Only the X account ID is kept. Tokens, codes, the PKCE verifier and handles are never stored or logged, and the X credentials are server environment only (see X account connection).
+- **X.** Only the X account ID is kept from Sign in with X, and nothing from the post-author lookup. Tokens, codes, the PKCE verifier, handles and post text are never stored or logged, and the X credentials are server environment only (see X account connection and Post author check).
 - **Authorization** is checked in the service layer on every mutation against the caller's wallet, role and campaign ownership.
-- **Input.** Every route and server action validates with zod. Submission URLs must be `https://x.com/<handle>/status/<id>` (or twitter.com); the server never fetches them.
+- **Input.** Every route and server action validates with zod. Submission URLs must be `https://x.com/<handle>/status/<id>` (or twitter.com); the server never fetches them. It asks X's API, on a fixed host, about the numeric post ID alone.
 - **Secrets** live only in server environment, validated at startup, never logged and never in the client bundle. Security headers (CSP, HSTS, nosniff, Referrer-Policy, frame-ancestors none) on every response; public write endpoints are rate limited.
 - **Blind review.** The queue shows no contributor identity beyond the post URL, in a stable non-chronological order. The shared-funding warning adds a count, never an address. The list of planted fakes was never stored in the app database; it was joined to the exported review log only after scoring ([results](results.md)).
 
@@ -102,7 +127,10 @@ What the tests cover, and the live run that is still open, are in [x-connect.md]
 - **The operator holds the dispute resolver key in Month 1.** `pnpm escrow:close` runs with `DISPUTE_RESOLVER_SECRET` from the operator's environment, not from a Chapter Lead wallet. The resolver chooses the destination of `withdraw-remaining-funds`; the script sends the balance to the escrow's funder, but the key itself could send it elsewhere. The sweep tx on stellar.expert shows where the remainder went.
 - **Testnet only.** Testnet USDC has no value; the server keys are sprint keys.
 - **The funding warning is a hint.** It sees only the account that created a wallet. Wallets each activated straight from Friendbot, which is what the app's own onboarding does, never link, so a count of 0 means no link was found, not that the accounts are independent. A link that appears after a decision is not added to that decision: its log row keeps the count the reviewer saw. Unrelated wallets created by the same exchange, or by a faucet that is not on the public list, are flagged together; wallets one person funds through separate intermediate accounts are not; and a wallet whose first Horizon record is not its creation is not checked at all.
-- **The X connection is not yet enforced or proven live.** A wallet can still submit without connecting, and the app does not yet check that a submitted post was written by the connected account. The flow has run against a fake and a fetch stub only; the run against X itself needs an X developer app.
+- **The X checks are not proven live.** Connecting an account and checking a post's author have run against a fake and a fetch stub only; the runs against X itself need an X developer app whose plan includes post lookup. The lookup's request shape is taken from X's OpenAPI document, and the first live call has to confirm it.
+- **Every submission depends on X.** While X is down, the app's lookup quota is used up, or the X credentials are missing, nobody can submit: the server refuses and asks to try again. Nothing is queued for a later check.
+- **The author check says who posted, not what.** It reads no content, so whether a post is original work stays a rubric signal for the reviewer. It runs once, at submission: a post deleted or made private afterwards is not noticed by the app.
+- **Earlier duplicates keep no post ID.** A post that Month 1 stored twice under two handle spellings has no post ID on either row, so a third spelling of that same post would not be caught by ID.
 - **The X access token is dropped, not revoked.** The app forgets it as soon as the account ID is read and never calls X's revoke endpoint, so the token stays valid at X until it expires on its own, about two hours after it was issued. No refresh token exists.
 - **A connect flow is single-use only in the browser that ran it.** The callback clears the flow cookie; the server has no used-flow record. A copy of the cookie replayed inside its 10 minutes would get as far as X, which refuses a second use of the authorization code.
 - **An X connection is permanent.** There is no unlink or relink: a wallet that connects the wrong account, or a contributor who loses a wallet, has no way to move the X account in the app.
