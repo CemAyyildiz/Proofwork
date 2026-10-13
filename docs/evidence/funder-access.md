@@ -4,37 +4,48 @@ A signed-in wallet asks for funder access in the app, the operator approves or r
 
 ## Run 1: unit tests
 
-Run: 2026-10-13 · `pnpm vitest run tests/unit/access.test.ts` · 66 tests pass. The whole suite (`pnpm test --maxWorkers=2`) passes with 612 tests in 30 files.
+Run: 2026-10-13 · `pnpm vitest run` on `tests/unit/access.test.ts` (87 tests), `tests/unit/role-grant-args.test.ts` (13) and `tests/unit/shell.test.ts` (17) · 117 tests pass. The whole suite last ran at commit `d583f95`, before the changes that review asked for: 612 tests in 30 files.
 
 The service tests run on an in-process Postgres with every migration applied. The route and page tests call the real route handlers and server components with a signed session cookie; only the database connection and the escrow provider (the in-memory fake) are swapped.
+
+That in-process Postgres has one connection. Where a row below says two calls were issued together, both promises were started before either was awaited and the database ran them one after the other, so these tests show the outcome of the second call, not a race. What holds under real concurrency is in the database and is asserted directly: the partial unique index on pending requests, the `UPDATE … WHERE status = 'pending'` that decides a request, and `INSERT … ON CONFLICT DO NOTHING` on the role's unique index. No test here runs two connections against each other.
 
 | Scenario | What the tests assert |
 |---|---|
 | Request | A pending request is stored for the session wallet; `/campaigns` shows it as pending without the form; the admin overview lists it. The wallet comes from the session, and extra fields in the body are dropped |
-| Second request | Refused with 409. Two requests sent at once: one stored, the other 409. The one-pending rule holds in the database itself |
+| Second request | Refused with 409. Two requests issued together (run serialised, see above): one stored, the other 409. A second pending row for the same wallet is refused by the index when inserted directly |
 | Already a funder | Refused with 409, nothing stored |
 | Bad input | No team, a team name under 2 or over 80 characters, an empty note, a note over 500 characters, a non-string: 400, nothing stored. No session: 401 |
-| Rate limit | The 6th request in an hour from one wallet answers 429, also when the wallet changes address every time |
+| Rate limit | The 6th request in an hour from one wallet answers 429, also when the wallet changes address every time. From one address with a fresh wallet per request, the 21st answers 429 and 20 requests are stored |
 | Form fields | The form has exactly two fields, `team` and `note`, and no email or phone input |
 | Approve | Request approved with the ops wallet and time; funder role granted; one `grant` entry naming the ops wallet and the request |
 | Same session | A wallet is refused a campaign (403), asks, is approved, and posts the campaign again with the cookie it had before approval: 200, campaign stored under its wallet |
 | Reject | Request rejected, no role, no log entry; the wallet can ask again |
 | Revoke | Role removed, one `revoke` entry; create, deploy and fund answer 403; the wallet can ask again |
 | Revoked with a funded campaign | The campaign page still renders and `/campaigns` lists the campaign; approve, release and close each answer 200 through the payouts route and the campaign ends closed with the payout released; the review log downloads. Against the in-memory escrow |
-| Revoked, never funded | The campaign page is a not-found page |
-| Ownership still decides | Another wallet with the funder role gets 403 from approve, release and close on a campaign it does not own; signed out gets 401 |
-| Decide twice | Approving or rejecting a request that is no longer pending: 409, nothing changes, no second entry. Two approvals at once: one wins, one grant, one entry |
+| Revoked, never funded | The campaign page is a not-found page. On a campaign that was deployed but not funded, approve, prepare release, prepare close and the submit of a close prepared before the revocation all answer 403; the campaign stays open and the close is never sent |
+| Revoked with a fund already submitted | The fund transaction landed but its record stayed at `submitted`. After the revocation the owner's prepare-fund call reads the chain, confirms the op and marks the campaign funded; from then on the campaign page and the payouts route open. Deploy still answers 403, and so does another wallet on the same call |
+| Revoked, no new money | A fund prepared but never submitted: prepare and submit answer 403. A fund that failed without landing: the chain is read, shows nothing and the op is rebuilt, and its submit answers 403. In both the escrow balance and `funded_at` are unchanged |
+| Ownership still decides | Another wallet with the funder role gets 403 from approve, release and close on a campaign it does not own; signed out gets 401. A release and a close prepared by the owner and submitted by that other wallet: 403 from the route and from the service called directly, the payout still approved, the campaign still open |
+| Decide twice | Approving or rejecting a request that is no longer pending: 409, nothing changes, no second entry. Two approvals issued together (run serialised): one wins, one grant, one entry |
 | Not ops | A funder, a reviewer and the requester itself: every read and mutation is refused in the service (403 from the route with a valid body), the request stays pending, no role changes and no entry is written. The admin page is a not-found page for them. An `ops` grant scoped to one campaign does not count |
 | Script path | Grant and revoke through the function the script calls: only the named role changes, each entry is marked `script` with no acting wallet |
-| No-op change | Granting a role already held or revoking one not held returns "nothing changed" and writes no entry. Two identical grants at once write one entry |
+| Script arguments | Wallet and role is a grant; `--revoke` after the role is a revocation of that role. A key that is not a Stellar public key, an unknown role, an unknown flag, a fourth argument and `--revoke` in any other place are refused. The database line the script prints holds the host and database name and no user, password or query |
+| No-op change | Granting a role already held or revoking one not held returns "nothing changed" and writes no entry. Two identical grants issued together (run serialised) write one entry |
 | A failed change writes no entry | With the log table made to refuse inserts: a grant is not kept, a revocation is not kept, and an approval leaves the request pending with no role. A grant refused by the database writes no entry |
-| Admin page | For ops: pending requests with Approve and Reject, funders with Revoke, and every log entry newest first with wallet, role, action, the acting wallet or "script", and the time. Signed out: the connect prompt and nothing else |
-| Navigation | The Admin item appears for the ops wallet only |
+| Admin page | For ops: pending requests with Approve and Reject, funders with Revoke, and the log newest first with wallet, role, action, the acting wallet or "script", and the time. An entry scoped to a campaign names the campaign. Signed out: the connect prompt and nothing else |
+| Admin page limits | With 101 pending requests the page reads the 100 oldest and says more are waiting; with more than 200 log entries it reads the 200 newest and says so. Neither line shows when the lists fit |
+| Admin rate limit | The 61st call to the admin route in ten minutes from one wallet answers 429; the operator's own count is separate |
+| Access removed | A funder granted with the script and then revoked, with no request on record, sees "Funder access removed". After asking again it sees pending, and after a rejection "Request not approved". A revocation newer than an old rejection shows as removed |
+| Reviewer on `/campaigns` | A reviewer without the funder role sees the request form, or its pending request, and a link to the review queue; it is not redirected. A reviewer that lost funder access sees its funded campaign, the removal and the link |
+| Navigation | The Admin item appears for the ops wallet only. Every signed-in wallet has a `/campaigns` item: "Campaigns" for a funder and for a revoked funder that owns a funded campaign, "Run a campaign" otherwise. Signed out there is none |
 | One place writes roles | A search of `src/` and `scripts/` finds an insert into or delete from `role_grant` only inside `changeRole`, an insert into `access_log` only there, and no update or delete of `access_log` anywhere |
 
 ## Run 2: local app
 
-Run: 2026-10-13, 09:35 UTC · App: a local instance of this repository (`next dev`) at commit `b469be2` plus this change, on a scratch Postgres 17 database with migrations 0000 to 0006 applied through `pnpm db:migrate`. Throwaway server keys; the Trustless Work and Horizon hosts pointed at a closed local port, so no request left the machine. Four fresh keypairs signed in with the wallet challenge. Wallets are shown truncated.
+Run: 2026-10-13, 09:35 UTC · App: a local instance of this repository (`next dev`) with the code of commit `f29061c`, on a scratch Postgres 17 database with migrations 0000 to 0006 applied through `pnpm db:migrate`. Throwaway server keys; the Trustless Work and Horizon hosts pointed at a closed local port, so no request left the machine. Four fresh keypairs signed in with the wallet challenge. Wallets are shown truncated.
+
+This run has not been repeated since. One output below changed afterwards: `pnpm role:grant` now prints a first line naming the database host and name before it changes anything. The behaviour added after the run is covered by Run 1 only: the address-only and admin rate limits, the limits on the two admin lists, the campaign scope in the log, the `/campaigns` navigation item, the reviewer no longer being redirected, "Funder access removed" for a script-granted funder, a revoked owner being refused on a deployed campaign it never funded, and the reconciliation of a fund submitted before a revocation.
 
 | Name | Wallet | Starts with |
 |---|---|---|
@@ -159,4 +170,5 @@ Build check on the same day: `pnpm build` succeeds and lists `/admin`, `/api/acc
 - **On proofwork.online.** Migration `0006` has not been applied to the preview or production database, and no wallet there holds `ops`. The run to record: grant `ops` with the script, request from a wallet that never had a role, approve on `/admin`, create a campaign, and read the log on the admin page.
 - **Revocation with money in escrow.** Approve, release and close by a revoked funder have run against the in-memory escrow only. The local run set the funded state by hand and stopped at the gate. A testnet run would revoke a funder after funding and then release a payout and close the campaign, with the transaction hashes.
 - **The buttons in a browser.** The local run posted to the routes directly with a session cookie. Approve, Reject and Revoke have not been clicked with a wallet extension signed in.
+- **Two connections at once.** Every "issued together" case above ran on one connection, one call after the other. A double request, a double approval and a double grant from two real connections against Postgres have not been run.
 - **Rate limit against Upstash.** The limit was checked with the in-memory limiter the tests and `next dev` use, not the Upstash one production uses.

@@ -129,10 +129,17 @@ Sign in with that wallet and open `/admin`. From then on funder access is grante
 ```bash
 pnpm role:grant G...REVIEWER reviewer
 pnpm role:grant G...FUNDER funder
-pnpm role:grant G...REVIEWER reviewer --revoke
 ```
 
-Every run goes through the same function as the admin page and writes an access-log entry marked `script`. `--revoke` removes the one role named, not every role of the wallet as it did before this release. Granting a role the wallet already has, or revoking one it does not have, changes nothing, writes no entry and says so.
+The script first prints the host and name of the database it is about to change, without the user or password; check that line before trusting the result. Every run goes through the same function as the admin page and writes an access-log entry marked `script`. Granting a role the wallet already has, or revoking one it does not have, changes nothing, writes no entry and says so.
+
+To take a role away, name the wallet and the role and add `--revoke`:
+
+```bash
+pnpm role:grant G...WALLET reviewer --revoke
+```
+
+`--revoke` removes the one role named, not every role of the wallet as it did before this release. A wallet that holds two roles and should lose both needs two runs.
 
 `role:grant` runs with `node --env-file=.env`, so a `.env` file must exist in the repository root (Node refuses to start without it). A `DATABASE_URL` already exported in the shell takes precedence over the value in the file.
 
