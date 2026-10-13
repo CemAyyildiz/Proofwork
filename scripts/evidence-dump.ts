@@ -1,4 +1,4 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -8,33 +8,47 @@ import { AppError } from "../src/lib/errors";
 import { loadCampaignEvidence, renderCampaignEvidence } from "../src/services/evidence";
 
 /**
- * Writes every on-chain tx of one campaign to docs/evidence/campaign.md.
- *   pnpm evidence:dump <campaign-slug>
- * Reads the app database (DATABASE_URL) only; no network beyond it.
+ * Writes every on-chain tx of one campaign to docs/evidence/campaign.md, or
+ * to docs/evidence/<file-name>.md when a second campaign needs its own page.
+ *   pnpm evidence:dump <campaign-slug> [file-name]
+ * Reads the app database (DATABASE_URL) only; no network beyond it. It only
+ * ever replaces a page it wrote itself.
  */
 const argsSchema = z.object({
   slug: z
     .string({ error: "campaign slug is required" })
     .regex(/^[a-z0-9_-]{1,64}$/, "campaign slug must be 1-64 characters of a-z, 0-9, - or _"),
+  name: z
+    .string()
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "file name must be lowercase words of a-z and 0-9 joined by single hyphens, without .md")
+    .max(64, "file name must be at most 64 characters")
+    .default("campaign"),
 });
 const envSchema = z.object({
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/, error: "DATABASE_URL must be a postgres:// or postgresql:// URL" }),
 });
 
 const SITE_URL = "https://proofwork.online";
-const OUT = resolve(import.meta.dirname, "..", "docs", "evidence", "campaign.md");
+const EVIDENCE_DIR = resolve(import.meta.dirname, "..", "docs", "evidence");
+/** First line of every page this script writes; see `renderCampaignEvidence`. */
+const DUMP_HEADING = "# Campaign evidence: ";
 
 function fail(message: string): never {
   process.stderr.write(`evidence:dump: ${message}\n`);
-  process.stderr.write("usage: pnpm evidence:dump <campaign-slug>\n");
+  process.stderr.write("usage: pnpm evidence:dump <campaign-slug> [file-name]\n");
   process.exit(1);
 }
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2).filter((a, i) => !(i === 0 && a === "--"));
-  if (argv.length > 1) fail("expected exactly one argument");
-  const args = argsSchema.safeParse({ slug: argv[0] });
+  if (argv.length > 2) fail("expected a campaign slug and at most a file name");
+  const args = argsSchema.safeParse({ slug: argv[0], name: argv[1] });
   if (!args.success) fail(z.prettifyError(args.error));
+  const out = resolve(EVIDENCE_DIR, `${args.data.name}.md`);
+  // The name is free, so it could be that of a hand-written page: never replace one.
+  if (existsSync(out) && !readFileSync(out, "utf8").startsWith(DUMP_HEADING)) {
+    fail(`docs/evidence/${args.data.name}.md exists and is not a campaign evidence page; choose another file name`);
+  }
   const env = envSchema.safeParse(process.env);
   if (!env.success) fail(z.prettifyError(env.error));
 
@@ -42,8 +56,8 @@ async function main(): Promise<void> {
   try {
     const conn = drizzle({ client, schema });
     const evidence = await loadCampaignEvidence(conn, args.data.slug);
-    writeFileSync(OUT, renderCampaignEvidence(evidence, { siteUrl: SITE_URL, generatedAt: new Date() }));
-    process.stdout.write(`wrote ${OUT}\n`);
+    writeFileSync(out, renderCampaignEvidence(evidence, { siteUrl: SITE_URL, generatedAt: new Date() }));
+    process.stdout.write(`wrote ${out}\n`);
   } catch (e) {
     if (e instanceof AppError) fail(e.message);
     throw e;
