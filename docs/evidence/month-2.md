@@ -8,12 +8,13 @@ Last updated 2026-10-13. On that day the code for Deliverable 1 and for the X an
 
 | Shared evidence | Where |
 |---|---|
-| GitHub repo | [README](../../README.md) · public URL: **open** · Cem |
+| GitHub repo | [README](../../README.md) · the repository is meant to be published, and everything on this page is written to be read by anyone · public URL: **open** · Cem |
 | Demo video, Month 2 | **open** · Cem |
 | Live app | [proofwork.online](https://proofwork.online) (Stellar testnet) |
 | External-funder rehearsal, every step and transaction | [external-funder-rehearsal.md](external-funder-rehearsal.md) · what the app recorded for its campaign: [rehearsal-campaign.md](rehearsal-campaign.md) |
 | Pilot campaign, every transaction and the funding team's wallet | `pilot-campaign.md`, written by `pnpm evidence:dump <slug> pilot-campaign` · **open** until the pilot has run · Cem |
 | Customer development records and their format | [customer-development/](customer-development/README.md) |
+| Findings: what the records support or contradict in the plan's hypotheses | `customer-development/findings.md` ([what it holds](customer-development/README.md#findings)) · **open** · Cem, after the records |
 | Technical summary | [technical-summary.md](../technical-summary.md) · how a team-run campaign differs: [Team-run campaigns](../technical-summary.md#team-run-campaigns) |
 | Review rubric | [rubric.md](../rubric.md), v1 today |
 | Hosting, deployment and operator commands | [deployment.md](../deployment.md) |
@@ -35,6 +36,8 @@ Last updated 2026-10-13. On that day the code for Deliverable 1 and for the X an
 | Evidence: grant visible in the access log | From the rehearsal, the funder grant by the operator's wallet at 15:37:01 UTC on 2026-10-13: [rehearsal → Revoked after funding](external-funder-rehearsal.md#revoked-after-funding) · on proofwork.online, for the pilot team's wallet | rehearsal recorded · proofwork.online **open** · Cem |
 
 Still open for Deliverable 1 on proofwork.online: migration `0006`, the operator's `ops` grant, and one request approved there ([funder-access.md → Not recorded yet](funder-access.md#not-recorded-yet)). Owner: Cem.
+
+What the readiness check covers, and what it does not: it asks for 1 XLM free above the reserves, which is for the deploy and the fund only. The team's wallet also signs one release for each approved submission and the close. The close cost 0.0014066 XLM in the rehearsal. No release signed by a funder other than the operator has been run, so its fee has not been measured, and nothing checks the wallet's XLM before a release or a close.
 
 ## Deliverable 2: rubric v2, X account verification, multi-account warnings
 
@@ -68,7 +71,7 @@ Still open for Deliverable 1 on proofwork.online: migration `0006`, the operator
 | One testnet campaign created and funded by a team through Deliverable 1 | The path, run by Proofwork with a wallet that never had a role: [external-funder-rehearsal.md](external-funder-rehearsal.md) · the pilot team's own campaign: `pilot-campaign.md` | rehearsal recorded · pilot **open** · Cem and the pilot team |
 | Team gives final approval and releases the payouts | Release rows of `pilot-campaign.md`. Not rehearsed: a submission needs X ([rehearsal → Not run](external-funder-rehearsal.md#not-run)) | **open** · Cem and the pilot team |
 | Remainder returns to the team at the deadline | Rehearsed with a funder that is not the operator: dispute [543b1fd6c5e7…](https://stellar.expert/explorer/testnet/tx/543b1fd6c5e7ee68170eea975c0c1acbbc6c404ac70bae07a8d2bf05af84bf67), withdrawal [2df7fde33230…](https://stellar.expert/explorer/testnet/tx/2df7fde332303415e48ed3c53163a1c3e1b8e512a5a2c68facdd8a8e0286bbb1), 4.985 of 5 USDC back to the funding wallet after the 0.3% protocol fee ([rehearsal → Close and remainder](external-funder-rehearsal.md#close-and-remainder)) · the pilot's own: `pilot-campaign.md` | rehearsal recorded · pilot **open** · Cem (who holds the resolver key for the pilot is not settled) |
-| Debrief interview | `customer-development/debrief-<team>.md` in the [record format](customer-development/README.md): what the team would change and what it would pay for | **open** · Cem |
+| Debrief interview | `customer-development/debrief-<team>.md` in the [record format](customer-development/README.md): what the team would change and what it would pay for. Linked from here only if the team agreed to be named and to its wallet and campaign page being shown as the pilot's ([Consent](customer-development/README.md#consent)) | **open** · Cem |
 | Evidence: interview summaries | As the first row | **open** · Cem |
 | Evidence: campaign page | `https://proofwork.online/c/<pilot slug>` | **open** · Cem and the pilot team |
 | Evidence: testnet tx hashes | `pilot-campaign.md`: deploy, fund, milestones, releases, close, remainder, decisions | **open** · Cem, by running the dump on the pilot campaign |
@@ -82,9 +85,9 @@ Still open for Deliverable 1 on proofwork.online: migration `0006`, the operator
 | Loom recording of a product demo with a potential customer | A link in the interview or debrief record it belongs to ([record format](customer-development/README.md): Recording) | **open** · Cem, during an interview or the pilot |
 | User testing recording or UX session video | One contributor or funder session, linked here | **open** · Cem |
 | Website traffic report | A screenshot of the site's traffic report, linked here | **open** · Cem |
-| Customer interview summary or feedback documentation | The records in [customer-development/](customer-development/README.md): five interviews, the contributor feedback summary, the debrief | format recorded · records **open** · Cem |
+| Customer interview summary or feedback documentation | The records in [customer-development/](customer-development/README.md): five interviews, the contributor feedback summary, the debrief; and `customer-development/findings.md`, which sets them against the plan's hypotheses | format recorded · records and findings **open** · Cem |
 | Other: live campaign and on-chain evidence | Month 1: the [Month 1 index](README.md) · the rehearsal: [external-funder-rehearsal.md](external-funder-rehearsal.md) · the pilot: its campaign page and `pilot-campaign.md` | rehearsal recorded · pilot **open** · Cem |
 
 ## Privacy
 
-Customer development records name teams that agreed to be named and never a person: no name, contact detail, handle or wallet of an individual. Screenshots show the testnet badge and contain no secrets, emails or private data; contributor wallets appear truncated. A funding team's wallet is shown in full, because it is the evidence that the team funded its own campaign. No list of planted submissions is in the app database or in this repository.
+The repository is meant to be published, so every page here is written as public. Customer development records name teams that agreed to be named and never a person: no name, contact detail, handle or wallet of an individual. Screenshots show the testnet badge and contain no secrets, emails or private data; contributor wallets appear truncated. A funding team's wallet is shown in full, because it is the evidence that the team funded its own campaign; the pilot team is asked for that before the pilot, and a debrief from a team that did not agree is kept under a neutral label and not linked to the pilot pages. No list of planted submissions is in the app database or in this repository.
