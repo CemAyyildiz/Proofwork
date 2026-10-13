@@ -14,6 +14,8 @@ const schema = z.object({
 export const POST = jsonRoute(schema, async (input, req) => {
   const user = await requireUser();
   await enforce(limiters.submit, `submit:${clientIp(req)}:${user.pubkey}`);
+  // And by wallet alone: each accepted-path submission costs an X lookup, and a wallet changing IPs must not spend that quota.
+  await enforce(limiters.submit, `submit:wallet:${user.pubkey}`);
   const s = await createSubmission(input, user);
   return { id: s.id, shortId: s.shortId, workUrl: s.workUrl };
 });

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, isNotNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, like, or } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type Payout, type Submission } from "@/db/schema";
 import { env } from "@/config/env";
@@ -100,12 +100,7 @@ function toPublic(c: Campaign, now = new Date()): PublicCampaign {
  * Why a submission cannot be stored: this wallet already submitted to the
  * campaign, or the post is already in the app. Null when neither holds.
  */
-async function alreadySubmitted(
-  campaignId: string,
-  pubkey: string,
-  post: { id: string; url: string },
-  conn: Db,
-): Promise<AppError | null> {
+async function alreadySubmitted(campaignId: string, pubkey: string, postId: string, conn: Db): Promise<AppError | null> {
   const own = (
     await conn
       .select({ id: submissions.id })
@@ -115,13 +110,14 @@ async function alreadySubmitted(
   )[0];
   if (own) return AppError.conflict("you already submitted to this campaign");
 
-  // One post, one submission across the app: matched by post ID whatever handle
-  // or host the link carried, and by link for rows that have no post ID.
+  // One post, one submission across the app, whatever handle or host the link
+  // carried. Rows without a post ID are matched by the ID that ends their
+  // stored link; the ID is digits only, so it holds no LIKE wildcard.
   const dup = (
     await conn
       .select({ id: submissions.id })
       .from(submissions)
-      .where(or(eq(submissions.postId, post.id), eq(submissions.workUrl, post.url)))
+      .where(or(eq(submissions.postId, postId), like(submissions.workUrl, `%/status/${postId}`)))
       .limit(1)
   )[0];
   return dup ? AppError.conflict("this post has already been submitted") : null;
@@ -154,7 +150,7 @@ export async function createSubmission(
   if (!parsed.success) throw AppError.validation(parsed.error.issues[0]?.message ?? "invalid url");
   const { url, statusId: postId } = canonicalizeSubmissionUrl(parsed.data);
 
-  const taken = await alreadySubmitted(c.id, actor.pubkey, { id: postId, url }, conn);
+  const taken = await alreadySubmitted(c.id, actor.pubkey, postId, conn);
   if (taken) throw taken;
 
   const account = await xAccount(actor.pubkey, conn);
@@ -177,8 +173,16 @@ export async function createSubmission(
   try {
     author = await postAuthor(postId);
   } catch (e) {
-    // The adapter's own step, reason and status, never the error itself: nothing X sent and no credential is written down.
-    log.warn("post author lookup failed", { campaign: c.slug, wallet: actor.pubkey, ...(isAppError(e) && e.code === "X" ? e.details : { reason: "unexpected" }) });
+    // Four named fields of the adapter's own error, never the error itself: nothing X sent and no credential is written down.
+    const failure = isAppError(e) && e.code === "X" ? e.details : undefined;
+    log.warn("post author lookup failed", {
+      campaign: c.slug,
+      wallet: actor.pubkey,
+      step: failure?.["step"],
+      reason: failure?.["reason"] ?? "unexpected",
+      status: failure?.["status"],
+      resetAt: failure?.["resetAt"],
+    });
     throw new AppError("X", "couldn't check the post with X, try again");
   }
   if (!author.found) throw new AppError("NOT_FOUND", "this post could not be found on X, it must be public");
@@ -203,7 +207,7 @@ export async function createSubmission(
     if (!isUniqueViolation(e)) throw e;
     // Another request stored the same post, or this wallet's submission, since
     // the check above: the database refused this one, so answer as that check would.
-    throw (await alreadySubmitted(c.id, actor.pubkey, { id: postId, url }, conn)) ?? e;
+    throw (await alreadySubmitted(c.id, actor.pubkey, postId, conn)) ?? e;
   }
 }
 

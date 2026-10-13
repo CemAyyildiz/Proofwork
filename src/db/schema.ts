@@ -96,9 +96,11 @@ export const submissions = pgTable(
     workUrl: text("work_url").notNull(),
     /**
      * Numeric ID of the submitted X post, from the link. Unique, so one post is
-     * submitted once whatever handle or host its link carries. Null only on
-     * rows stored before the column existed whose post ID another such row
-     * shares: those could not be backfilled.
+     * submitted once whatever handle or host its link carries. Null on rows
+     * the backfill skipped (a post ID another earlier row shares, or one not
+     * in the canonical spelling) and on rows the previous release stored
+     * between the migration and its own replacement. Those are matched by the
+     * ID at the end of `work_url` instead, see `alreadySubmitted`.
      */
     postId: text("post_id"),
     /**

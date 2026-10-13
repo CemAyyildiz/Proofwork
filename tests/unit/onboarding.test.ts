@@ -273,12 +273,16 @@ describe("isSignatureRejection", () => {
 });
 
 describe("onboardingView", () => {
+  /** X is connected and configured: the wallet check alone decides. */
+  const X_OPEN = { connected: true, available: true };
+  const READY = { status: "read", account: { kind: "ready" } } as const;
+
   it("ready wallet: submit enabled, both steps done", () => {
-    expect(onboardingView({ status: "read", account: { kind: "ready" } })).toEqual({ step: "ready", canSubmit: true, activate: "done", trustline: "done" });
+    expect(onboardingView(READY, X_OPEN)).toEqual({ step: "ready", canSubmit: true, activate: "done", trustline: "done" });
   });
 
   it("unfunded account: activate is the current step, submit disabled", () => {
-    expect(onboardingView({ status: "read", account: { kind: "no-account" } })).toEqual({
+    expect(onboardingView({ status: "read", account: { kind: "no-account" } }, X_OPEN)).toEqual({
       step: "no-account",
       canSubmit: false,
       activate: "current",
@@ -287,7 +291,7 @@ describe("onboardingView", () => {
   });
 
   it("no trustline: activate done, trustline current, submit disabled", () => {
-    expect(onboardingView({ status: "read", account: { kind: "no-trustline", sequence: "1" } })).toEqual({
+    expect(onboardingView({ status: "read", account: { kind: "no-trustline", sequence: "1" } }, X_OPEN)).toEqual({
       step: "no-trustline",
       canSubmit: false,
       activate: "done",
@@ -296,13 +300,29 @@ describe("onboardingView", () => {
   });
 
   it("Horizon down or still checking: no submit allowed", () => {
-    expect(onboardingView({ status: "unreachable" }).canSubmit).toBe(false);
-    expect(onboardingView({ status: "checking" }).canSubmit).toBe(false);
+    expect(onboardingView({ status: "unreachable" }, X_OPEN).canSubmit).toBe(false);
+    expect(onboardingView({ status: "checking" }, X_OPEN).canSubmit).toBe(false);
   });
 
   it("a trustline added elsewhere flips to ready on the next read", () => {
-    const before = onboardingView({ status: "read", account: { kind: "no-trustline", sequence: "1" } });
-    const after = onboardingView({ status: "read", account: { kind: "ready" } });
+    const before = onboardingView({ status: "read", account: { kind: "no-trustline", sequence: "1" } }, X_OPEN);
+    const after = onboardingView(READY, X_OPEN);
     expect([before.canSubmit, after.canSubmit]).toEqual([false, true]);
+  });
+
+  it("ready wallet without an X account: the wallet steps are done, submit stays disabled", () => {
+    expect(onboardingView(READY, { connected: false, available: true })).toEqual({ step: "ready", canSubmit: false, activate: "done", trustline: "done" });
+  });
+
+  it("ready wallet with an X account on a deployment without X credentials: submit stays disabled", () => {
+    expect(onboardingView(READY, { connected: true, available: false })).toEqual({ step: "ready", canSubmit: false, activate: "done", trustline: "done" });
+  });
+
+  it("neither connected nor configured: submit disabled", () => {
+    expect(onboardingView(READY, { connected: false, available: false }).canSubmit).toBe(false);
+  });
+
+  it("an X account does not open the form for a wallet that cannot be paid", () => {
+    expect(onboardingView({ status: "read", account: { kind: "no-trustline", sequence: "1" } }, X_OPEN).canSubmit).toBe(false);
   });
 });

@@ -306,7 +306,7 @@ describe("createSubmission X author gate", () => {
     expect(await conn.select().from(submissions)).toHaveLength(0);
   });
 
-  it("no X account: refuses before X, Horizon or the database are touched", async () => {
+  it("no X account: refuses without asking X or Horizon, and stores nothing", async () => {
     const unbound = { pubkey: Keypair.random().publicKey() };
     let horizon = false;
     await expect(
@@ -556,6 +556,24 @@ describe("createSubmission one post, one submission", () => {
     await conn.insert(submissions).values({ id: "sub_m1", shortId: "m1aaaaaa", campaignId: "cmp_1", contributorPubkey: "G_M1", workUrl: "https://x.com/alice/status/999" });
     await expect(submit("https://twitter.com/alice/status/999", CONTRIBUTOR)).rejects.toMatchObject({ code: "CONFLICT", message: "this post has already been submitted" });
     expect(x.lookedUp).toEqual([]);
+  });
+
+  it("counts earlier rows without a post ID under another handle: the ID that ends their link is the post", async () => {
+    // What the backfill leaves when two rows share a post, and what the previous release stores before it is replaced.
+    await conn.insert(submissions).values([
+      { id: "sub_m1", shortId: "m1aaaaaa", campaignId: "cmp_1", contributorPubkey: "G_M1", workUrl: "https://x.com/alice/status/999" },
+      { id: "sub_m2", shortId: "m1bbbbbb", campaignId: "cmp_1", contributorPubkey: "G_M2", workUrl: "https://x.com/ALICE_/status/999" },
+    ]);
+    for (const again of ["https://x.com/Alice/status/999", "https://twitter.com/bob/status/999?s=20"]) {
+      await expect(submit(again, CONTRIBUTOR)).rejects.toMatchObject({ code: "CONFLICT", message: "this post has already been submitted" });
+    }
+    expect(x.lookedUp).toEqual([]);
+    expect(await conn.select().from(submissions)).toHaveLength(2);
+  });
+
+  it("does not take a longer ID that ends in the same digits for the same post", async () => {
+    await conn.insert(submissions).values({ id: "sub_m1", shortId: "m1aaaaaa", campaignId: "cmp_1", contributorPubkey: "G_M1", workUrl: "https://x.com/alice/status/1999" });
+    await expect(submit("https://x.com/alice/status/999", CONTRIBUTOR)).resolves.toMatchObject({ postId: "999" });
   });
 
   /** A lookup that answers `authorId`, but only once `n` callers of `meet` are waiting: both requests have then passed every check and their inserts race. */

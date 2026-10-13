@@ -46,21 +46,33 @@ export type WalletCheck = { status: "checking" } | { status: "unreachable" } | {
 export type OnboardingStep = "checking" | "unreachable" | "no-account" | "no-trustline" | "ready";
 export type OnboardingNode = "done" | "current" | "pending";
 
+/** What the server said about X for this wallet when the page was rendered. */
+export interface XGate {
+  /** The wallet has an X account connected. */
+  connected: boolean;
+  /** The deployment has X credentials, so the server can check a post's author. */
+  available: boolean;
+}
+
 export interface OnboardingView {
   step: OnboardingStep;
-  /** Submitting is allowed only once the wallet can receive USDC. */
+  /**
+   * The submit form is open only when the wallet can receive USDC, has an X
+   * account connected and the server can check posts against it: anything
+   * less and the server would refuse the submission.
+   */
   canSubmit: boolean;
   /** Per-step state for "Activate testnet account" and "Add USDC trustline". */
   activate: OnboardingNode;
   trustline: OnboardingNode;
 }
 
-/** What the contributor sees before the submit form, from one wallet check. */
-export function onboardingView(check: WalletCheck): OnboardingView {
+/** What the contributor sees before the submit form, from one wallet check and the wallet's X state. */
+export function onboardingView(check: WalletCheck, x: XGate): OnboardingView {
   const step: OnboardingStep = check.status === "read" ? check.account.kind : check.status;
   return {
     step,
-    canSubmit: step === "ready",
+    canSubmit: step === "ready" && x.connected && x.available,
     activate: step === "no-account" ? "current" : step === "no-trustline" || step === "ready" ? "done" : "pending",
     trustline: step === "no-trustline" ? "current" : step === "ready" ? "done" : "pending",
   };

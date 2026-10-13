@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { onboardingView, type OnboardingNode, type WalletCheck } from "@/components/contributor-state";
+import { onboardingView, type OnboardingNode, type WalletCheck, type XGate } from "@/components/contributor-state";
 import { SubmitForm } from "@/components/submit-form";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
@@ -24,19 +24,11 @@ const horizon = { horizonUrl: publicEnv.horizonUrl, usdcIssuer: publicEnv.usdcIs
  * Gets a connected wallet ready to be paid, then shows the submit form.
  * Everything runs in the browser against Horizon testnet and Friendbot; the
  * contributor's wallet signs the trustline and Proofwork never pays or signs
- * for it. The form also stays locked until `xReady`. The server re-checks the
- * trustline and the X account on submit.
+ * for it. The form also stays locked until the X gate is open (see
+ * `onboardingView`). The server re-checks the trustline and the X account on
+ * submit.
  */
-export function WalletOnboarding({
-  campaignSlug,
-  address,
-  xReady,
-}: {
-  campaignSlug: string;
-  address: string;
-  /** The wallet has an X account connected and the server can check posts against it. */
-  xReady: boolean;
-}) {
+export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: string; address: string; x: XGate }) {
   const [check, setCheck] = useState<WalletCheck>({ status: "checking" });
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +102,7 @@ export function WalletOnboarding({
       setTrustTx(await submitSignedXdr(signed, { horizonUrl: publicEnv.horizonUrl }));
     });
 
-  const view = onboardingView(check);
+  const view = onboardingView(check, x);
 
   return (
     <>
@@ -183,7 +175,7 @@ export function WalletOnboarding({
           ) : null}
         </div>
       )}
-      <SubmitForm campaignSlug={campaignSlug} payTo={address} locked={!view.canSubmit || !xReady} />
+      <SubmitForm campaignSlug={campaignSlug} payTo={address} locked={!view.canSubmit} />
     </>
   );
 }

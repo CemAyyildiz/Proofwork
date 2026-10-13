@@ -295,7 +295,7 @@ function SubmissionPanel({
     <>
       <h2 className="text-lg font-semibold tracking-[-0.02em]">Submit your post</h2>
       <XConnectStep campaignSlug={c.slug} connected={xConnected} available={xAvailable} notice={xNote} />
-      <WalletOnboarding key={pubkey} campaignSlug={c.slug} address={pubkey} xReady={xConnected && xAvailable} />
+      <WalletOnboarding key={pubkey} campaignSlug={c.slug} address={pubkey} x={{ connected: xConnected, available: xAvailable }} />
     </>
   );
 }
