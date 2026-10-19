@@ -945,7 +945,9 @@ describe("a revoked funder", () => {
     expect(await conn.select().from(escrowOps).where(eq(escrowOps.kind, "release"))).toHaveLength(0);
     // A selection that names only another submission builds nothing.
     const other = await payoutsCall(id, { action: "prepare", kind: "release", submissionIds: ["sub_other"] });
+    expect(other.status).toBe(200);
     expect(await other.json()).toEqual({ ops: [] });
+    expect(await conn.select().from(escrowOps).where(eq(escrowOps.kind, "release"))).toHaveLength(0);
   });
 
   it("another wallet gains nothing from the payouts route no longer asking for the role", async () => {

@@ -340,10 +340,10 @@ export async function prepareReleaseOp(
   escrow: EscrowPort,
   conn: Db = db,
 ): Promise<PreparedOp[]> {
-  const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
-  if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
   const selected = [...new Set(submissionIds)];
   if (selected.length === 0) throw AppError.validation("no submissions selected");
+  const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
+  if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
   const kind = "release" as const;
   const wanted: Payout["status"] = "approved";
   const rows = await conn

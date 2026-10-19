@@ -1,14 +1,14 @@
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { EscrowActions } from "@/components/escrow-actions";
 import { CopyLink } from "@/components/copy-link";
+import { EscrowBalance, EscrowBalanceLoading } from "@/components/escrow-balance";
 import { FundingReadinessPanel } from "@/components/funding-readiness";
 import { PayoutActions } from "@/components/payout-actions";
 import { funderLimits } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
-import { getEscrow } from "@/escrow";
 import { currentUser } from "@/lib/current-user";
 import { formatDate, formatUsdc } from "@/lib/format";
-import { log } from "@/lib/logger";
 import { canManageCampaign } from "@/services/access";
 import { fundingReadiness, fundSubmitted, getCampaignBySlug, horizonFunderAccountReader, limitRefusal } from "@/services/campaign";
 import { listOps } from "@/services/escrow-ops";
@@ -19,33 +19,12 @@ export const dynamic = "force-dynamic";
 /** The page waits this long for Horizon before it shows the wallet as not checked. */
 const READINESS_TIMEOUT_MS = 4_000;
 
-/** Longest the page waits on the live escrow balance before it shows it as unavailable. */
-const BALANCE_TIMEOUT_MS = 4_000;
-
-/** The escrow balance read from chain, or null when the read fails or is too slow: never a database figure. */
-async function liveBalance(slug: string, contractId: string): Promise<string | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error("balance read timed out")), BALANCE_TIMEOUT_MS);
-    });
-    return (await Promise.race([getEscrow().getEscrow(contractId), timeout])).balance;
-  } catch (e) {
-    log.warn("escrow balance read failed", { slug, err: e instanceof Error ? e.message : String(e) });
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 export default async function CampaignPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const c = await getCampaignBySlug(slug);
   if (!c) notFound();
   const user = await currentUser(c.id);
   if (!user || !canManageCampaign(c, user)) notFound();
-  // Started now, read below, so the chain read overlaps the database reads.
-  const balanceRead = c.escrowContractId ? liveBalance(c.slug, c.escrowContractId) : null;
   const ops = await listOps(c.id);
   const subs = await submissionsForFunder(c.id);
   const rows = subs.map((r) => ({
@@ -60,6 +39,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
     decisionId: r.latest?.id ?? null,
     payoutStatus: r.payout?.status ?? null,
     releaseTxHash: r.payout?.releaseTxHash ?? null,
+    milestoneIndex: r.payout?.milestoneIndex ?? null,
   }));
   const counts = { toRelease: subs.filter((r) => r.payout?.status === "approved").length };
 
@@ -72,7 +52,6 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
   const fundSent = stage === "deployed" && (await fundSubmitted(c.id));
   // A draft that does not fit under the funder's limits is refused at deploy; say so here, before the click.
   const overLimit = stage === "draft" ? ((await limitRefusal(user.pubkey, c.budget, funderLimits()))?.message ?? null) : null;
-  const balance = balanceRead ? await balanceRead : null;
 
   return (
     <div className="space-y-8">
@@ -94,18 +73,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
                 <code className="text-xs">{c.escrowContractId.slice(0, 10)}…{c.escrowContractId.slice(-6)}</code>
               </a>
             </p>
-            {balance !== null ? (
-              <p className="text-sm">
-                Balance <strong>{formatUsdc(balance)}</strong> <span className="text-xs text-neutral-500">read from Stellar</span>
-              </p>
-            ) : (
-              <p className="text-sm text-fail">
-                Balance unavailable, check on-chain:{" "}
-                <a className="underline" href={publicEnv.explorerContractUrl(c.escrowContractId)} target="_blank" rel="noreferrer">
-                  escrow on stellar.expert
-                </a>
-              </p>
-            )}
+            <Suspense fallback={<EscrowBalanceLoading />}>
+              <EscrowBalance slug={c.slug} contractId={c.escrowContractId} />
+            </Suspense>
           </>
         ) : (
           <p className="text-sm text-neutral-600">Not deployed yet.</p>

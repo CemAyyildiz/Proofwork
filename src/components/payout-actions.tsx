@@ -19,6 +19,8 @@ export interface PayoutRow {
   decisionId: string | null;
   payoutStatus: string | null;
   releaseTxHash: string | null;
+  /** The payout's milestone on chain, once one is appended. */
+  milestoneIndex: number | null;
 }
 
 interface Counts {
@@ -161,7 +163,7 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
                 <td className="py-2">
                   {r.payoutStatus ?? "—"}
                   {r.releaseTxHash ? (
-                    <a className="ml-1 text-xs underline" href={`https://stellar.expert/explorer/testnet/tx/${r.releaseTxHash}`} target="_blank" rel="noreferrer">
+                    <a className="ml-1 text-xs underline" href={publicEnv.explorerTxUrl(r.releaseTxHash)} target="_blank" rel="noreferrer">
                       tx
                     </a>
                   ) : null}
@@ -183,7 +185,13 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
           <button
             type="button"
             disabled={busy !== null || counts.toRelease > 0 || awaiting > 0}
-            title={awaiting > 0 ? `${awaiting} submission(s) still awaiting review` : undefined}
+            title={
+              awaiting > 0
+                ? `${awaiting} submission(s) still awaiting review`
+                : counts.toRelease > 0
+                  ? `${counts.toRelease} approved payout(s) not yet released`
+                  : undefined
+            }
             onClick={closeCampaign}
             className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
           >
@@ -191,12 +199,13 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
           </button>
         </div>
       ) : null}
+      {releasable.length > 0 && toRelease.length === 0 && !closed ? <p className="text-sm text-neutral-600">Tick the approved rows to release them.</p> : null}
       {awaiting > 0 && !closed ? (
         <p className="text-sm text-neutral-600">
           {awaiting} submission(s) awaiting review. Score them on the <Link className="underline" href="/review">review page</Link>, then approve the passes here.
         </p>
       ) : null}
-      {outcome ? <ReleaseOutcomeLine result={outcome.result} total={outcome.total} /> : null}
+      {outcome ? <ReleaseOutcomeLine result={outcome.result} total={outcome.total} rows={rows} /> : null}
       {msg ? <p className="text-sm text-green-700">{msg}</p> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>
@@ -206,7 +215,7 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
 const TONE = { ok: "text-green-700", muted: "text-neutral-600", fail: "text-red-600" } as const;
 
 /** What a release run did: every payout released with its tx link, then what was not sent and why. */
-function ReleaseOutcomeLine({ result, total }: { result: ReleaseResult; total: number }) {
+function ReleaseOutcomeLine({ result, total, rows }: { result: ReleaseResult; total: number; rows: PayoutRow[] }) {
   const o = describeRelease(result, total);
   return (
     <p role="status" className={`text-sm ${TONE[o.tone]}`}>
@@ -217,7 +226,7 @@ function ReleaseOutcomeLine({ result, total }: { result: ReleaseResult; total: n
             <span key={r.txHash}>
               {i > 0 ? ", " : null}
               <a className="underline" href={publicEnv.explorerTxUrl(r.txHash)} target="_blank" rel="noreferrer">
-                #{r.milestoneIndex} tx
+                {rows.find((row) => row.milestoneIndex === r.milestoneIndex)?.shortId ?? `#${r.milestoneIndex}`}
               </a>
             </span>
           ))}

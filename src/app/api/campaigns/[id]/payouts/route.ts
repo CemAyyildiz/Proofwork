@@ -9,7 +9,7 @@ import { approveForPayout, confirmClose, confirmReleaseOp, prepareClose, prepare
 
 export const runtime = "nodejs";
 
-const submissionIds = z.array(z.string().min(1)).min(1).max(50);
+const submissionIds = z.array(z.string().min(1).max(64)).min(1).max(50);
 
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve"), submissionIds }),

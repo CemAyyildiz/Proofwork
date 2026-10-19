@@ -7,6 +7,7 @@ import type { Db } from "@/db/client";
 import { campaigns, decisions, escrowOps, payouts, submissions, type Campaign } from "@/db/schema";
 import { assessFunding, describeMissing, feeFloor, TRUSTLINE_RESERVE_XLM, TX_FEE_FLOOR_XLM, USDC_FAUCET_URL } from "@/domain/funding-readiness";
 import { FakeEscrow } from "@/escrow/fake";
+import { BALANCE_TIMEOUT_MS, EscrowBalance } from "@/components/escrow-balance";
 import { jsonRoute } from "@/lib/http";
 import { log } from "@/lib/logger";
 import { changeRole } from "@/services/access";
@@ -1054,24 +1055,99 @@ describe("caps and readiness through the routes and pages", () => {
     expect((await escrowCall(id, { action: "abandon" })).status).toBe(409);
   });
 
-  it("the funder page shows the escrow balance read from chain, and no figure when the read fails", async () => {
+  /** One rubric-passed submission `sub_1` on the campaign. */
+  async function passedSubmission(campaignId: string): Promise<void> {
+    await conn.insert(submissions).values({ id: "sub_1", shortId: "s1", campaignId, contributorPubkey: Keypair.random().publicKey(), workUrl: "https://x.com/a/status/1", status: "decided" });
+    await conn.insert(decisions).values({
+      id: "dec_1",
+      submissionId: "sub_1",
+      reviewerPubkey: Keypair.random().publicKey(),
+      outcome: "PASS",
+      reasonCode: "R00_PASS",
+      signals: {},
+      note: "",
+      canonicalJson: "{}",
+      decisionHash: "h",
+      ledgerKey: "pw:s1",
+    });
+  }
+
+  async function contractOf(id: string): Promise<string> {
+    const contractId = (await conn.select().from(campaigns).where(eq(campaigns.id, id)))[0]?.escrowContractId;
+    if (!contractId) throw new Error("no escrow");
+    return contractId;
+  }
+
+  const balanceLine = async (slug: string, contractId: string) => renderToStaticMarkup(await EscrowBalance({ slug, contractId }));
+
+  /** The logger writes warnings to stderr; the parsed `escrow balance read failed` line, if any. */
+  function balanceWarning(stderr: { mock: { calls: unknown[][] } }): unknown {
+    const line = stderr.mock.calls.map((c) => String(c[0])).find((l) => l.includes("escrow balance read failed"));
+    return line ? JSON.parse(line) : undefined;
+  }
+
+  it("the funder page streams the escrow balance: a reading line first, then the chain figure, and no figure when the read fails", async () => {
     const { id, slug } = await created("40");
     expect(await campaignPage(slug)).not.toContain("Balance");
     await escrowStep(id, "deploy");
     await escrowStep(id, "fund");
-    expect(await campaignPage(slug)).toContain("Balance <strong>40 USDC</strong>");
+    // The page does not wait on the chain read: the balance streams in after it.
+    const page = await campaignPage(slug);
+    expect(page).toContain("Reading balance from Stellar…");
+    expect(page).not.toContain("Balance <strong>");
+    const contractId = await contractOf(id);
+    expect(await balanceLine(slug, contractId)).toContain("Balance <strong>40 USDC</strong>");
 
-    // The page's logger writes warnings to stderr; read them there.
+    // After a 10 USDC release the line follows the chain, not the 40 USDC budget.
+    await passedSubmission(id);
+    expect((await payoutsCall(id, { action: "approve", submissionIds: ["sub_1"] })).status).toBe(200);
+    const prepared = await payoutsCall(id, { action: "prepare", kind: "release", submissionIds: ["sub_1"] });
+    const op = ((await prepared.json()) as { ops: Array<{ opId: string; unsignedXdr: string }> }).ops[0];
+    if (!op) throw new Error("no release prepared");
+    expect((await payoutsCall(id, { action: "submit", kind: "release", opId: op.opId, signedXdr: op.unsignedXdr })).status).toBe(200);
+    expect(await balanceLine(slug, contractId)).toContain("Balance <strong>30 USDC</strong>");
+
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     vi.spyOn(escrow, "getEscrow").mockRejectedValueOnce(new Error("TW answered 503"));
-    const failed = await campaignPage(slug);
+    const failed = await balanceLine(slug, contractId);
     expect(failed).toContain("Balance unavailable, check on-chain");
-    expect(failed).toContain("https://stellar.expert/explorer/testnet/contract/");
-    expect(failed).not.toContain("Balance <strong>");
-    expect(failed).not.toContain("40 USDC</strong>");
-    const warned = stderr.mock.calls.map((c) => String(c[0])).find((line) => line.includes("escrow balance read failed"));
-    expect(warned).toBeDefined();
-    expect(JSON.parse(warned ?? "{}")).toMatchObject({ level: "warn", slug, err: "TW answered 503" });
+    expect(failed).toContain(`https://stellar.expert/explorer/testnet/contract/${contractId}`);
+    expect(failed).not.toContain("<strong>");
+    expect(balanceWarning(stderr)).toMatchObject({ level: "warn", slug, err: "TW answered 503" });
+  });
+
+  it("a balance read that never answers shows no figure once the cap passes, and is logged as timed out", async () => {
+    const { id, slug } = await created("40");
+    await escrowStep(id, "deploy");
+    await escrowStep(id, "fund");
+    const contractId = await contractOf(id);
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    vi.spyOn(escrow, "getEscrow").mockReturnValueOnce(new Promise(() => undefined));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = EscrowBalance({ slug, contractId });
+      await vi.advanceTimersByTimeAsync(BALANCE_TIMEOUT_MS);
+      const html = renderToStaticMarkup(await pending);
+      expect(html).toContain("Balance unavailable, check on-chain");
+      expect(html).not.toContain("<strong>");
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(BALANCE_TIMEOUT_MS).toBe(10_000);
+    expect(balanceWarning(stderr)).toMatchObject({ level: "warn", slug, err: "balance read timed out" });
+  });
+
+  it("an approved payout renders selectable, and Release starts at 0 with a hint until it is ticked", async () => {
+    const { id, slug } = await created("40");
+    await escrowStep(id, "deploy");
+    await escrowStep(id, "fund");
+    await passedSubmission(id);
+    expect((await payoutsCall(id, { action: "approve", submissionIds: ["sub_1"] })).status).toBe(200);
+    const html = await campaignPage(slug);
+    expect(html).toMatch(/<input type="checkbox"/);
+    expect(disabled(html, "Release 0 payout\\(s\\)")).toBe(true);
+    expect(html).toContain("Tick the approved rows to release them.");
+    expect(html).toContain('title="1 approved payout(s) not yet released"');
   });
 
   it("a funded campaign whose funder is over both caps and not ready still approves, releases and closes, and the wallet is never read", async () => {
