@@ -11,6 +11,7 @@ There was no browser and no wallet extension. A script outside the repository di
 - signed the wallet challenge with the funder key
 - called the routes the funder page calls (`/api/campaigns`, `/api/campaigns/<id>/escrow`, `/api/campaigns/<id>/payouts`)
 - signed each transaction the app returned
+- read the funder page five times, each a `GET /campaigns/<slug>` with the funder's session cookie. It searched the returned HTML for `Balance <strong>…</strong>` or `Balance unavailable, check on-chain` and logged what it found. Nothing else on the page was recorded.
 
 The releases went through `releaseSelected` in `src/components/release-flow.ts`. That is the loop the funder page runs: it prepares one transaction for the selection, signs it, submits it, and repeats. The outcome lines below come from `describeRelease`, the function the page uses to build its outcome text.
 
@@ -22,8 +23,8 @@ Not part of this story and not run here: the contributors' submissions and the r
 | Contributor 1 | [`GBNSU4M7…IXS5L`](https://stellar.expert/explorer/testnet/account/GBNSU4M73IBRZFUYOSWMGRY7A6X3CCOAHENGG5I5HYFQQAUNK6BIXS5L) | Generated for this run, discarded after it | Receiver of milestone 1 (submission `s8p1`) |
 | Contributor 2 | [`GDLYXVWO…JEEXU`](https://stellar.expert/explorer/testnet/account/GDLYXVWOU26OJ5ILBV4V52L7ZYWH2MYAMYAN4K7NUM7NRKR4W7YJEEXU) | Generated for this run, discarded after it | Receiver of milestone 2 (submission `s8p2`) |
 | Contributor 3 | [`GAADKP4W…YOFBZ`](https://stellar.expert/explorer/testnet/account/GAADKP4WACMC2J5YYVC2VBGFLVJQNYCKJOVH46LTVBJERQ4IB67YOFBZ) | Generated for this run, discarded after it | Receiver of milestone 3 (submission `s8p3`) |
-| Platform admin | `GBHJQNVV…G4PPA` | The app's server environment | `platformAddress`; appended the three milestones |
-| Platform ops | `GBJZ6AF6…BQMTD` | The app's server environment | `serviceProvider` and `approver`; marked delivered and approved |
+| Platform admin | [`GBHJQNVVF5AENYPS3VIAPSH6R6T2PDMDPPS5LHUD56RGZNTD7SRG4PPA`](https://stellar.expert/explorer/testnet/account/GBHJQNVVF5AENYPS3VIAPSH6R6T2PDMDPPS5LHUD56RGZNTD7SRG4PPA) | The app's server environment | `platformAddress`; appended the three milestones |
+| Platform ops | [`GBJZ6AF6BYYVGT6QLYBJY2PVDXIQ6IAATLLI5LYLDFPPZ6GG2EVBQMTD`](https://stellar.expert/explorer/testnet/account/GBJZ6AF6BYYVGT6QLYBJY2PVDXIQ6IAATLLI5LYLDFPPZ6GG2EVBQMTD) | The app's server environment | `serviceProvider` and `approver`; marked delivered and approved |
 
 Campaign `story-8-selected-release-2gu3ws`: reward 0.2 USDC, budget 0.8 USDC. Escrow [`CAVDQLB2576W54P6YMWI6ZZ3QREUPPUMK7P4BRXXZXD3RGCMWCOGABEE`](https://stellar.expert/explorer/testnet/contract/CAVDQLB2576W54P6YMWI6ZZ3QREUPPUMK7P4BRXXZXD3RGCMWCOGABEE).
 
@@ -74,7 +75,17 @@ Every prepare call named the selection. The server built one release at a time, 
 
 ## The balance line on the funder page
 
-The funder page read the escrow balance from chain at each point. It showed "Balance 0.8 USDC" before approve, "Balance 0.4 USDC" after the first release and "Balance 0.2 USDC" after the second. It also read the balance once more, just before the first release. That time Trustless Work took longer than the page's 4-second limit, so the page showed "Balance unavailable, check on-chain" with the escrow link and no figure, and logged `escrow balance read failed` with `balance read timed out`. The script's own reads of the same escrow took up to 15 seconds during the run.
+At commit `bfa6ffe` the page read the escrow balance from chain before it rendered, with a 4-second limit. Here is what the script found in the HTML each time it fetched the page (times are when the script logged the result):
+
+| Time (UTC) | Point | Found in the HTML |
+|---|---|---|
+| 07:31:14 | After fund, first attempt | `Balance <strong>0.8 USDC</strong>` |
+| 07:32:05 | After fund, second attempt (see [Retried step](#retried-step)) | `Balance <strong>0.8 USDC</strong>` |
+| 07:35:02 | After approve, before the first release | `Balance unavailable, check on-chain` |
+| 07:35:43 | After the first release | `Balance <strong>0.4 USDC</strong>` |
+| 07:36:07 | After the second release | `Balance <strong>0.2 USDC</strong>` |
+
+At 07:35:02 Trustless Work took longer than 4 seconds to answer. The page showed no figure, and the app logged `escrow balance read failed` with `balance read timed out`. The script's own reads of the same escrow took up to 15 seconds during the run. Since this run, the balance streams in after the rest of the page and the limit is 10 seconds.
 
 ## Retried step
 
