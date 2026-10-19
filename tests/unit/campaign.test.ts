@@ -1054,6 +1054,26 @@ describe("caps and readiness through the routes and pages", () => {
     expect((await escrowCall(id, { action: "abandon" })).status).toBe(409);
   });
 
+  it("the funder page shows the escrow balance read from chain, and no figure when the read fails", async () => {
+    const { id, slug } = await created("40");
+    expect(await campaignPage(slug)).not.toContain("Balance");
+    await escrowStep(id, "deploy");
+    await escrowStep(id, "fund");
+    expect(await campaignPage(slug)).toContain("Balance <strong>40 USDC</strong>");
+
+    // The page's logger writes warnings to stderr; read them there.
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    vi.spyOn(escrow, "getEscrow").mockRejectedValueOnce(new Error("TW answered 503"));
+    const failed = await campaignPage(slug);
+    expect(failed).toContain("Balance unavailable, check on-chain");
+    expect(failed).toContain("https://stellar.expert/explorer/testnet/contract/");
+    expect(failed).not.toContain("Balance <strong>");
+    expect(failed).not.toContain("40 USDC</strong>");
+    const warned = stderr.mock.calls.map((c) => String(c[0])).find((line) => line.includes("escrow balance read failed"));
+    expect(warned).toBeDefined();
+    expect(JSON.parse(warned ?? "{}")).toMatchObject({ level: "warn", slug, err: "TW answered 503" });
+  });
+
   it("a funded campaign whose funder is over both caps and not ready still approves, releases and closes, and the wallet is never read", async () => {
     const { id, slug } = await created("100");
     await escrowStep(id, "deploy");
