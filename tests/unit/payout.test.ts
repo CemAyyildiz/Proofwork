@@ -4,7 +4,7 @@ import type { Db } from "@/db/client";
 import { campaigns, decisions, escrowOps, payouts, submissions } from "@/db/schema";
 import { FakeEscrow } from "@/escrow/fake";
 import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/services/campaign";
-import { approveForPayout, campaignForEscrow, confirmClose, prepareClose, recordRemainder } from "@/services/payout";
+import { approveForPayout, campaignForEscrow, confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp, recordRemainder } from "@/services/payout";
 import { makeTestDb } from "./db";
 import { LIMITS, openGate } from "./funder-wallet";
 
@@ -296,6 +296,83 @@ describe("approveForPayout", () => {
     else vi.spyOn(escrow, method).mockResolvedValueOnce([noop]);
     await expect(approve(ids)).rejects.toMatchObject({ code: "ESCROW" });
     expect((await opsOf(kind))[0]?.status).toBe("failed");
+  });
+});
+
+describe("prepareReleaseOp: only the selected payouts", () => {
+  const prepare = (ids: string[]) => prepareReleaseOp(CAMPAIGN, ids, { pubkey: FUNDER }, escrow, conn);
+
+  /** Prepare → sign → submit until the selection has nothing left, as the funder's page does. */
+  async function releaseAll(ids: string[]): Promise<number[]> {
+    const released: number[] = [];
+    for (let i = 0; i <= ids.length; i++) {
+      const [op] = await prepare(ids);
+      if (!op) return released;
+      const res = await confirmReleaseOp({ campaignId: CAMPAIGN, opId: op.opId, signedXdr: op.unsignedXdr }, { pubkey: FUNDER }, escrow, conn);
+      released.push(res.milestoneIndex);
+    }
+    throw new Error("release loop did not end");
+  }
+
+  it("3 approved, 2 selected: exactly those 2 milestones release, the 3rd stays approved", async () => {
+    const { contractId, ids } = await passed(3);
+    await approve(ids);
+    const [a, b, c] = ids;
+    if (!a || !b || !c) throw new Error("three submissions expected");
+
+    expect(await releaseAll([a, c])).toEqual([1, 3]);
+    const ms = (await escrow.getEscrow(contractId)).milestones;
+    expect(ms.map((m) => m.released)).toEqual([false, true, false, true]);
+    expect(await payoutOf(a)).toMatchObject({ status: "released" });
+    expect(await payoutOf(b)).toMatchObject({ status: "approved", releaseTxHash: null });
+    expect(await payoutOf(c)).toMatchObject({ status: "released" });
+
+    // The one left out is released on its own later.
+    expect(await releaseAll([b])).toEqual([2]);
+    expect((await escrow.getEscrow(contractId)).milestones[2]?.released).toBe(true);
+  });
+
+  it("builds nothing for a selection that is not approved, already released or another campaign's", async () => {
+    const { ids } = await passed(3);
+    const [deliveredId, releasedId, passedOnly] = ids;
+    if (!deliveredId || !releasedId || !passedOnly) throw new Error("three submissions expected");
+    await approve([deliveredId, releasedId]);
+    expect(await releaseAll([releasedId])).toEqual([2]);
+
+    // Another campaign of the same funder, with an approved payout of its own.
+    await conn.insert(campaigns).values({
+      id: "cmp_2",
+      slug: "camp-2",
+      title: "Other",
+      brief: "A brief long enough to pass validation.",
+      rewardAmount: "10",
+      budget: "100",
+      deadlineAt: new Date(Date.now() + 86_400_000),
+      funderPubkey: FUNDER,
+      disputeResolverPubkey: "G_DR",
+      escrowContractId: "C_OTHER",
+    });
+    await conn.insert(submissions).values({ id: "sub_x", shortId: "sx", campaignId: "cmp_2", contributorPubkey: "G_CX", workUrl: "https://x.com/a/status/9", status: "decided" });
+    await conn.insert(payouts).values({ id: "pay_x", submissionId: "sub_x", milestoneIndex: 1, amount: "10", status: "approved" });
+    await conn.update(payouts).set({ status: "delivered" }).where(eq(payouts.submissionId, deliveredId));
+
+    const build = vi.spyOn(escrow, "buildRelease");
+    expect(await prepare([releasedId, passedOnly, "sub_x", deliveredId, "sub_missing"])).toEqual([]);
+    expect(build).not.toHaveBeenCalled();
+    expect(await payoutOf("sub_x")).toMatchObject({ status: "approved" });
+  });
+
+  it("an empty selection is refused before anything is read", async () => {
+    await passed(1);
+    const read = vi.spyOn(escrow, "getEscrow");
+    await expect(prepare([])).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("only the campaign's funder can prepare a release", async () => {
+    const { ids } = await passed(1);
+    await approve(ids);
+    await expect(prepareReleaseOp(CAMPAIGN, ids, { pubkey: "G_OTHER" }, escrow, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 });
 

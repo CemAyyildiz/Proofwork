@@ -717,7 +717,7 @@ async function passedSubmission(campaignId: string): Promise<string> {
 }
 
 async function prepared(id: string, kind: "release" | "close"): Promise<{ opId: string; unsignedXdr: string }> {
-  const res = await payoutsCall(id, { action: "prepare", kind });
+  const res = await payoutsCall(id, kind === "release" ? { action: "prepare", kind, submissionIds: ["sub_1"] } : { action: "prepare", kind });
   expect(res.status).toBe(200);
   const op = ((await res.json()) as { ops: Array<{ opId: string; unsignedXdr: string }> }).ops[0];
   if (!op) throw new Error(`no ${kind} prepared`);
@@ -816,7 +816,7 @@ describe("a revoked funder", () => {
     await revokeTeam(token);
 
     for (const body of [
-      { action: "prepare", kind: "release" },
+      { action: "prepare", kind: "release", submissionIds: ["sub_1"] },
       { action: "prepare", kind: "close" },
       { action: "submit", kind: "close", opId: close.opId, signedXdr: close.unsignedXdr },
       { action: "approve", submissionIds: ["sub_1"] },
@@ -857,7 +857,7 @@ describe("a revoked funder", () => {
     // Funded now, so the campaign is the owner's to pay out and close.
     const html = await render(CampaignPage({ params: Promise.resolve({ slug: (await campaignRow(id)).slug }) }));
     expect(html).toContain("Submissions and payouts");
-    expect((await payoutsCall(id, { action: "prepare", kind: "release" })).status).toBe(200);
+    expect((await payoutsCall(id, { action: "prepare", kind: "release", submissionIds: ["sub_1"] })).status).toBe(200);
   });
 
   it("cannot send a fund that was prepared but never submitted", async () => {
@@ -928,6 +928,26 @@ describe("a revoked funder", () => {
     expect((await opRow(close.opId)).status).toBe("intent");
   });
 
+  it("a release prepare names its selection: none, an empty one or more than 50 is refused", async () => {
+    const { id } = await approvedWithCampaign();
+    await escrowStep(id, "deploy");
+    await escrowStep(id, "fund");
+    await passedSubmission(id);
+    expect((await payoutsCall(id, { action: "approve", submissionIds: ["sub_1"] })).status).toBe(200);
+    const tooMany = Array.from({ length: 51 }, (_, i) => `sub_${i}`);
+    for (const body of [
+      { action: "prepare", kind: "release" },
+      { action: "prepare", kind: "release", submissionIds: [] },
+      { action: "prepare", kind: "release", submissionIds: tooMany },
+    ]) {
+      expect((await payoutsCall(id, body)).status).toBe(400);
+    }
+    expect(await conn.select().from(escrowOps).where(eq(escrowOps.kind, "release"))).toHaveLength(0);
+    // A selection that names only another submission builds nothing.
+    const other = await payoutsCall(id, { action: "prepare", kind: "release", submissionIds: ["sub_other"] });
+    expect(await other.json()).toEqual({ ops: [] });
+  });
+
   it("another wallet gains nothing from the payouts route no longer asking for the role", async () => {
     const { id } = await approvedWithCampaign();
     await escrowStep(id, "deploy");
@@ -936,7 +956,7 @@ describe("a revoked funder", () => {
     signIn(OTHER);
     for (const body of [
       { action: "approve", submissionIds: ["sub_1"] },
-      { action: "prepare", kind: "release" },
+      { action: "prepare", kind: "release", submissionIds: ["sub_1"] },
       { action: "prepare", kind: "close" },
     ]) {
       const res = await payoutsRoute(post(`/api/campaigns/${id}/payouts`, body), forCampaign(id));

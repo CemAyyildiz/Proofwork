@@ -325,26 +325,32 @@ function closeConfirmed(campaignId: string, conn: Db): OnConfirmed {
 }
 
 /**
- * Build the funder's next release transaction. One at a time on purpose:
- * every envelope carries the funder account's sequence number, so two
- * prepared together cannot both be submitted. The client loops
- * prepare → sign → submit until nothing is returned.
+ * Build the funder's next release transaction among the selected
+ * submissions. One at a time on purpose: every envelope carries the funder
+ * account's sequence number, so two prepared together cannot both be
+ * submitted. The client loops prepare → sign → submit with the same
+ * selection until nothing is returned. A selected submission that is not
+ * approved, not in this campaign or already released is never built, so the
+ * selection is enforced here and not only in the page.
  */
 export async function prepareReleaseOp(
   campaignId: string,
+  submissionIds: string[],
   actor: { pubkey: string },
   escrow: EscrowPort,
   conn: Db = db,
 ): Promise<PreparedOp[]> {
   const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
+  const selected = [...new Set(submissionIds)];
+  if (selected.length === 0) throw AppError.validation("no submissions selected");
   const kind = "release" as const;
   const wanted: Payout["status"] = "approved";
   const rows = await conn
     .select({ p: payouts })
     .from(payouts)
     .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
-    .where(and(eq(submissions.campaignId, campaignId), eq(payouts.status, wanted)))
+    .where(and(eq(submissions.campaignId, campaignId), inArray(submissions.id, selected), eq(payouts.status, wanted)))
     .orderBy(asc(payouts.milestoneIndex))
     .limit(1);
   const contractId = c.escrowContractId;

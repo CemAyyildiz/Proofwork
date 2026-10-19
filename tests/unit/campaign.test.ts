@@ -1100,7 +1100,7 @@ describe("caps and readiness through the routes and pages", () => {
 
     expect((await payoutsCall(id, { action: "approve", submissionIds: ["sub_1"] })).status).toBe(200);
     for (const kind of ["release", "close"] as const) {
-      const prepared = await payoutsCall(id, { action: "prepare", kind });
+      const prepared = await payoutsCall(id, kind === "release" ? { action: "prepare", kind, submissionIds: ["sub_1"] } : { action: "prepare", kind });
       expect(prepared.status).toBe(200);
       const op = ((await prepared.json()) as { ops: Array<{ opId: string; unsignedXdr: string }> }).ops[0];
       if (!op) throw new Error(`no ${kind} prepared`);

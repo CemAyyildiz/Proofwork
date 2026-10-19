@@ -64,8 +64,11 @@ async function releasable(): Promise<{ contractId: string; payoutId: string }> {
   return { contractId, payoutId: "pay_1" };
 }
 
+/** Every submission these tests stage; the release prepare builds only for selected ones. */
+const SELECTED = ["sub_1", "sub_2"];
+
 async function prepareRelease() {
-  const [op] = await prepareReleaseOp(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
+  const [op] = await prepareReleaseOp(CAMPAIGN, SELECTED, { pubkey: FUNDER }, escrow, conn);
   if (!op) throw new Error("no release prepared");
   return op;
 }
@@ -126,7 +129,7 @@ describe("wallet-signed ops: prepare → submit", () => {
     expect(res.txHash).toBe(hash);
     expect(await opRow(op.opId)).toMatchObject({ status: "confirmed", txHash: hash });
     expect(await payout(payoutId)).toMatchObject({ status: "released", releaseTxHash: hash });
-    expect(await prepareReleaseOp(CAMPAIGN, { pubkey: FUNDER }, escrow, conn)).toEqual([]);
+    expect(await prepareReleaseOp(CAMPAIGN, SELECTED, { pubkey: FUNDER }, escrow, conn)).toEqual([]);
   });
 
   it("submit throws and tx did not land: op failed, error rethrown", async () => {
@@ -340,7 +343,7 @@ describe("prepare reconciles stale and failed rows from chain state", () => {
     await conn.update(escrowOps).set({ status: "confirmed", txHash: hash }).where(eq(escrowOps.id, op.opId));
     await expect(prepareRelease()).rejects.toMatchObject({ code: "CONFLICT" });
     expect(await payout(payoutId)).toMatchObject({ status: "released", releaseTxHash: hash });
-    expect(await prepareReleaseOp(CAMPAIGN, { pubkey: FUNDER }, escrow, conn)).toEqual([]);
+    expect(await prepareReleaseOp(CAMPAIGN, SELECTED, { pubkey: FUNDER }, escrow, conn)).toEqual([]);
   });
 
   it("reconciled fund sets fundedAt", async () => {
