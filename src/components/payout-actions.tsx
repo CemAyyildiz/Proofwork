@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { publicEnv } from "@/config/public-env";
 import { signTransaction } from "@/wallet/kit";
+import { describeRelease, releaseSelected, type PreparedRelease, type ReleasedPayout, type ReleaseResult } from "./release-flow";
 
 export interface PayoutRow {
   submissionId: string;
@@ -29,11 +31,17 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<{ result: ReleaseResult; total: number } | null>(null);
 
   // A payout stuck before approval can be re-selected: the server resumes it from chain state.
   const resumable = new Set<string | null>([null, "milestone_added", "delivered"]);
   const eligible = rows.filter((r) => r.status === "decided" && r.outcome === "PASS" && resumable.has(r.payoutStatus));
+  const releasable = rows.filter((r) => r.payoutStatus === "approved");
   const awaiting = rows.filter((r) => r.status === "pending" || r.status === "appealed").length;
+  // One selection for both actions; each acts only on the selected rows it applies to.
+  const toApprove = eligible.filter((r) => selected.has(r.submissionId)).map((r) => r.submissionId);
+  const toRelease = releasable.filter((r) => selected.has(r.submissionId)).map((r) => r.submissionId);
 
   async function api<T>(body: unknown): Promise<T> {
     const res = await fetch(`/api/campaigns/${campaignId}/payouts`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -46,6 +54,7 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
     setBusy(label);
     setError(null);
     setMsg(null);
+    setOutcome(null);
     try {
       setMsg(await fn());
       router.refresh();
@@ -56,28 +65,46 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
     }
   }
 
+  // The approved rows stay selected, so the next click releases them.
   const approveSelected = () =>
     run("approve", async () => {
-      const r = await api<{ appended: number }>({ action: "approve", submissionIds: [...selected] });
-      setSelected(new Set());
+      const r = await api<{ appended: number }>({ action: "approve", submissionIds: toApprove });
       return `${r.appended} new milestone(s) added; the selected payouts are delivered and approved. Sign the release to pay.`;
     });
 
-  const signAll = (kind: "release" | "close") =>
-    run(kind, async () => {
-      // One transaction at a time: each carries the wallet's sequence number.
-      let n = 0;
-      for (;;) {
-        const { ops } = await api<{ ops: Array<{ opId: string; unsignedXdr: string; milestoneIndex: number | null }> }>({ action: "prepare", kind });
-        const op = ops[0];
-        if (!op) break;
-        const signedXdr = await signTransaction(funderPubkey, op.unsignedXdr);
-        await api({ action: "submit", kind, opId: op.opId, signedXdr });
-        n += 1;
-        if (kind === "close") break;
-      }
-      if (n === 0) return "Nothing to sign.";
-      return kind === "close" ? "Campaign closed. The dispute resolver can now return the remainder." : `${n} ${kind} transaction(s) confirmed.`;
+  async function releaseChosen() {
+    const ids = [...toRelease];
+    setBusy("release");
+    setError(null);
+    setMsg(null);
+    setOutcome(null);
+    try {
+      const result = await releaseSelected({
+        submissionIds: ids,
+        prepare: async (submissionIds) => (await api<{ ops: PreparedRelease[] }>({ action: "prepare", kind: "release", submissionIds })).ops[0] ?? null,
+        sign: (xdr) => signTransaction(funderPubkey, xdr),
+        submit: (op) => api<ReleasedPayout>({ action: "submit", kind: "release", ...op }),
+        onProgress: (n, total) => setProgress(`Signing ${n} of ${total}…`),
+      });
+      setOutcome({ result, total: ids.length });
+      router.refresh();
+    } catch (e) {
+      // releaseSelected reports every step's failure in its result; this is only a bug guard.
+      setError(e instanceof Error ? e.message : "failed");
+    } finally {
+      setProgress(null);
+      setBusy(null);
+    }
+  }
+
+  const closeCampaign = () =>
+    run("close", async () => {
+      const { ops } = await api<{ ops: Array<{ opId: string; unsignedXdr: string }> }>({ action: "prepare", kind: "close" });
+      const op = ops[0];
+      if (!op) return "Nothing to sign.";
+      const signedXdr = await signTransaction(funderPubkey, op.unsignedXdr);
+      await api({ action: "submit", kind: "close", opId: op.opId, signedXdr });
+      return "Campaign closed. The dispute resolver can now return the remainder.";
     });
 
   return (
@@ -94,7 +121,7 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
         </thead>
         <tbody>
           {rows.map((r) => {
-            const canPick = eligible.some((e) => e.submissionId === r.submissionId) && !closed;
+            const canPick = (eligible.some((e) => e.submissionId === r.submissionId) || r.payoutStatus === "approved") && !closed;
             return (
               <tr key={r.submissionId} className="border-t border-neutral-200 align-top">
                 <td className="py-2 pr-2">
@@ -147,17 +174,17 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
 
       {!closed ? (
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" disabled={busy !== null || selected.size === 0} onClick={approveSelected} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
-            {busy === "approve" ? "Adding milestones…" : `Approve ${selected.size} for payout`}
+          <button type="button" disabled={busy !== null || toApprove.length === 0} onClick={approveSelected} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
+            {busy === "approve" ? "Adding milestones…" : `Approve ${toApprove.length} for payout`}
           </button>
-          <button type="button" disabled={busy !== null || counts.toRelease === 0} onClick={() => signAll("release")} className="rounded border border-neutral-300 px-3 py-1.5 text-sm disabled:opacity-50">
-            {busy === "release" ? "Signing…" : `Release ${counts.toRelease} payout(s)`}
+          <button type="button" disabled={busy !== null || toRelease.length === 0} onClick={releaseChosen} className="rounded border border-neutral-300 px-3 py-1.5 text-sm disabled:opacity-50">
+            {busy === "release" ? (progress ?? "Preparing…") : `Release ${toRelease.length} payout(s)`}
           </button>
           <button
             type="button"
             disabled={busy !== null || counts.toRelease > 0 || awaiting > 0}
             title={awaiting > 0 ? `${awaiting} submission(s) still awaiting review` : undefined}
-            onClick={() => signAll("close")}
+            onClick={closeCampaign}
             className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
           >
             {busy === "close" ? "Signing…" : "Close campaign"}
@@ -169,8 +196,35 @@ export function PayoutActions({ campaignId, funderPubkey, rows, counts, closed }
           {awaiting} submission(s) awaiting review. Score them on the <Link className="underline" href="/review">review page</Link>, then approve the passes here.
         </p>
       ) : null}
+      {outcome ? <ReleaseOutcomeLine result={outcome.result} total={outcome.total} /> : null}
       {msg ? <p className="text-sm text-green-700">{msg}</p> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>
+  );
+}
+
+const TONE = { ok: "text-green-700", muted: "text-neutral-600", fail: "text-red-600" } as const;
+
+/** What a release run did: every payout released with its tx link, then what was not sent and why. */
+function ReleaseOutcomeLine({ result, total }: { result: ReleaseResult; total: number }) {
+  const o = describeRelease(result, total);
+  return (
+    <p role="status" className={`text-sm ${TONE[o.tone]}`}>
+      {o.headline ? (
+        <>
+          {o.headline} (
+          {result.released.map((r, i) => (
+            <span key={r.txHash}>
+              {i > 0 ? ", " : null}
+              <a className="underline" href={publicEnv.explorerTxUrl(r.txHash)} target="_blank" rel="noreferrer">
+                #{r.milestoneIndex} tx
+              </a>
+            </span>
+          ))}
+          ).{o.detail ? " " : null}
+        </>
+      ) : null}
+      {o.detail}
+    </p>
   );
 }
