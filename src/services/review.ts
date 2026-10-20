@@ -27,7 +27,7 @@ export interface QueueItem {
   workUrl: string;
   submittedAt: Date;
   status: Submission["status"];
-  campaign: { id: string; slug: string; title: string; brief: string };
+  campaign: { id: string; slug: string; title: string; brief: string; deadlineAt: Date };
   priorDecision: Decision | null;
   /**
    * Other submissions in the same campaign linked to this one by funding
@@ -109,7 +109,7 @@ export async function reviewQueue(conn: Db = db, publicSources: ReadonlySet<stri
     workUrl: r.s.workUrl,
     submittedAt: r.s.submittedAt,
     status: r.s.status,
-    campaign: { id: r.c.id, slug: r.c.slug, title: r.c.title, brief: r.c.brief },
+    campaign: { id: r.c.id, slug: r.c.slug, title: r.c.title, brief: r.c.brief, deadlineAt: r.c.deadlineAt },
     priorDecision: priorBySub.get(r.s.id) ?? null,
     sharedFundingCount: shared.get(r.s.id) ?? null,
   }));
@@ -128,10 +128,11 @@ export const decideSchema = z.object({
 export type DecideInput = z.infer<typeof decideSchema>;
 
 /**
- * Records a decision and commits it on-chain in the same call. If the chain
- * write fails the decision row is still stored with tx_hash null and the
- * error is surfaced; `retryCommit` can finish it. The submission status
- * only advances once the on-chain reference exists (AD-9).
+ * Records a decision and commits it on-chain in the same call. The chain
+ * write comes first: if it fails, nothing is stored, the error is surfaced
+ * (502) and the reviewer can record again. The decision row, its review time
+ * and the submission's new status are written only once the on-chain
+ * reference exists (AD-9).
  *
  * The shared-funding count is the one the card rendered with, posted with the
  * decision and stored beside the review time as given: it is not recomputed

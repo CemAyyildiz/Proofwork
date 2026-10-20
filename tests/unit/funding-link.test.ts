@@ -22,6 +22,7 @@ import { makeTestDb } from "./db";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined }) }));
 const { ReviewCard } = await import("@/components/review-card");
+const { emptyDraft } = await import("@/components/review-state");
 
 const FRIENDBOT = "GAIH3ULLFQ4DGSECF2AR555KZ4KNDGEKN4AFI4SU2M7B43MGK3QJZNSR";
 const PUBLIC = new Set([FRIENDBOT]);
@@ -420,13 +421,21 @@ describe("review card", () => {
           workUrl: "https://x.com/a/status/1",
           submittedAt: "2026-10-12T10:00:00.000Z",
           status: "pending",
-          campaign: { slug: "camp-1", title: "Campaign", brief: "A brief long enough to pass validation." },
+          campaign: { id: "cmp_1", slug: "camp-1", title: "Campaign", brief: "A brief long enough to pass validation.", deadlineAt: "2026-10-20T18:00:00.000Z" },
           priorDecision: null,
           sharedFundingCount,
         },
+        draft: emptyDraft(),
+        now: Date.parse("2026-10-14T10:00:00.000Z"),
+        busy: false,
+        error: null,
+        onSignal: () => undefined,
+        onDraft: () => undefined,
+        onRecord: () => undefined,
       }),
     );
-  const checkboxes = (html: string): string[] => html.match(/<input[^>]*type="checkbox"[^>]*>/g) ?? [];
+  const radios = (html: string): string[] => html.match(/<input[^>]*type="radio"[^>]*>/g) ?? [];
+  const checkedValues = (html: string): string[] => radios(html).filter((r) => /\bchecked=""/.test(r)).map((r) => /value="(\w+)"/.exec(r)?.[1] ?? "");
   const text = (html: string): string => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
   it("a linked card warns with the count and no wallet address", () => {
@@ -437,13 +446,13 @@ describe("review card", () => {
     expect(html).not.toContain("not checked");
   });
 
-  it("a linked card starts with all six signals checked, exactly as an unlinked one", () => {
-    const [linked, unlinked] = [checkboxes(card(2)), checkboxes(card(0))];
-    expect(linked).toHaveLength(6);
-    expect(linked.every((box) => /\bchecked=""/.test(box))).toBe(true);
-    expect(linked).toEqual(unlinked);
-    expect(text(card(2))).toContain("6/6 pass");
-    expect(text(card(2))).toContain("Record PASS");
+  it("a linked card starts with all six signals on pass, exactly as an unlinked one", () => {
+    const [linked, unlinked] = [card(2), card(0)];
+    expect(radios(linked)).toHaveLength(12);
+    expect(checkedValues(linked)).toEqual(Array.from({ length: 6 }, () => "pass"));
+    expect(radios(linked)).toEqual(radios(unlinked));
+    expect(text(linked)).toContain("6 / 6");
+    expect(text(linked)).toContain("Record PASS on-chain");
   });
 
   it("an unlinked card shows no funding note", () => {
@@ -454,6 +463,6 @@ describe("review card", () => {
     const html = card(null);
     expect(text(html)).toContain("Funding source not checked.");
     expect(html).not.toContain("Shared funding source");
-    expect(checkboxes(html)).toEqual(checkboxes(card(0)));
+    expect(radios(html)).toEqual(radios(card(0)));
   });
 });
