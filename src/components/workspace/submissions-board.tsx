@@ -11,6 +11,7 @@ import { Pill, type PillTone } from "@/components/ui/pill";
 import { publicEnv } from "@/config/public-env";
 import type { Payout, Submission } from "@/db/schema";
 import { isReadyToPay, type SubmissionCounts } from "@/domain/campaign-status";
+import { reasonLabel } from "@/domain/rubric";
 import { signTransaction } from "@/wallet/kit";
 import { plural } from "./campaign-phase";
 import { payoutsCall } from "./funder-api";
@@ -270,7 +271,7 @@ function ReleaseOutcomeLine({ result, total, rows }: { result: ReleaseResult; to
 function Row({ r, selectable, selected, onToggle, disabled }: { r: BoardRow; selectable: boolean; selected: boolean; onToggle: (id: string) => void; disabled: boolean }) {
   const review = reviewPill(r);
   const payout = payoutPill(r);
-  const reason = r.reasonCode && r.reasonCode !== "R00_PASS" ? r.reasonCode : null;
+  const reason = r.reasonCode && r.reasonCode !== "R00_PASS" ? reasonLabel(r.reasonCode) : null;
 
   return (
     <tr className={cx("grid grid-cols-[44px_minmax(0,1fr)] border-b border-line align-top last:border-b-0 md:table-row", selected && "bg-white/3")}>
