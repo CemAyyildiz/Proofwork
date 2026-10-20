@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
 import { campaigns, decisions, escrowOps, payouts, submissions } from "@/db/schema";
 import { FakeEscrow } from "@/escrow/fake";
-import { confirmDeploy, confirmFund, prepareDeploy, prepareFund } from "@/services/campaign";
+import { confirmDeploy, confirmFund, prepareDeploy, prepareFund, submissionCountsFor } from "@/services/campaign";
 import { approveForPayout, campaignForEscrow, confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp, recordRemainder } from "@/services/payout";
 import { makeTestDb } from "./db";
 import { LIMITS, openGate } from "./funder-wallet";
@@ -547,5 +547,32 @@ describe("the remainder sweep's record", () => {
   it.each(["", "abc", "A".repeat(64), "a".repeat(63), "a".repeat(65), `${"a".repeat(63)}g`])("refuses %j as a transaction hash and writes nothing", async (bad) => {
     await expect(recordRemainder(CAMPAIGN, bad, conn)).rejects.toMatchObject({ code: "VALIDATION" });
     expect(await remainder()).toBeNull();
+  });
+});
+
+describe("submissionCountsFor", () => {
+  it("counts each campaign's submissions and payouts, and zeroes one without any", async () => {
+    const { ids } = await passed(3);
+    await conn.insert(submissions).values({ id: "sub_p", shortId: "sp", campaignId: CAMPAIGN, contributorPubkey: "G_CP", workUrl: "https://x.com/a/status/99" });
+    await approve([ids[0] as string]);
+    await conn.insert(campaigns).values({
+      id: "cmp_2",
+      slug: "camp-2",
+      title: "Other",
+      brief: "A brief long enough to pass validation.",
+      rewardAmount: "1",
+      budget: "5",
+      deadlineAt: new Date(Date.now() + 86_400_000),
+      funderPubkey: FUNDER,
+      disputeResolverPubkey: "G_DR",
+    });
+
+    const counts = await submissionCountsFor([CAMPAIGN, "cmp_2"], conn);
+    expect(counts.get(CAMPAIGN)).toMatchObject({ total: 4, inReview: 1, readyToPay: 2, awaitingSignature: 1, paid: 0, paidAmount: "0" });
+    expect(counts.get("cmp_2")).toMatchObject({ total: 0, readyToPay: 0, paidAmount: "0" });
+  });
+
+  it("asks nothing of the database for no campaigns", async () => {
+    expect((await submissionCountsFor([], conn)).size).toBe(0);
   });
 });

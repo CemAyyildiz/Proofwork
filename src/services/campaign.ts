@@ -4,7 +4,8 @@ import { and, desc, eq, inArray, isNotNull, isNull, notExists } from "drizzle-or
 import { z } from "zod";
 import { env, type FunderLimits } from "@/config/env";
 import { db, type Db } from "@/db/client";
-import { campaigns, escrowOps, type Campaign, type EscrowOp } from "@/db/schema";
+import { campaigns, escrowOps, payouts, submissions, type Campaign, type EscrowOp } from "@/db/schema";
+import { countSubmissions, type CountRow, type SubmissionCounts } from "@/domain/campaign-status";
 import { assessFunding, describeMissing, type FundingReadiness, type FundingStep } from "@/domain/funding-readiness";
 import { assertPositiveAmount, fromStroops, toStroops } from "@/escrow/amount";
 import type { EscrowPort, Submitted } from "@/escrow/port";
@@ -137,6 +138,24 @@ export async function createCampaign(
 
 export async function listCampaignsForFunder(pubkey: string, conn: Db = db): Promise<Campaign[]> {
   return conn.select().from(campaigns).where(eq(campaigns.funderPubkey, pubkey)).orderBy(desc(campaigns.createdAt));
+}
+
+/**
+ * Submission and payout counts for each of `campaignIds`, read in one query.
+ * A campaign without submissions gets all-zero counts.
+ */
+export async function submissionCountsFor(campaignIds: readonly string[], conn: Db = db): Promise<Map<string, SubmissionCounts>> {
+  const out = new Map<string, SubmissionCounts>();
+  if (campaignIds.length === 0) return out;
+  const rows = await conn
+    .select({ campaignId: submissions.campaignId, status: submissions.status, payoutStatus: payouts.status, payoutAmount: payouts.amount })
+    .from(submissions)
+    .leftJoin(payouts, eq(payouts.submissionId, submissions.id))
+    .where(inArray(submissions.campaignId, [...campaignIds]));
+  const byCampaign = new Map<string, CountRow[]>(campaignIds.map((id) => [id, []]));
+  for (const r of rows) byCampaign.get(r.campaignId)?.push(r);
+  for (const [id, list] of byCampaign) out.set(id, countSubmissions(list));
+  return out;
 }
 
 export async function getCampaignBySlug(slug: string, conn: Db = db): Promise<Campaign | null> {

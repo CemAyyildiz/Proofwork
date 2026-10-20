@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDateShort, formatTimestamp, shortKey, truncateMiddle } from "@/lib/format";
+import { formatDateShort, formatRelative, formatTimestamp, shortKey, truncateMiddle } from "@/lib/format";
 
 const TX = "31c9dd0a7e5b4c2f8d1e6a3b9c0f4e7d2a5b8c1e4f7a0d3b6c9e2f5a815dcff4";
 const WALLET = "GDXGQ7VJ2Y6XJ3KZ5L4M8N2P7R9S3T6U1W4X8Y2Z5A7B9C3D6EQR4F2A";
@@ -47,5 +47,27 @@ describe("formatDateShort", () => {
 describe("formatTimestamp", () => {
   it("reads as a UTC date and time to the second", () => {
     expect(formatTimestamp(new Date("2026-10-13T09:31:07.159Z"))).toBe("2026-10-13 09:31:07 UTC");
+  });
+});
+
+describe("formatRelative", () => {
+  const now = new Date("2026-10-14T12:00:00Z");
+  const at = (ms: number) => new Date(now.getTime() + ms);
+  const H = 3_600_000;
+  const D = 24 * H;
+
+  it("says how far ahead a date is", () => {
+    expect(formatRelative(at(6 * D + 4 * H), now)).toBe("in 6d 4h");
+    expect(formatRelative(at(3 * H + 59 * 60_000), now)).toBe("in 3h");
+    expect(formatRelative(at(25 * 60_000), now)).toBe("in 25m");
+  });
+
+  it("says how long ago a date was, days only past a week", () => {
+    expect(formatRelative(at(-(8 * D + 15 * H)), now)).toBe("8d ago");
+    expect(formatRelative(at(-(2 * D)), now)).toBe("2d ago");
+  });
+
+  it("says just now inside a minute", () => {
+    expect(formatRelative(at(-30_000), now)).toBe("just now");
   });
 });

@@ -8,6 +8,7 @@ import { campaigns, decisions, escrowOps, payouts, submissions, type Campaign } 
 import { assessFunding, describeMissing, feeFloor, TRUSTLINE_RESERVE_XLM, TX_FEE_FLOOR_XLM, USDC_FAUCET_URL } from "@/domain/funding-readiness";
 import { FakeEscrow } from "@/escrow/fake";
 import { BALANCE_TIMEOUT_MS, EscrowBalance } from "@/components/escrow-balance";
+import { shortKey } from "@/lib/format";
 import { jsonRoute } from "@/lib/http";
 import { log } from "@/lib/logger";
 import { changeRole } from "@/services/access";
@@ -718,7 +719,12 @@ describe("caps and readiness through the routes and pages", () => {
     return renderToStaticMarkup((await Page({ params: Promise.resolve({ slug }) })) as ReactElement);
   }
 
-  const disabled = (html: string, label: string) => new RegExp(`<button[^>]*disabled=""[^>]*>${label}`).test(html);
+  /** Whether the button whose text starts with `label` (a regex source) is disabled; a missing button fails the test. */
+  const disabled = (html: string, label: string) => {
+    const m = new RegExp(`<button([^>]*)>(?:<span[^>]*>)*${label}`).exec(html);
+    if (!m) throw new Error(`no "${label}" button on the page`);
+    return /disabled=""/.test(m[1] ?? "");
+  };
 
   it("the new-campaign page shows both limits and the current usage, from the environment", async () => {
     const empty = await newCampaignPage();
@@ -957,7 +963,7 @@ describe("caps and readiness through the routes and pages", () => {
 
     // Closed: no escrow controls, and neither fund step is served.
     const after = await campaignPage(slug);
-    expect(after).toContain(">closed<");
+    expect(after).toContain(">Abandoned<");
     expect(after).not.toContain("2 · Fund budget");
     expect(after).not.toContain("Abandon this campaign");
     const fundRes = await escrowCall(id, { action: "prepare", kind: "fund" });
@@ -1145,9 +1151,10 @@ describe("caps and readiness through the routes and pages", () => {
     expect((await payoutsCall(id, { action: "approve", submissionIds: ["sub_1"] })).status).toBe(200);
     const html = await campaignPage(slug);
     expect(html).toMatch(/<input type="checkbox"/);
-    expect(disabled(html, "Release 0 payout\\(s\\)")).toBe(true);
+    expect(disabled(html, "Release 0 payouts")).toBe(true);
     expect(html).toContain("Tick the approved rows to release them.");
-    expect(html).toContain('title="1 approved payout(s) not yet released"');
+    expect(html).toContain('title="1 approved payout not yet released"');
+    expect(disabled(html, "Close campaign")).toBe(true);
   });
 
   it("a funded campaign whose funder is over both caps and not ready still approves, releases and closes, and the wallet is never read", async () => {
@@ -1205,5 +1212,233 @@ describe("caps and readiness through the routes and pages", () => {
     expect((await conn.select().from(payouts))[0]).toMatchObject({ status: "released" });
     expect((await campaignRow(id)).closedAt).toBeInstanceOf(Date);
     expect(asked).toEqual([]);
+  });
+
+  describe("stage, dates and next step on the list and the campaign page", () => {
+    const DAY = 86_400_000;
+    const RESOLVER = Keypair.random().publicKey();
+    const TX = (c: string) => c.repeat(64);
+
+    async function campaignsPage(): Promise<string> {
+      const { default: Page } = await import("@/app/(workspace)/campaigns/page");
+      return renderToStaticMarkup((await Page()) as ReactElement);
+    }
+
+    /** Markup as the reader sees it: tags dropped, whitespace collapsed. */
+    const text = (html: string) =>
+      html
+        .replace(/<!-- -->/g, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&#x27;/g, "'")
+        .replace(/\s+/g, " ")
+        .replace(/ ([.,)])/g, "$1");
+
+    let n = 0;
+    /** A campaign of FUNDER's, written straight to the columns the stage is read from, with submissions in the given states. */
+    async function seeded(over: Partial<Campaign>, subs: Array<{ status: "pending" | "decided" | "paid" | "rejected"; payout?: "approved" | "released" }> = []): Promise<Campaign> {
+      n += 1;
+      const id = `cmp_seed_${n}`;
+      const [c] = await conn
+        .insert(campaigns)
+        .values({
+          id,
+          slug: `seed-${n}`,
+          title: `Seeded ${n}`,
+          brief: "A brief long enough to pass validation.",
+          rewardAmount: "5",
+          budget: "50",
+          deadlineAt: new Date(Date.now() + DAY),
+          funderPubkey: FUNDER,
+          disputeResolverPubkey: RESOLVER,
+          ...over,
+          // The contract ID is unique per campaign.
+          escrowContractId: over.escrowContractId ? `${over.escrowContractId}_${n}` : null,
+        })
+        .returning();
+      if (!c) throw new Error("no campaign");
+      for (const [i, sub] of subs.entries()) {
+        const sid = `${id}_s${i}`;
+        await conn.insert(submissions).values({ id: sid, shortId: `${n}x${i}`, campaignId: id, contributorPubkey: Keypair.random().publicKey(), workUrl: `https://x.com/a/status/${n}${i}`, status: sub.status });
+        if (sub.status === "decided" || sub.status === "paid") {
+          await conn.insert(decisions).values({
+            id: `${sid}_d`,
+            submissionId: sid,
+            reviewerPubkey: Keypair.random().publicKey(),
+            outcome: "PASS",
+            reasonCode: "R00_PASS",
+            signals: {},
+            note: "",
+            canonicalJson: "{}",
+            decisionHash: "h",
+            ledgerKey: `pw:${sid}`,
+          });
+        }
+        if (sub.payout) {
+          await conn.insert(payouts).values({
+            id: `${sid}_p`,
+            submissionId: sid,
+            milestoneIndex: i + 1,
+            amount: "5",
+            status: sub.payout,
+            releaseTxHash: sub.payout === "released" ? TX(String(i + 1)) : null,
+          });
+        }
+      }
+      return c;
+    }
+
+    const funded = { escrowContractId: "C_SEEDED", fundedAt: new Date(Date.now() - 3 * DAY) };
+    const ended = { ...funded, deadlineAt: new Date(Date.now() - DAY) };
+
+    /** The list row's words for one campaign: its card, from the stage pill to the next step. */
+    function rowText(list: string, c: Campaign): string {
+      const at = list.indexOf(`href="/campaigns/${c.slug}"`);
+      if (at < 0) throw new Error(`no row for ${c.slug}`);
+      return text(list.slice(list.indexOf(">", at) + 1, list.indexOf("</a>", at)));
+    }
+
+    async function both(c: Campaign): Promise<{ row: string; page: string; html: string }> {
+      const html = await campaignPage(c.slug);
+      return { row: rowText(await campaignsPage(), c), page: text(html), html };
+    }
+
+    it("an empty list names the connected wallet and says campaigns are listed under the wallet that funded them", async () => {
+      const html = await campaignsPage();
+      expect(text(html)).toContain(`No campaigns funded by ${shortKey(FUNDER)}. Campaigns are listed under the wallet that funded them.`);
+      expect(html).toContain(`aria-label="${FUNDER}"`);
+      expect(html).toContain('href="/campaigns/new"');
+    });
+
+    it("open: funded before the deadline with nothing pending, the next step is the contributors' to share the link", async () => {
+      const c = await seeded(funded);
+      const { row, page, html } = await both(c);
+      for (const t of [row, page]) {
+        expect(t).toContain("Open");
+        expect(t).toContain("Submissions close");
+      }
+      expect(row).toContain("Next: Share the link · Contributors");
+      expect(page).toContain("Share the link");
+      expect(page).toContain("Waits on Contributors");
+      expect(page).toContain("Signed in with");
+      expect(html).toContain(`aria-label="${FUNDER}"`);
+    });
+
+    it("reviewing and paying: after the deadline with one in review, the reviewer's step, and never shown as open", async () => {
+      const c = await seeded(ended, [{ status: "pending" }]);
+      const { row, page, html } = await both(c);
+      expect(row).toContain("Reviewing and paying");
+      expect(row).toContain("Next: Review 1 · Reviewer");
+      expect(row).toContain("Submissions closed");
+      expect(page).toContain("Review 1");
+      expect(page).toContain("Waits on Reviewer");
+      for (const h of [html, await campaignsPage()]) expect(h).not.toContain(">Open<");
+      // Close is off while a submission is in review, and says why.
+      expect(disabled(html, "Close campaign")).toBe(true);
+      expect(page).toContain("1 submission still in review");
+    });
+
+    it("approved and not released: the funder's step to release them, and the row counts them as awaiting your signature", async () => {
+      const c = await seeded(ended, [{ status: "decided", payout: "approved" }, { status: "decided", payout: "approved" }]);
+      const { row, page, html } = await both(c);
+      expect(row).toContain("Reviewing and paying");
+      expect(row).toContain("2 awaiting your signature");
+      expect(row).toContain("Next: Release 2 · Funder");
+      expect(page).toContain("Release 2");
+      expect(page).toContain("Waits on Funder (you)");
+      // Story 8's flow: each approved row has a checkbox, Release counts the ticked ones only.
+      expect(html.match(/<input type="checkbox"/g)).toHaveLength(2);
+      expect(disabled(html, "Release 0 payouts")).toBe(true);
+      expect(disabled(html, "Approve 0 for payout")).toBe(true);
+      expect(html).toContain('title="2 approved payouts not yet released"');
+    });
+
+    it("ready to close: after the deadline with nothing pending, the funder's step is Close campaign, and Close is on", async () => {
+      const c = await seeded(ended, [{ status: "paid", payout: "released" }, { status: "rejected" }]);
+      const { row, page, html } = await both(c);
+      expect(row).toContain("Ready to close");
+      expect(row).toContain("Next: Close campaign · Funder");
+      expect(page).toContain("Waits on Funder (you)");
+      expect(disabled(html, "Close campaign")).toBe(false);
+    });
+
+    it("a payout run holding the lease keeps Close off with its reason", async () => {
+      const c = await seeded({ ...ended, payoutLockUntil: new Date(Date.now() + 60_000) });
+      const html = await campaignPage(c.slug);
+      expect(text(html)).toContain("Ready to close");
+      expect(disabled(html, "Close campaign")).toBe(true);
+      expect(text(html)).toContain("payout run in progress");
+      expect(html).toContain('title="payout run in progress"');
+      // A lapsed lease blocks nothing.
+      await conn.update(campaigns).set({ payoutLockUntil: new Date(Date.now() - 1000) }).where(eq(campaigns.id, c.id));
+      expect(disabled(await campaignPage(c.slug), "Close campaign")).toBe(false);
+    });
+
+    it("closed without a remainder tx: closed awaiting return, the resolver's step, named by its wallet", async () => {
+      const closedAt = new Date(Date.now() - 1000);
+      const c = await seeded({ ...ended, closedAt });
+      const { row, page, html } = await both(c);
+      expect(row).toContain("Closed, awaiting return");
+      expect(row).toContain("Next: Return remainder · Resolver");
+      expect(row).toContain("Closed");
+      expect(page).toContain("Return remainder");
+      expect(page).toContain("Waits on Resolver");
+      expect(html).toContain(`aria-label="${RESOLVER}"`);
+      expect(html).not.toContain("Close campaign");
+    });
+
+    it("settled: funded, paid and returned, each with its transaction", async () => {
+      const c = await seeded({ ...ended, closedAt: new Date(Date.now() - 2000), remainderTxHash: TX("f") }, [{ status: "paid", payout: "released" }]);
+      await conn.insert(escrowOps).values({ id: "op_fund", campaignId: c.id, kind: "fund", idempotencyKey: "fund-seed", payload: {}, status: "confirmed", txHash: TX("e") });
+      await conn.insert(escrowOps).values({ id: "op_close", campaignId: c.id, kind: "dispute", idempotencyKey: "close-seed", payload: {}, status: "confirmed", txHash: TX("d") });
+      const { row, page, html } = await both(c);
+      expect(row).toContain("Settled");
+      expect(row).toContain("Next: Nothing left to do");
+      expect(page).toContain("Funded 50 USDC");
+      expect(page).toContain("Paid 5 USDC in 1 payout");
+      expect(page).toContain("Returned Remainder to the funder");
+      for (const tx of [TX("e"), TX("1"), TX("f"), TX("d")]) expect(html).toContain(`aria-label="${tx}"`);
+    });
+
+    it("an expired draft or unfunded campaign says the deadline passed and is not nudged to deploy or fund; abandon stays", async () => {
+      const past = new Date(Date.now() - DAY);
+      const d = await seeded({ deadlineAt: past });
+      const draftView = await both(d);
+      expect(draftView.row).toContain("Draft");
+      expect(draftView.row).toContain("Deadline passed");
+      expect(draftView.row).toContain("Next: Deadline passed");
+      expect(draftView.row).not.toContain("Deploy");
+      expect(draftView.html).not.toContain("1 · Deploy escrow");
+      expect(draftView.html).not.toContain("Wallet readiness");
+
+      const a = await seeded({ deadlineAt: past, escrowContractId: "C_EXPIRED" });
+      const unfunded = await both(a);
+      expect(unfunded.row).toContain("Awaiting funding");
+      expect(unfunded.row).toContain("Deadline passed");
+      expect(unfunded.row).not.toContain("Fund 50");
+      expect(unfunded.html).not.toContain("2 · Fund budget");
+      expect(unfunded.html).toContain("Abandon this campaign instead");
+      expect(asked).toEqual([]);
+    });
+
+    it("the list groups by stage, and the row and the page agree on the stage and the next step", async () => {
+      const cs = [
+        await seeded(funded),
+        await seeded(ended, [{ status: "pending" }]),
+        await seeded(ended),
+        await seeded({ ...ended, closedAt: new Date(Date.now() - 1000) }),
+      ];
+      const list = await campaignsPage();
+      const sections = [...list.matchAll(/<section[^>]*aria-label="([^"]+)"/g)].map((m) => m[1]);
+      expect(sections).toEqual(["Ready to close", "Reviewing and paying", "Open", "Closed, awaiting return"]);
+      for (const c of cs) {
+        const row = rowText(list, c);
+        const page = text(await campaignPage(c.slug));
+        const stage = /^\s*(\S.*?) Seeded/.exec(row)?.[1];
+        const next = / Next: (.+?)(?: · \w+)?\s*$/.exec(row)?.[1];
+        if (!stage || !next) throw new Error(`row without stage or next step: ${row}`);
+        expect(page).toContain(`${stage} ${c.title}`);
+        expect(page).toContain(`Next step ${next}`);
+      }
+    });
   });
 });

@@ -53,7 +53,7 @@ export function HashChip({ value, head = 6, tail = 6, href, className }: HashChi
   return (
     <span
       className={cx(
-        "group inline-flex h-[30px] items-center gap-1 rounded-sm border border-line bg-sunken pl-2.5 pr-1 font-mono text-[12.5px] font-medium text-text-2",
+        "group inline-flex h-[30px] shrink-0 items-center gap-1 whitespace-nowrap rounded-sm border border-line bg-sunken pl-2.5 pr-1 font-mono text-[12.5px] font-medium text-text-2",
         "transition-colors duration-200 hover:border-line-strong hover:text-text",
         className,
       )}

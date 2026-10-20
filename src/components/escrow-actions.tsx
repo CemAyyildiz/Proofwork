@@ -16,12 +16,15 @@ export function EscrowActions({
   campaignId,
   funderPubkey,
   stage,
+  offerStep = true,
   blocked = false,
   canAbandon = false,
 }: {
   campaignId: string;
   funderPubkey: string;
   stage: Stage;
+  /** False for a campaign whose deadline passed before it was funded: deploy and fund are not offered, abandon still is. */
+  offerStep?: boolean;
   /** A limit is reached, or the wallet is not ready or could not be checked: deploy and fund stay off. The server refuses them as well. */
   blocked?: boolean;
   /** Deployed, not funded, and no fund transaction was ever sent: the campaign can be given up. */
@@ -65,12 +68,12 @@ export function EscrowActions({
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
-        {stage === "draft" ? (
+        {stage === "draft" && offerStep ? (
           <button type="button" disabled={busy !== null || blocked} onClick={() => run("deploy")} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
             {busy === "deploy" ? "Waiting for wallet…" : "1 · Deploy escrow"}
           </button>
         ) : null}
-        {stage === "deployed" ? (
+        {stage === "deployed" && offerStep ? (
           <button type="button" disabled={busy !== null || blocked} onClick={() => run("fund")} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
             {busy === "fund" ? "Waiting for wallet…" : "2 · Fund budget"}
           </button>

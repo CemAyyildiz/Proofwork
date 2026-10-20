@@ -1,13 +1,20 @@
 import Link from "next/link";
 import { AccessRequestForm } from "@/components/access-request-form";
 import { SignedOut } from "@/components/signed-out";
+import { buttonClasses } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { HashChip } from "@/components/ui/hash-chip";
 import { Pill } from "@/components/ui/pill";
+import { CampaignList, type CampaignListItem } from "@/components/workspace/campaign-list";
+import { PageHeader } from "@/components/workspace/page-header";
+import { publicEnv } from "@/config/public-env";
 import { db } from "@/db/client";
 import type { Campaign, FunderRequest } from "@/db/schema";
+import { NO_SUBMISSIONS } from "@/domain/campaign-status";
 import { currentUser } from "@/lib/current-user";
-import { formatDate, formatUsdc } from "@/lib/format";
+import { formatDate, shortKey } from "@/lib/format";
 import { canManageCampaign, funderAccessState, type FunderAccessState } from "@/services/access";
-import { listCampaignsForFunder } from "@/services/campaign";
+import { listCampaignsForFunder, submissionCountsFor } from "@/services/campaign";
 
 export const dynamic = "force-dynamic";
 
@@ -15,26 +22,49 @@ export default async function CampaignsPage() {
   const user = await currentUser();
   if (!user) return <SignedOut />;
   const owned = await listCampaignsForFunder(user.pubkey);
+  const now = new Date();
+  const wallet = <WalletLine pubkey={user.pubkey} />;
 
   if (user.roles.has("funder")) {
+    const items = await withCounts(owned);
     return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Campaigns</h1>
-          <Link href="/campaigns/new" className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white">New campaign</Link>
-        </div>
-        {owned.length === 0 ? <p className="text-neutral-600">No campaigns yet.</p> : <CampaignList rows={owned} />}
+      <div className="space-y-10">
+        <PageHeader
+          title="Campaigns"
+          description={wallet}
+          action={
+            <Link href="/campaigns/new" className={buttonClasses("primary", "md")}>
+              New campaign
+            </Link>
+          }
+        />
+        {items.length === 0 ? (
+          <Card className="p-8 text-center sm:p-10">
+            <p className="text-[15px] leading-normal text-text-2">
+              No campaigns funded by{" "}
+              <span className="font-mono font-medium text-text" title={user.pubkey}>
+                {shortKey(user.pubkey)}
+              </span>
+              . Campaigns are listed under the wallet that funded them.
+            </p>
+            <Link href="/campaigns/new" className={`${buttonClasses("secondary", "sm")} mt-5`}>
+              New campaign
+            </Link>
+          </Card>
+        ) : (
+          <CampaignList items={items} now={now} />
+        )}
       </div>
     );
   }
 
   // Without the funder role a wallet still reaches the campaigns it funded, so it can pay out and close them.
-  const kept = owned.filter((c) => canManageCampaign(c, user));
+  const kept = await withCounts(owned.filter((c) => canManageCampaign(c, user)));
   const access = await funderAccessState(user.pubkey, db);
 
   return (
-    <div className="space-y-8">
-      <h1 className="text-2xl font-semibold">Campaigns</h1>
+    <div className="space-y-10">
+      <PageHeader title="Campaigns" description={wallet} />
       {user.roles.has("reviewer") ? (
         <p className="text-sm text-text-2">
           Here to review?{" "}
@@ -45,36 +75,31 @@ export default async function CampaignsPage() {
       ) : null}
       <FunderAccess state={access.state} request={access.request} />
       {kept.length > 0 ? (
-        <section className="space-y-3">
-          <h2 className="font-medium">Campaigns you funded</h2>
-          <p className="text-sm text-text-2">
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold tracking-[-0.02em]">Campaigns you funded</h2>
+          <p className="max-w-[640px] text-sm text-text-2">
             This wallet no longer has funder access. You can still approve payouts, release them and close these campaigns.
           </p>
-          <CampaignList rows={kept} />
+          <CampaignList items={kept} now={now} />
         </section>
       ) : null}
     </div>
   );
 }
 
-function CampaignList({ rows }: { rows: Campaign[] }) {
+/** The connected wallet, so a funder can tell which wallet the list belongs to. */
+function WalletLine({ pubkey }: { pubkey: string }) {
   return (
-    <ul className="divide-y divide-neutral-200 rounded border border-neutral-200">
-      {rows.map((c) => (
-        <li key={c.id} className="flex items-center justify-between px-4 py-3">
-          <div>
-            <Link href={`/campaigns/${c.slug}`} className="font-medium hover:underline">{c.title}</Link>
-            <p className="text-xs text-neutral-500">
-              {formatUsdc(c.budget)} budget · {formatUsdc(c.rewardAmount)} per approved submission · closes {formatDate(c.deadlineAt)}
-            </p>
-          </div>
-          <span className="text-xs text-neutral-500">
-            {c.closedAt ? "closed" : c.fundedAt ? "funded" : c.escrowContractId ? "deployed" : "draft"}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <span className="flex flex-wrap items-center gap-2">
+      <span>Signed in with</span>
+      <HashChip value={pubkey} head={4} tail={4} href={publicEnv.explorerAccountUrl(pubkey)} />
+    </span>
   );
+}
+
+async function withCounts(list: Campaign[]): Promise<CampaignListItem[]> {
+  const counts = await submissionCountsFor(list.map((c) => c.id));
+  return list.map((campaign) => ({ campaign, counts: counts.get(campaign.id) ?? NO_SUBMISSIONS }));
 }
 
 /** What a wallet without the funder role sees: its pending request, or the form under what happened last. */
