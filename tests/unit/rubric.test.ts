@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { evaluate, PASS_THRESHOLD, reasonCodeSchema, SIGNALS, validateReason, type Signals } from "@/domain/rubric";
+import { evaluate, PASS_THRESHOLD, REASON_LABELS, reasonCodeSchema, reasonLabel, SIGNALS, validateReason, type Signals } from "@/domain/rubric";
 import { ledgerKey } from "@/ledger/canonical";
 
 const allPass: Signals = {
@@ -29,8 +29,10 @@ describe("rubric", () => {
     expect(validateReason(fail, "R00_PASS").ok).toBe(false);
   });
 
+  const readDoc = () => readFileSync(fileURLToPath(new URL("../../docs/rubric.md", import.meta.url)), "utf8");
+
   it("keeps docs/rubric.md in sync with the code", () => {
-    const doc = readFileSync(fileURLToPath(new URL("../../docs/rubric.md", import.meta.url)), "utf8");
+    const doc = readDoc();
     const phrases = new Set([
       ...SIGNALS.map((s) => `${s.label} · fail code \`${s.failCode}\``),
       ...reasonCodeSchema.options,
@@ -42,5 +44,18 @@ describe("rubric", () => {
       ...counts.filter((item) => !new RegExp(`\\b${item}\\b`).test(doc)),
     ];
     expect(missing, `missing from docs/rubric.md: ${missing.join(", ")}`).toEqual([]);
+  });
+
+  it("takes each signal's question and fail text verbatim from docs/rubric.md", () => {
+    const doc = readDoc();
+    // The question line and the start of the "Counts as fail" cell, exactly as the reviewer guide shows them.
+    const missing = SIGNALS.flatMap((s) => [`*Question: ${s.question}*`, `| ${s.failsWhen} *E.g.`]).filter((t) => !doc.includes(t));
+    expect(missing, `not verbatim in docs/rubric.md: ${missing.join(" / ")}`).toEqual([]);
+  });
+
+  it("labels every reason code and passes an unknown code through", () => {
+    expect(Object.keys(REASON_LABELS).sort()).toEqual([...reasonCodeSchema.options].sort());
+    expect(reasonLabel("R03_TASK")).toBe("R03_TASK · Task not done");
+    expect(reasonLabel("R99_UNKNOWN")).toBe("R99_UNKNOWN");
   });
 });
