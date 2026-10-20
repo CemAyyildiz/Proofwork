@@ -5,7 +5,7 @@ import { TestnetBadge } from "@/components/ui/testnet-badge";
 import { WorkspaceNav } from "@/components/workspace-nav";
 import { db } from "@/db/client";
 import { currentUser } from "@/lib/current-user";
-import { campaignsNav } from "@/services/access";
+import { adminNav, campaignsNav } from "@/services/access";
 
 /** Public shell: sticky blurred top bar over a centred main. */
 export default async function PublicLayout({ children }: { children: React.ReactNode }) {
@@ -26,7 +26,7 @@ export default async function PublicLayout({ children }: { children: React.React
             <WorkspaceNav
               campaigns={user ? await campaignsNav(user, db) : null}
               reviewer={user?.roles.has("reviewer") ?? false}
-              ops={user?.roles.has("ops") ?? false}
+              admin={user ? await adminNav(user, db) : false}
               variant="top"
               showPublic={false}
             />

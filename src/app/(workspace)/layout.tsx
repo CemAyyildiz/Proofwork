@@ -5,7 +5,7 @@ import { WalletButton } from "@/components/wallet-button";
 import { WorkspaceNav } from "@/components/workspace-nav";
 import { db } from "@/db/client";
 import { currentUser } from "@/lib/current-user";
-import { campaignsNav } from "@/services/access";
+import { adminNav, campaignsNav } from "@/services/access";
 
 /**
  * Signed-in workspace shell: a 248px sidebar from lg up, a top bar below it.
@@ -15,7 +15,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
   const user = await currentUser();
   const campaigns = user ? await campaignsNav(user, db) : null;
   const reviewer = user?.roles.has("reviewer") ?? false;
-  const ops = user?.roles.has("ops") ?? false;
+  const admin = user ? await adminNav(user, db) : false;
   const pubkey = user?.pubkey ?? null;
 
   return (
@@ -24,7 +24,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
         <Link href="/" className="mx-2.5 mb-5 mt-1.5 self-start rounded-sm" aria-label="Proofwork home">
           <Logo />
         </Link>
-        <WorkspaceNav campaigns={campaigns} reviewer={reviewer} ops={ops} variant="side" />
+        <WorkspaceNav campaigns={campaigns} reviewer={reviewer} admin={admin} variant="side" />
         <div className="mt-auto grid justify-items-start gap-2.5">
           <TestnetBadge />
           <WalletButton pubkey={pubkey} menuPlacement="up" className="flex-wrap" />
@@ -43,7 +43,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
                   <Logo />
                 </span>
               </Link>
-              <WorkspaceNav campaigns={campaigns} reviewer={reviewer} ops={ops} variant="top" />
+              <WorkspaceNav campaigns={campaigns} reviewer={reviewer} admin={admin} variant="top" />
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <span className="hidden sm:contents">

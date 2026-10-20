@@ -97,17 +97,18 @@ export interface WorkspaceNavProps {
   campaigns: "manage" | "request" | null;
   /** Role flags come from the server session; the nav never decides access itself. */
   reviewer: boolean;
-  ops: boolean;
+  /** Admin: the `ops` wallet, or a wallet that is the dispute resolver of a campaign awaiting its return. */
+  admin: boolean;
   /** "side" is the ≥ lg rail with group headings; "top" is the compact row for narrow screens and the public bar. */
   variant: "side" | "top";
   /** Include Home in the Public group. Off in the public top bar, where the logo already links home. */
   showPublic?: boolean;
 }
 
-export function WorkspaceNav({ campaigns, reviewer, ops, variant, showPublic = true }: WorkspaceNavProps) {
+export function WorkspaceNav({ campaigns, reviewer, admin, variant, showPublic = true }: WorkspaceNavProps) {
   const pathname = usePathname();
   const campaignsItem = campaigns === "manage" ? CAMPAIGNS : campaigns === "request" ? { ...CAMPAIGNS, label: "Run a campaign" } : null;
-  const workspace = [campaignsItem, reviewer ? REVIEW : null, ops ? ADMIN : null].filter((i): i is NavItem => i !== null);
+  const workspace = [campaignsItem, reviewer ? REVIEW : null, admin ? ADMIN : null].filter((i): i is NavItem => i !== null);
   const pub = showPublic ? [EXPLORE, HOME] : [EXPLORE];
 
   if (variant === "top") {

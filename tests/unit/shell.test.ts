@@ -18,6 +18,7 @@ vi.mock("@/lib/current-user", () => ({ currentUser: async () => session.user }))
 vi.mock("@/db/client", () => ({ db: {} }));
 vi.mock("@/services/access", () => ({
   campaignsNav: async (user: { roles: Set<string> }) => (user.roles.has("funder") ? "manage" : "request"),
+  adminNav: async (user: { roles: Set<string> }) => user.roles.has("ops"),
 }));
 
 const { WalletButton } = await import("@/components/wallet-button");
@@ -60,7 +61,7 @@ describe("wallet control", () => {
 
 describe("workspace nav", () => {
   it("shows only the Public group when signed out", () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: null, reviewer: false, ops: false, variant: "side" }));
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: null, reviewer: false, admin: false, variant: "side" }));
     expect(html).toContain("Public");
     expect(html).not.toContain("Workspace");
     expect(html).not.toContain('href="/campaigns"');
@@ -68,21 +69,21 @@ describe("workspace nav", () => {
   });
 
   it("shows only the items for the roles held", () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: "manage", reviewer: false, ops: false, variant: "side" }));
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: "manage", reviewer: false, admin: false, variant: "side" }));
     expect(html).toContain("Campaigns");
     expect(html).not.toContain("Run a campaign");
     expect(html).not.toContain(">Review<");
   });
 
   it("labels the campaigns item Run a campaign for a wallet that would find the request form there", () => {
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: "request", reviewer: false, ops: false, variant: "side" }));
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: "request", reviewer: false, admin: false, variant: "side" }));
     expect(html).toMatch(/href="\/campaigns"[^>]*>.*?Run a campaign<\/a>/);
     expect(html).not.toContain("Campaigns");
   });
 
   it("marks the item that owns the current path", () => {
     nav.pathname = "/campaigns/try-proofwork";
-    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: "manage", reviewer: true, ops: false, variant: "side" }));
+    const html = renderToStaticMarkup(createElement(WorkspaceNav, { campaigns: "manage", reviewer: true, admin: false, variant: "side" }));
     expect(html).toMatch(/href="\/campaigns" aria-current="page"/);
     expect(html).not.toMatch(/href="\/review" aria-current="page"/);
   });

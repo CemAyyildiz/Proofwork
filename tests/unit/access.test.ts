@@ -11,6 +11,9 @@ import { accessLog, campaigns, decisions, escrowOps, funderRequests, payouts, ro
 import { FakeEscrow } from "@/escrow/fake";
 import {
   accessOverview,
+  adminNav,
+  awaitingReturn,
+  campaignsOverview,
   canManageCampaign,
   changeRole,
   decideRequest,
@@ -74,6 +77,7 @@ const { POST: campaignsRoute } = await import("@/app/api/campaigns/route");
 const { POST: escrowRoute } = await import("@/app/api/campaigns/[id]/escrow/route");
 const { POST: payoutsRoute } = await import("@/app/api/campaigns/[id]/payouts/route");
 const { GET: reviewLogRoute } = await import("@/app/api/campaigns/[id]/review-log/route");
+const { POST: remainderRoute } = await import("@/app/api/campaigns/[id]/remainder/route");
 const { default: AdminPage } = await import("@/app/(workspace)/admin/page");
 const { default: CampaignsPage } = await import("@/app/(workspace)/campaigns/page");
 const { default: CampaignPage } = await import("@/app/(workspace)/campaigns/[slug]/page");
@@ -1199,6 +1203,229 @@ describe("workspace nav", () => {
     expect(await shell()).not.toContain('href="/admin"');
     world.jar.clear();
     expect(await shell()).not.toContain('href="/admin"');
+  });
+});
+
+const remainderCall = (id: string, body: unknown) => remainderRoute(post(`/api/campaigns/${id}/remainder`, body), forCampaign(id));
+
+/** TEAM's campaign with `resolver` as its dispute resolver, deployed, funded with 100 USDC and closed by TEAM through the routes. */
+async function closedCampaign(resolver: string): Promise<{ id: string; slug: string; contractId: string }> {
+  const { id, slug } = await approvedWithCampaign();
+  await conn.update(campaigns).set({ disputeResolverPubkey: resolver }).where(eq(campaigns.id, id));
+  await escrowStep(id, "deploy");
+  await escrowStep(id, "fund");
+  const op = await prepared(id, "close");
+  expect((await payoutsCall(id, { action: "submit", kind: "close", opId: op.opId, signedXdr: op.unsignedXdr })).status).toBe(200);
+  const contractId = (await campaignRow(id)).escrowContractId;
+  if (!contractId) throw new Error("no escrow");
+  return { id, slug, contractId };
+}
+
+const withdrawOps = async () => (await conn.select().from(escrowOps)).filter((o) => o.kind === "withdraw_remaining");
+
+describe("POST /api/campaigns/[id]/remainder", () => {
+  it("the campaign's resolver returns the remainder: prepare names the amount and the funder, submit records the tx", async () => {
+    const RESOLVER = Keypair.random().publicKey();
+    const { id, contractId } = await closedCampaign(RESOLVER);
+    signIn(RESOLVER);
+    const res = await remainderCall(id, { action: "prepare" });
+    expect(res.status).toBe(200);
+    const op = (await res.json()) as { opId: string; unsignedXdr: string; amount: string; funder: string };
+    expect(op).toMatchObject({ amount: "100", funder: TEAM });
+
+    const submitted = await remainderCall(id, { action: "submit", opId: op.opId, signedXdr: op.unsignedXdr });
+    expect(submitted.status).toBe(200);
+    const { txHash } = (await submitted.json()) as { txHash: string };
+    expect((await campaignRow(id)).remainderTxHash).toBe(txHash);
+    expect((await escrow.getEscrow(contractId)).balance).toBe("0");
+  });
+
+  it("builds the one distribution itself: receivers in the body are ignored", async () => {
+    const RESOLVER = Keypair.random().publicKey();
+    const { id, contractId } = await closedCampaign(RESOLVER);
+    const withdraw = vi.spyOn(escrow, "buildWithdrawRemaining");
+    signIn(RESOLVER);
+    const res = await remainderCall(id, { action: "prepare", distributions: [{ address: RESOLVER, amount: "100" }], funder: OTHER });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ funder: TEAM, amount: "100" });
+    expect(withdraw).toHaveBeenCalledWith(contractId, RESOLVER, [{ address: TEAM, amount: "100" }]);
+  });
+
+  it("answers 403 to every other wallet, the funder and the operator included, and builds nothing", async () => {
+    const { id } = await closedCampaign(Keypair.random().publicKey());
+    const withdraw = vi.spyOn(escrow, "buildWithdrawRemaining");
+    for (const wallet of [TEAM, OPS, OTHER]) {
+      signIn(wallet);
+      const res = await remainderCall(id, { action: "prepare" });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ error: "FORBIDDEN" });
+    }
+    expect(withdraw).not.toHaveBeenCalled();
+    expect(await withdrawOps()).toEqual([]);
+  });
+
+  it("answers 401 without a session and 400 for a malformed body", async () => {
+    const RESOLVER = Keypair.random().publicKey();
+    const { id } = await closedCampaign(RESOLVER);
+    world.jar.clear();
+    expect((await remainderCall(id, { action: "prepare" })).status).toBe(401);
+    signIn(RESOLVER);
+    for (const body of [{ action: "sweep" }, { action: "submit" }, { action: "submit", opId: "op_1" }, { action: "submit", opId: "", signedXdr: "x" }]) {
+      expect((await remainderCall(id, body)).status).toBe(400);
+    }
+    expect(await withdrawOps()).toEqual([]);
+  });
+
+  it("answers 409 with the reason for a campaign that is not closed", async () => {
+    const RESOLVER = Keypair.random().publicKey();
+    const { id } = await approvedWithCampaign();
+    await conn.update(campaigns).set({ disputeResolverPubkey: RESOLVER }).where(eq(campaigns.id, id));
+    await escrowStep(id, "deploy");
+    await escrowStep(id, "fund");
+    signIn(RESOLVER);
+    const res = await remainderCall(id, { action: "prepare" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "CONFLICT", message: expect.stringMatching(/not closed in the app/) });
+    expect(await withdrawOps()).toEqual([]);
+  });
+
+  it("is rate limited per session wallet: the 61st call in ten minutes answers 429", async () => {
+    const { id } = await closedCampaign(Keypair.random().publicKey());
+    signIn(OTHER);
+    const statuses: number[] = [];
+    for (let i = 0; i < 61; i++) statuses.push((await remainderCall(id, { action: "prepare" })).status);
+    expect(statuses.slice(0, 60)).toEqual(Array<number>(60).fill(403));
+    expect(statuses[60]).toBe(429);
+  });
+});
+
+/** A campaign row in a given state, without an escrow behind it: enough for the lists, which read only the database. */
+async function seedCampaign(id: string, over: Partial<typeof campaigns.$inferInsert>): Promise<void> {
+  await conn.insert(campaigns).values({
+    id,
+    slug: `slug-${id}`,
+    title: `Campaign ${id}`,
+    brief: "A brief long enough to pass validation.",
+    rewardAmount: "10",
+    budget: "100",
+    deadlineAt: new Date(Date.now() - 86_400_000),
+    funderPubkey: TEAM,
+    disputeResolverPubkey: OTHER,
+    ...over,
+  });
+}
+
+/** One campaign per stage that matters here. OTHER resolves all but `c_else`. */
+async function seedStages(): Promise<void> {
+  const day = 86_400_000;
+  const at = (n: number) => new Date(Date.now() - n * day);
+  await seedCampaign("c_await", { escrowContractId: "C_AWAIT", fundedAt: at(9), closedAt: at(1), createdAt: at(10) });
+  await seedCampaign("c_settled", { escrowContractId: "C_SETTLED", fundedAt: at(8), closedAt: at(2), remainderTxHash: "b".repeat(64), createdAt: at(9) });
+  await seedCampaign("c_abandoned", { escrowContractId: "C_ABANDONED", closedAt: at(3), createdAt: at(8) });
+  await seedCampaign("c_open", { escrowContractId: "C_OPEN", fundedAt: at(2), deadlineAt: new Date(Date.now() + day), createdAt: at(7) });
+  await seedCampaign("c_draft", { deadlineAt: new Date(Date.now() + day), createdAt: at(6) });
+  await seedCampaign("c_else", { escrowContractId: "C_ELSE", fundedAt: at(5), closedAt: at(1), disputeResolverPubkey: Keypair.random().publicKey(), createdAt: at(5) });
+}
+
+describe("campaignsOverview and awaitingReturn", () => {
+  it("lists every campaign with its stage and whose step it waits on, for the operator only", async () => {
+    await seedStages();
+    for (const pubkey of [TEAM, OTHER]) await expect(campaignsOverview({ pubkey }, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    const rows = await campaignsOverview(ops(), conn);
+    expect(rows.map((r) => [r.campaign.id, r.stage, r.step.owner])).toEqual([
+      ["c_else", "closed_awaiting_return", "resolver"],
+      ["c_draft", "draft", "funder"],
+      ["c_open", "open", "contributors"],
+      ["c_abandoned", "abandoned", null],
+      ["c_settled", "settled", null],
+      ["c_await", "closed_awaiting_return", "resolver"],
+    ]);
+  });
+
+  it("gives a wallet only the funded, closed, unreturned campaigns it is the resolver of; no role needed", async () => {
+    await seedStages();
+    expect((await awaitingReturn({ pubkey: OTHER }, conn)).map((c) => c.id)).toEqual(["c_await"]);
+    expect(await awaitingReturn({ pubkey: TEAM }, conn)).toEqual([]);
+    expect(await awaitingReturn(ops(), conn)).toEqual([]);
+  });
+
+  it("shows Admin in the nav to the operator and to a wallet with a return waiting on it", async () => {
+    await seedStages();
+    const none = new Set<never>();
+    expect(await adminNav({ pubkey: OPS, roles: new Set(["ops"] as const) }, conn)).toBe(true);
+    expect(await adminNav({ pubkey: OTHER, roles: none }, conn)).toBe(true);
+    expect(await adminNav({ pubkey: TEAM, roles: new Set(["funder", "reviewer"] as const) }, conn)).toBe(false);
+    await conn.update(campaigns).set({ remainderTxHash: "c".repeat(64) }).where(eq(campaigns.id, "c_await"));
+    expect(await adminNav({ pubkey: OTHER, roles: none }, conn)).toBe(false);
+  });
+});
+
+describe("admin page campaigns and returns", () => {
+  async function shell(): Promise<string> {
+    return render(WorkspaceLayout({ children: createElement("p", null, "page body") }));
+  }
+
+  it("shows the operator every campaign: title, funder, stage, deadline and whose step it waits on", async () => {
+    await seedStages();
+    signIn(OPS);
+    const html = await render(AdminPage());
+    const table = html.slice(html.indexOf('aria-label="Campaigns"'), html.indexOf('aria-label="Funder access"'));
+    const rows = [...table.matchAll(/<tr class="border-t border-line">(.*?)<\/tr>/g)].map((m) => m[1] ?? "");
+    expect(rows).toHaveLength(6);
+    const awaiting = rows.find((r) => r.includes("Campaign c_await")) ?? "";
+    expect(awaiting).toContain(`aria-label="${TEAM}"`);
+    expect(awaiting).toContain("Closed, awaiting return");
+    expect(awaiting).toContain("Resolver");
+    expect(awaiting).toContain(`aria-label="${OTHER}"`);
+    expect(awaiting).toMatch(/\d+ [A-Z][a-z]{2} · \d{2}:\d{2} UTC/);
+    expect(rows.find((r) => r.includes("Campaign c_settled"))).toMatch(/Settled.*—/);
+    expect(rows.find((r) => r.includes("Campaign c_draft"))).toMatch(/Draft.*Funder/);
+    expect(html).toContain("Access log");
+    expect(html).not.toContain("Awaiting your return");
+    expect(html).not.toContain("Return remainder</span>");
+  });
+
+  it("shows a resolver-only wallet just the campaigns awaiting its return, with Return remainder, and the nav links it there", async () => {
+    await seedStages();
+    signIn(OTHER);
+    const html = await render(AdminPage());
+    expect(html).toContain("Awaiting your return");
+    expect(html).toContain("Campaign c_await");
+    expect(html).toMatch(/<button[^>]*>.*?Return remainder.*?<\/button>/);
+    expect(html.match(/Return remainder<\/span><\/button>/g)).toHaveLength(1);
+    for (const hidden of ["Campaign c_settled", "Campaign c_else", 'aria-label="Campaigns"', "Funder access", "Access log", "Pending requests"]) {
+      expect(html).not.toContain(hidden);
+    }
+    expect(await shell()).toContain('href="/admin"');
+  });
+
+  it("is a not-found page for a resolver whose campaigns are all returned, and the nav drops the link", async () => {
+    await seedStages();
+    await conn.update(campaigns).set({ remainderTxHash: "c".repeat(64) }).where(eq(campaigns.id, "c_await"));
+    signIn(OTHER);
+    await expect(AdminPage()).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(await shell()).not.toContain('href="/admin"');
+  });
+
+  it("shows an operator that is also a resolver both its returns and the operator sections", async () => {
+    await seedStages();
+    await conn.update(campaigns).set({ disputeResolverPubkey: OPS }).where(eq(campaigns.id, "c_await"));
+    signIn(OPS);
+    const html = await render(AdminPage());
+    expect(html).toContain("Awaiting your return");
+    expect(html).toContain('aria-label="Campaigns"');
+    expect(html).toContain("Access log");
+  });
+
+  it("links the campaign page's next step to Admin only when the viewer is the resolver", async () => {
+    await seedCampaign("c_self", { escrowContractId: "C_SELF", fundedAt: new Date(Date.now() - 86_400_000), closedAt: new Date(), disputeResolverPubkey: TEAM });
+    await seedCampaign("c_other", { escrowContractId: "C_OTHER", fundedAt: new Date(Date.now() - 86_400_000), closedAt: new Date() });
+    signIn(TEAM);
+    const self = await render(CampaignPage({ params: Promise.resolve({ slug: "slug-c_self" }) }));
+    expect(self).toMatch(/<a href="\/admin"[^>]*>Return the remainder from Admin →<\/a>/);
+    const other = await render(CampaignPage({ params: Promise.resolve({ slug: "slug-c_other" }) }));
+    expect(other).toContain("Return remainder");
+    expect(other).not.toContain('href="/admin"');
   });
 });
 

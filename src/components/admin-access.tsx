@@ -96,7 +96,7 @@ export function AdminAccess({
       ) : null}
 
       <section className="space-y-3">
-        <h2 className="font-medium">Pending requests</h2>
+        <h3 className="text-[15px] font-semibold tracking-[-0.01em]">Pending requests</h3>
         {pending.length === 0 ? (
           <p className="text-sm text-muted">No pending requests.</p>
         ) : (
@@ -140,7 +140,7 @@ export function AdminAccess({
       </section>
 
       <section className="space-y-3">
-        <h2 className="font-medium">Funders</h2>
+        <h3 className="text-[15px] font-semibold tracking-[-0.01em]">Funders</h3>
         {funders.length === 0 ? (
           <p className="text-sm text-muted">No wallet has funder access.</p>
         ) : (
@@ -200,7 +200,7 @@ export function AdminAccess({
       </section>
 
       <section className="space-y-3">
-        <h2 className="font-medium">Access log</h2>
+        <h3 className="text-[15px] font-semibold tracking-[-0.01em]">Access log</h3>
         {log.length === 0 ? (
           <p className="text-sm text-muted">No role has been granted or revoked yet.</p>
         ) : (

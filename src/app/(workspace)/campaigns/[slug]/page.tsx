@@ -251,6 +251,11 @@ function NextStepStrip({ campaign: c, step, viewer, reviewer }: { campaign: Camp
           Open the review queue →
         </Link>
       ) : null}
+      {step.kind === "remainder" && c.disputeResolverPubkey === viewer ? (
+        <Link href="/admin" className="mt-3 inline-flex min-h-9 items-center text-[13px] font-medium text-text hover:underline">
+          Return the remainder from Admin →
+        </Link>
+      ) : null}
     </section>
   );
 }

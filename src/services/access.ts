@@ -1,10 +1,12 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/client";
-import { accessLog, campaigns, funderRequests, roleGrants, type AccessLogEntry, type FunderRequest } from "@/db/schema";
+import { accessLog, campaigns, funderRequests, roleGrants, type AccessLogEntry, type Campaign, type FunderRequest } from "@/db/schema";
+import { campaignStage, NO_SUBMISSIONS, nextStep, type CampaignStage, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
 import { AppError, isUniqueViolation } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import type { Role } from "./auth";
+import { countSubmissionsByCampaign } from "./submission-counts";
 
 /**
  * Funder access: a wallet asks, the operator (the `ops` role) decides, and
@@ -267,4 +269,55 @@ export async function campaignsNav(actor: { pubkey: string; roles: ReadonlySet<R
     .where(and(eq(campaigns.funderPubkey, actor.pubkey), isNotNull(campaigns.fundedAt)))
     .limit(1);
   return funded.length > 0 ? "manage" : "request";
+}
+
+export interface CampaignOverviewRow {
+  campaign: Campaign;
+  counts: SubmissionCounts;
+  stage: CampaignStage;
+  /** The one next step and whose it is, as the funder's own pages show it. */
+  step: NextStep;
+}
+
+/**
+ * Every campaign with its stage and whose action it waits on, newest first,
+ * for the operator's Campaigns view. Ops only. Stages come from the same
+ * chain-confirmed columns and counts as the funder's pages.
+ */
+export async function campaignsOverview(actor: { pubkey: string }, conn: Db, now: Date = new Date()): Promise<CampaignOverviewRow[]> {
+  await requireOps(actor.pubkey, conn);
+  const rows = await conn.select().from(campaigns).orderBy(desc(campaigns.createdAt), asc(campaigns.id));
+  const counts = await countSubmissionsByCampaign(rows.map((c) => c.id), conn);
+  return rows.map((campaign) => {
+    const n = counts.get(campaign.id) ?? NO_SUBMISSIONS;
+    const stage = campaignStage(campaign, n, now);
+    return { campaign, counts: n, stage, step: nextStep(stage, campaign, n, now) };
+  });
+}
+
+/**
+ * Funded campaigns closed in the app whose remainder has not been returned
+ * and whose dispute resolver is this wallet, oldest close first. No role is
+ * needed: being the campaign's resolver is the authorization, and the return
+ * itself checks it again.
+ */
+export async function awaitingReturn(actor: { pubkey: string }, conn: Db): Promise<Campaign[]> {
+  return conn
+    .select()
+    .from(campaigns)
+    .where(
+      and(
+        eq(campaigns.disputeResolverPubkey, actor.pubkey),
+        isNotNull(campaigns.closedAt),
+        isNotNull(campaigns.fundedAt),
+        isNull(campaigns.remainderTxHash),
+      ),
+    )
+    .orderBy(asc(campaigns.closedAt), asc(campaigns.id));
+}
+
+/** Whether the nav shows Admin: the operator, or a wallet with a remainder waiting on it. */
+export async function adminNav(actor: { pubkey: string; roles: ReadonlySet<Role> }, conn: Db): Promise<boolean> {
+  if (actor.roles.has("ops")) return true;
+  return (await awaitingReturn(actor, conn)).length > 0;
 }

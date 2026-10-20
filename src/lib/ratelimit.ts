@@ -52,7 +52,7 @@ export const limiters = {
   get accessIp(): Limiter {
     return (cache.accessIp ??= makeLimiter(20, 3600));
   },
-  /** Operator decisions on funder access, per session wallet. */
+  /** Operator decisions on funder access, and the resolver's remainder return (keyed apart), per session wallet. */
   get admin(): Limiter {
     return (cache.admin ??= makeLimiter(60, 600));
   },
