@@ -1,6 +1,6 @@
 import { Pill, type PillTone } from "@/components/ui/pill";
 import type { Campaign } from "@/db/schema";
-import type { CampaignStage, CloseBlocker, NextStep, StepOwner } from "@/domain/campaign-status";
+import { deadlinePassed, type CampaignStage, type CloseBlocker, type NextStep, type StepOwner } from "@/domain/campaign-status";
 import { formatDateShort, formatRelative, formatUsdc } from "@/lib/format";
 
 const STAGE: Record<CampaignStage, { tone: PillTone; label: string }> = {
@@ -30,7 +30,8 @@ export const OWNER_LABEL: Record<StepOwner, string> = {
   resolver: "Resolver",
 };
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** "1 payout", "3 payouts". */
+export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** Short label and one explanatory line for a next step, shared by the list row and the campaign page. */
 export function describeStep(step: NextStep, c: Pick<Campaign, "budget" | "rewardAmount">): { title: string; body: string } {
@@ -78,11 +79,10 @@ export function describeBlocker(b: CloseBlocker): string {
 /** The dates for a campaign in its stage: the deadline always, the close date once closed. */
 export function dateLine(c: Pick<Campaign, "deadlineAt" | "closedAt">, stage: CampaignStage, now: Date): string {
   const deadline = `${formatDateShort(c.deadlineAt)} · ${formatRelative(c.deadlineAt, now)}`;
-  const passed = c.deadlineAt.getTime() <= now.getTime();
   switch (stage) {
     case "draft":
     case "awaiting_funding":
-      return passed ? `Deadline passed ${deadline}` : `Deadline ${deadline}`;
+      return deadlinePassed(c, now) ? `Deadline passed ${deadline}` : `Deadline ${deadline}`;
     case "open":
       return `Submissions close ${deadline}`;
     case "reviewing_and_paying":

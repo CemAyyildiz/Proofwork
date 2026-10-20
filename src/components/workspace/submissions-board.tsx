@@ -12,6 +12,7 @@ import { publicEnv } from "@/config/public-env";
 import type { Payout, Submission } from "@/db/schema";
 import { isReadyToPay, type SubmissionCounts } from "@/domain/campaign-status";
 import { signTransaction } from "@/wallet/kit";
+import { plural } from "./campaign-phase";
 import { payoutsCall } from "./funder-api";
 
 export interface BoardRow {
@@ -62,10 +63,10 @@ function payoutPill(r: BoardRow): { tone: PillTone; label: string } | null {
 function reviewPill(r: BoardRow): { tone: PillTone; label: string } {
   if (r.status === "pending") return { tone: "wait", label: "In review" };
   if (r.status === "appealed") return { tone: "wait", label: "Re-review" };
+  // Rejected by the close without a decision: no reviewer ever scored it.
+  if (r.status === "rejected" && r.outcome === null) return { tone: "wait", label: "Closed unreviewed" };
   return r.outcome === "PASS" ? { tone: "pass", label: "PASS" } : { tone: "fail", label: "FAIL" };
 }
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * The funder's submissions table and the two payout actions on one
@@ -158,15 +159,14 @@ export function SubmissionsBoard({
 
   return (
     <div className="space-y-4">
-      <div role="tablist" aria-label="Filter submissions" className="flex gap-1 overflow-x-auto border-b border-line pb-px">
+      <div role="group" aria-label="Filter submissions" className="flex gap-1 overflow-x-auto border-b border-line pb-px">
         {TABS.map((t) => {
           const active = t.id === tab;
           return (
             <button
               key={t.id}
               type="button"
-              role="tab"
-              aria-selected={active}
+              aria-pressed={active}
               onClick={() => setTab(t.id)}
               className={cx(
                 "-mb-px inline-flex h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-[13.5px] font-medium transition-colors md:h-10",

@@ -101,16 +101,14 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
                     <span>Contract</span>
                     <HashChip value={c.escrowContractId} href={publicEnv.explorerContractUrl(c.escrowContractId)} />
                   </p>
-                  {c.fundedAt ? (
-                    <Suspense fallback={<EscrowBalanceLoading />}>
-                      <EscrowBalance slug={c.slug} contractId={c.escrowContractId} />
-                    </Suspense>
-                  ) : null}
+                  <Suspense fallback={<EscrowBalanceLoading />}>
+                    <EscrowBalance slug={c.slug} contractId={c.escrowContractId} />
+                  </Suspense>
                 </>
               ) : (
                 <p className="text-sm text-muted">Not deployed yet.</p>
               )}
-              {expired && !c.closedAt ? (
+              {expired && !c.closedAt && !fundSent ? (
                 <p className="max-w-[640px] text-sm text-text-2">
                   Deadline passed {formatDateShort(c.deadlineAt)}. This campaign can take no submissions, so deploy and fund are not offered
                   {canAbandon ? "; you can abandon it instead" : ""}.

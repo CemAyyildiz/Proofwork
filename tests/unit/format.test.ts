@@ -67,7 +67,9 @@ describe("formatRelative", () => {
     expect(formatRelative(at(-(2 * D)), now)).toBe("2d ago");
   });
 
-  it("says just now inside a minute", () => {
+  it("says just now inside the last minute, and in <1m inside the next", () => {
     expect(formatRelative(at(-30_000), now)).toBe("just now");
+    expect(formatRelative(now, now)).toBe("just now");
+    expect(formatRelative(at(30_000), now)).toBe("in <1m");
   });
 });

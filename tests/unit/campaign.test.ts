@@ -1420,6 +1420,15 @@ describe("caps and readiness through the routes and pages", () => {
       expect(asked).toEqual([]);
     });
 
+    it("an expired unfunded campaign with a fund already sent keeps Fund on, offers no abandon and does not say fund is not offered", async () => {
+      const c = await seeded({ deadlineAt: new Date(Date.now() - DAY), escrowContractId: "C_SENT" });
+      await conn.insert(escrowOps).values({ id: "op_sent", campaignId: c.id, kind: "fund", idempotencyKey: "fund-sent", payload: {}, status: "submitted", txHash: TX("9") });
+      const html = await campaignPage(c.slug);
+      expect(disabled(html, "2 · Fund budget")).toBe(false);
+      expect(html).not.toContain("Abandon this campaign instead");
+      expect(html).not.toContain("not offered");
+    });
+
     it("the list groups by stage, and the row and the page agree on the stage and the next step", async () => {
       const cs = [
         await seeded(funded),

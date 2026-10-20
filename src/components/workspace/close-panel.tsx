@@ -67,6 +67,7 @@ export function ClosePanel({
     if (!op) {
       setNotice({ tone: "muted", text: "Nothing to sign." });
       setBusy(false);
+      router.refresh();
       return;
     }
     let signedXdr: string;
@@ -80,6 +81,7 @@ export function ClosePanel({
     try {
       await payoutsCall(campaignId, { action: "submit", kind: "close", opId: op.opId, signedXdr });
       setConfirming(false);
+      setNotice({ tone: "muted", text: "Campaign closed. The dispute resolver can now return the remainder." });
     } catch (e) {
       setNotice({ tone: "fail", text: `The close may have reached the chain; refresh to see (${message(e)}).` });
     } finally {

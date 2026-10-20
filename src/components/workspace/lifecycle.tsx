@@ -2,7 +2,7 @@ import { cx } from "@/components/ui/cx";
 import { HashChip } from "@/components/ui/hash-chip";
 import { publicEnv } from "@/config/public-env";
 import type { Campaign, EscrowOp } from "@/db/schema";
-import type { CampaignStage } from "@/domain/campaign-status";
+import { deadlinePassed, type CampaignStage } from "@/domain/campaign-status";
 import { formatDateShort, formatRelative, formatTimestamp, shortKey } from "@/lib/format";
 
 export interface LifecycleNode {
@@ -23,14 +23,15 @@ export function lifecycleNodes(c: Campaign, stage: CampaignStage, ops: readonly 
   const closedDetail = c.closedAt ? formatDateShort(c.closedAt) : null;
   if (stage === "abandoned") return [created, deployed, { label: "Abandoned", done: true, detail: closedDetail, txHash: null }];
 
-  const deadlinePassed = c.deadlineAt.getTime() <= now.getTime();
+  // Submissions are shut at the deadline, or earlier when the campaign was closed first.
+  const shut = deadlinePassed(c, now) || c.closedAt !== null;
   return [
     created,
     deployed,
     { label: "Funded", done: c.fundedAt !== null, detail: c.fundedAt ? formatDateShort(c.fundedAt) : null, txHash: confirmedTx(ops, "fund") },
     {
-      label: deadlinePassed ? "Submissions closed" : "Submissions close",
-      done: c.fundedAt !== null && (deadlinePassed || c.closedAt !== null),
+      label: shut ? "Submissions closed" : "Submissions close",
+      done: c.fundedAt !== null && shut,
       detail: `${formatDateShort(c.deadlineAt)} · ${formatRelative(c.deadlineAt, now)}`,
       txHash: null,
     },

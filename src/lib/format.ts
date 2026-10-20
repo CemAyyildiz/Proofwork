@@ -52,7 +52,7 @@ export function budgetMeter(balance: string | null, budget: string): { pct: numb
 
 /**
  * Coarse distance from `now` to `d` for a line next to a full date:
- * "in 6d 4h", "in 3h", "9d ago", "just now". Days and hours only; the full
+ * "in 6d 4h", "in 3h", "in <1m", "9d ago", "just now". Days and hours only; the full
  * UTC date beside it carries the exact time.
  */
 export function formatRelative(d: Date, now: Date): string {
@@ -62,6 +62,6 @@ export function formatRelative(d: Date, now: Date): string {
   const hours = Math.floor((abs % 86_400_000) / 3_600_000);
   const minutes = Math.floor((abs % 3_600_000) / 60_000);
   const span = days > 0 ? (days < 7 && hours > 0 ? `${days}d ${hours}h` : `${days}d`) : hours > 0 ? `${hours}h` : minutes > 0 ? `${minutes}m` : null;
-  if (span === null) return "just now";
+  if (span === null) return ms > 0 ? "in <1m" : "just now";
   return ms > 0 ? `in ${span}` : `${span} ago`;
 }
