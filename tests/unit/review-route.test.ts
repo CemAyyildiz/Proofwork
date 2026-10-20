@@ -4,7 +4,7 @@ import { createElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
-import { campaigns, decisions, submissions } from "@/db/schema";
+import { campaigns, decisions, roleGrants, submissions } from "@/db/schema";
 import { FakeDecisionLedger } from "@/ledger/decision-ledger";
 import { changeRole } from "@/services/access";
 import { makeTestDb } from "./db";
@@ -98,6 +98,24 @@ async function submission(id: string, shortId: string): Promise<void> {
   await conn.insert(submissions).values({ id, shortId, campaignId: CAMPAIGN, contributorPubkey: Keypair.random().publicKey(), workUrl: `https://x.com/a/status/${id.replace(/\D/g, "")}` });
 }
 
+/** A recorded decision on a submission, written straight to the table. */
+async function decided(id: string, shortId: string): Promise<void> {
+  await submission(id, shortId);
+  await conn.update(submissions).set({ status: "decided" }).where(eq(submissions.id, id));
+  await conn.insert(decisions).values({
+    id: `dec_${id}`,
+    submissionId: id,
+    reviewerPubkey: REVIEWER,
+    outcome: "PASS",
+    reasonCode: "R00_PASS",
+    signals: ALL_PASS,
+    note: "ok, real task",
+    canonicalJson: "{}",
+    decisionHash: "h",
+    ledgerKey: `pw:${shortId}`,
+  });
+}
+
 const body = (over: Record<string, unknown> = {}) => ({
   submissionId: "sub_1",
   signals: ALL_PASS,
@@ -181,6 +199,15 @@ describe("POST /api/review", () => {
     signIn(other);
     expect((await send(body())).status).toBe(200);
   });
+
+  it("counts a wallet without the role too: 120 refusals, then 429", async () => {
+    signIn(STRANGER);
+    const statuses: number[] = [];
+    for (let i = 0; i < 121; i++) statuses.push((await send(body())).status);
+    expect(statuses.slice(0, 120)).toEqual(Array<number>(120).fill(403));
+    expect(statuses[120]).toBe(429);
+    expect(ledger.commits).toHaveLength(0);
+  });
 });
 
 describe("/review page", () => {
@@ -198,6 +225,29 @@ describe("/review page", () => {
     expect(text(html)).toContain("Ask the operator to grant one.");
     expect(html).not.toContain("s1aaaaaa");
     expect(html).not.toContain('aria-label="Rubric"');
+  });
+
+  it("lets a campaign-scoped reviewer download that campaign's log, without a queue", async () => {
+    await decided("sub_1", "s1aaaaaa");
+    await submission("sub_2", "s2bbbbbb");
+    await conn.insert(roleGrants).values({ pubkey: STRANGER, role: "reviewer", campaignId: CAMPAIGN });
+    signIn(STRANGER);
+    const html = await page();
+    expect(text(html)).toContain("Your wallet has no reviewer role.");
+    expect(text(html)).toContain("You can still download the review logs of the campaigns below.");
+    expect(html).toContain(`href="/api/campaigns/${CAMPAIGN}/review-log"`);
+    expect(html).not.toContain('aria-label="Rubric"');
+  });
+
+  it("shows a reviewer the review logs below the queue", async () => {
+    await decided("sub_1", "s1aaaaaa");
+    await submission("sub_2", "s2bbbbbb");
+    signIn(REVIEWER);
+    const html = await page();
+    expect(html.match(/aria-label="Rubric"/g)).toHaveLength(1);
+    expect(text(html)).toContain("Review logs");
+    expect(text(html)).toContain("1 decision");
+    expect(html).toContain(`href="/api/campaigns/${CAMPAIGN}/review-log"`);
   });
 
   it("shows a reviewer one submission at a time, blind", async () => {
