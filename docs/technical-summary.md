@@ -58,7 +58,7 @@ One classic Stellar transaction per decision, from a dedicated decision ledger a
 | `manage_data` value | `v1|<PASS or FAIL>|<reason code>|<first 16 hex of the record hash>` |
 | `memo_hash` | SHA-256 of the canonical decision JSON |
 
-The canonical JSON holds the submission and campaign reference, reviewer key, the six signal answers, outcome, reason code, the hash of the decision it re-reviews (if any) and the timestamp, with keys in a fixed order. It is stored with the decision and shown on `/verify/<decision id>`, where the browser hashes it again with WebCrypto. Anyone can compare that hash with the transaction memo on stellar.expert. The decision is written when it is made, not batched at close. Reason codes: `R00_PASS`, `R01_ACCOUNT`, `R02_ORIGINAL`, `R03_TASK`, `R04_BRIEF`, `R05_MULTI`, `R06_SPAM` ([rubric](rubric.md)).
+The canonical JSON holds the submission and campaign reference, reviewer key, the six signal answers, outcome, reason code, the hash of the decision it re-reviews (if any) and the timestamp, with keys in a fixed order. It is stored with the decision and shown on `/verify/<decision id>`, where the browser hashes it again with WebCrypto. Anyone can compare that hash with the transaction memo on stellar.expert. The decision is written when it is made, not batched at close. Reason codes: `R00_PASS`, `R01_ACCOUNT`, `R02_ORIGINAL`, `R03_TASK`, `R04_BRIEF`, `R05_MULTI`, `R06_SPAM` ([rubric](rubric.md)). `POST /api/review` is rate limited per session wallet (120 calls in 10 minutes), counted before the reviewer role check.
 
 ## Shared funding source warning
 

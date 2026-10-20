@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 export const POST = jsonRoute(decideSchema, async (input) => {
   const user = await requireUser();
-  // Counted per session wallet before the role check, so a wallet without the role cannot probe without limit either.
+  // Every well-formed request is counted per session wallet, before the role check.
   await enforce(limiters.review, `review:${user.pubkey}`);
   if (!user.roles.has("reviewer")) throw AppError.forbidden("requires reviewer role");
   const d = await decide(input, user, getLedger());
