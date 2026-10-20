@@ -3,7 +3,7 @@ import { Networks, TransactionBuilder, type Keypair } from "@stellar/stellar-sdk
 import type { Db } from "@/db/client";
 import type { Campaign } from "@/db/schema";
 import { toStroops } from "@/escrow/amount";
-import type { EscrowPort } from "@/escrow/port";
+import type { EscrowPort, EscrowState } from "@/escrow/port";
 import { isAppError } from "@/lib/errors";
 import { txHashOf } from "@/lib/tx";
 import { campaignForEscrow, recordRemainder } from "./payout";
@@ -12,7 +12,9 @@ import { campaignForEscrow, recordRemainder } from "./payout";
  * Returning a campaign escrow's remainder to its funder (AD-4), as
  * `pnpm escrow:close` runs it. The sweep is signed outside the app with the
  * dispute resolver key and cannot be repeated, so everything that can refuse
- * does so before a signature, and the chain decides what is recorded.
+ * does so before a signature, and the chain decides what is recorded. The
+ * in-app return (`remainder-op.ts`) makes the same checks through
+ * `checkRemainder`.
  *
  * `conn` is the app's database, or null to sweep without recording.
  */
@@ -58,7 +60,8 @@ function sign(kp: Keypair, unsignedXdr: string): string {
   return tx.toXDR();
 }
 
-const empty = (balance: string) => toStroops(balance) === 0n;
+export const isEmptyBalance = (balance: string) => toStroops(balance) === 0n;
+const empty = isEmptyBalance;
 const reason = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** The campaign a sweep belongs to: known to this database, funded by the escrow's funder, closed in the app. */
@@ -75,29 +78,37 @@ async function campaignOfSweep(contractId: string, funder: string, conn: Db): Pr
   return c;
 }
 
+export type RemainderCheck =
+  /** Money to return. `disputeFirst`: the close milestone is still open and the funder key at hand disputes it before the sweep. */
+  | { outcome: "sweep"; state: EscrowState; funder: string; campaign: Campaign | null; disputeFirst: boolean }
+  /** The escrow is already empty. `recordedTxHash` is the hash on the campaign, null without a database. */
+  | { outcome: "nothing"; recordedTxHash: string | null };
+
 /**
- * Sweep the escrow's whole balance to its own funder and record the
- * transaction on the campaign. The sweep's hash is taken from the signed
- * transaction and said before it is sent, so it is known whatever happens to
- * the reply.
+ * Every check a remainder return makes before anything is signed, for
+ * `pnpm escrow:close` and for the resolver's wallet in the app alike: the
+ * resolver is the escrow's dispute resolver, no reward milestone is still
+ * open, the campaign is known, has the escrow's funder and is closed in the
+ * app, the escrow holds money or its return is already recorded, no other
+ * return is recorded while it holds money, and the close milestone is
+ * disputed (or `ownFunder`, the escrow's own funder key outside the app,
+ * disputes it first). Throws RemainderError, never signs or sends.
  */
-export async function returnRemainder(
-  input: { contractId: string; signers: RemainderSigners; say: Say },
+export async function checkRemainder(
+  input: { contractId: string; resolver: string; ownFunder?: string | null; resolverName?: string; say?: Say },
   escrow: EscrowPort,
   conn: Db | null,
-): Promise<RemainderResult> {
-  const { contractId, say } = input;
-  const { resolver, ownFunder } = input.signers;
-
-  const before = await escrow.getEscrow(contractId);
-  if (before.roles.disputeResolver !== resolver.publicKey()) throw refuse("the configured resolver key is not this escrow's dispute resolver");
+): Promise<RemainderCheck> {
+  const say = input.say ?? (() => undefined);
+  const before = await escrow.getEscrow(input.contractId);
+  if (before.roles.disputeResolver !== input.resolver) throw refuse(`${input.resolverName ?? "the configured resolver key"} is not this escrow's dispute resolver`);
   const funder = before.roles.funder;
   const open = before.milestones.filter((m, i) => i !== 0 && !(m.released || m.resolved || m.disputed));
   if (open.length > 0) throw refuse(`milestones still open: ${open.map((m) => m.index).join(", ")} — release or dispute them first`);
   say(`balance: ${before.balance} USDC, milestones: ${before.milestones.length}`);
   say(`escrow funder: ${funder} (the remainder goes to this address)`);
 
-  const campaign = conn ? await campaignOfSweep(contractId, funder, conn) : null;
+  const campaign = conn ? await campaignOfSweep(input.contractId, funder, conn) : null;
   if (campaign) say(`campaign: ${campaign.slug}`);
 
   if (empty(before.balance)) {
@@ -112,10 +123,32 @@ export async function returnRemainder(
   }
 
   const close = before.milestones[0];
-  if (close && !close.disputed && !close.released && !close.resolved) {
-    if (!ownFunder || ownFunder.publicKey() !== funder) {
-      throw refuse("close milestone not disputed yet: the funder must close the campaign in the app first");
-    }
+  const closeOpen = close !== undefined && !close.disputed && !close.released && !close.resolved;
+  if (closeOpen && input.ownFunder !== funder) {
+    throw refuse("close milestone not disputed yet: the funder must close the campaign in the app first");
+  }
+  return { outcome: "sweep", state: before, funder, campaign, disputeFirst: closeOpen };
+}
+
+/**
+ * Sweep the escrow's whole balance to its own funder and record the
+ * transaction on the campaign. The sweep's hash is taken from the signed
+ * transaction and said before it is sent, so it is known whatever happens to
+ * the reply.
+ */
+export async function returnRemainder(
+  input: { contractId: string; signers: RemainderSigners; say: Say },
+  escrow: EscrowPort,
+  conn: Db | null,
+): Promise<RemainderResult> {
+  const { contractId, say } = input;
+  const { resolver, ownFunder } = input.signers;
+
+  const check = await checkRemainder({ contractId, resolver: resolver.publicKey(), ownFunder: ownFunder?.publicKey() ?? null, say }, escrow, conn);
+  if (check.outcome === "nothing") return check;
+  const { funder, campaign, state: before } = check;
+
+  if (check.disputeFirst && ownFunder) {
     for (const u of await escrow.buildDispute(contractId, funder, [0])) {
       say(`dispute close milestone: ${(await escrow.submit(sign(ownFunder, u.unsignedXdr))).txHash}`);
     }
