@@ -1,12 +1,17 @@
 import { getLedger } from "@/escrow";
-import { requireUserRole } from "@/lib/current-user";
+import { requireUser } from "@/lib/current-user";
+import { AppError } from "@/lib/errors";
 import { jsonRoute } from "@/lib/http";
+import { enforce, limiters } from "@/lib/ratelimit";
 import { decide, decideSchema } from "@/services/review";
 
 export const runtime = "nodejs";
 
 export const POST = jsonRoute(decideSchema, async (input) => {
-  const user = await requireUserRole("reviewer");
+  const user = await requireUser();
+  // Counted per session wallet before the role check, so a wallet without the role cannot probe without limit either.
+  await enforce(limiters.review, `review:${user.pubkey}`);
+  if (!user.roles.has("reviewer")) throw AppError.forbidden("requires reviewer role");
   const d = await decide(input, user, getLedger());
   return { id: d.id, outcome: d.outcome, reasonCode: d.reasonCode, txHash: d.txHash, ledgerKey: d.ledgerKey };
 });
