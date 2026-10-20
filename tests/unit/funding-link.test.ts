@@ -20,7 +20,6 @@ import { decide, decideSchema, getDecision, REVIEW_LOG_COLUMNS, reviewLog, revie
 import { createSubmission } from "@/services/submission";
 import { makeTestDb } from "./db";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined }) }));
 const { ReviewCard } = await import("@/components/review-card");
 const { emptyDraft } = await import("@/components/review-state");
 
@@ -412,7 +411,7 @@ describe("Month 1 rows after the migration", () => {
 });
 
 describe("review card", () => {
-  const card = (sharedFundingCount: number | null): string =>
+  const card = (sharedFundingCount: number | null, now = Date.parse("2026-10-14T10:00:00.000Z")): string =>
     renderToStaticMarkup(
       createElement(ReviewCard, {
         item: {
@@ -426,7 +425,7 @@ describe("review card", () => {
           sharedFundingCount,
         },
         draft: emptyDraft(),
-        now: Date.parse("2026-10-14T10:00:00.000Z"),
+        now,
         busy: false,
         error: null,
         onSignal: () => undefined,
@@ -453,6 +452,15 @@ describe("review card", () => {
     expect(radios(linked)).toEqual(radios(unlinked));
     expect(text(linked)).toContain("6 / 6");
     expect(text(linked)).toContain("Record PASS on-chain");
+  });
+
+  it("reads Closes before the deadline and Deadline passed after it", () => {
+    const before = text(card(0, Date.parse("2026-10-20T17:59:00.000Z")));
+    expect(before).toContain("Closes 20 Oct · 18:00 UTC");
+    expect(before).not.toContain("Deadline passed");
+    const after = text(card(0, Date.parse("2026-10-20T18:00:00.000Z")));
+    expect(after).toContain("Deadline passed 20 Oct · 18:00 UTC");
+    expect(after).not.toContain("Closes");
   });
 
   it("an unlinked card shows no funding note", () => {

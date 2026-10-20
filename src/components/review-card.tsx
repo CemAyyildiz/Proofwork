@@ -71,6 +71,7 @@ export function ReviewCard({
       <SubmissionPanel item={item} now={new Date(now)} />
 
       <section aria-label="Rubric" className="relative rounded-xl border border-line bg-surface p-5 md:p-6">
+        <h2 className="sr-only">Rubric</h2>
         <ScoreMeter passCount={state.passCount} outcome={state.outcome} signals={draft.signals} />
 
         <div className="mt-5 grid gap-2">
@@ -181,7 +182,9 @@ function SubmissionPanel({ item, now }: { item: ReviewItem; now: Date }) {
         <p className="mt-2 break-all font-mono text-[12.5px] text-text-2">{item.workUrl}</p>
         <a href={item.workUrl} target="_blank" rel="noreferrer" className={buttonClasses("secondary", "md", "mt-3 w-full sm:w-auto")}>
           Open post on X <span aria-hidden="true">↗</span>
-          <Kbd>O</Kbd>
+          <span aria-hidden="true">
+            <Kbd>O</Kbd>
+          </span>
         </a>
         <p className="mt-2 text-[12px] text-muted">Read it on X against the brief below. The post is never embedded here.</p>
       </div>
@@ -228,13 +231,14 @@ function ScoreMeter({ passCount, outcome, signals }: { passCount: number; outcom
         <Eyebrow as="h3">Score</Eyebrow>
         <span className="text-[12px] text-muted">{`${PASS_THRESHOLD} of ${SIGNALS.length} needed to pass`}</span>
       </div>
-      <div className="mt-3 flex items-center gap-4" aria-live="polite">
+      <div className="mt-3 flex items-center gap-4">
         <p className="text-[34px] font-semibold leading-none tracking-[-0.04em] tabular-nums">
           {passCount}
           <span className="text-muted"> / {SIGNALS.length}</span>
         </p>
         <Pill tone={outcome === "PASS" ? "pass" : "fail"}>{outcome}</Pill>
-        <span className="sr-only">{`${passCount} of ${SIGNALS.length} signals pass. Outcome ${outcome}.`}</span>
+        {/* The one announcement per change; the figure and pill above are read in place, not announced. */}
+        <span className="sr-only" aria-live="polite">{`${passCount} of ${SIGNALS.length} signals pass. Outcome ${outcome}.`}</span>
       </div>
       <div aria-hidden="true" className="mt-3 flex gap-1.5">
         {SIGNALS.map((s) => (
@@ -306,7 +310,7 @@ function RubricGuide({ id }: { id: SignalId }) {
   const index = SIGNALS.findIndex((s) => s.id === id);
   const s = SIGNALS[index] ?? SIGNALS[0];
   return (
-    <div className="mt-4 rounded-lg border border-line bg-sunken p-4" aria-live="polite">
+    <div className="mt-4 rounded-lg border border-line bg-sunken p-4">
       <Eyebrow as="h3">{`Signal ${Math.max(index, 0) + 1} · ${s.label}`}</Eyebrow>
       {/* The question is quoted verbatim from docs/rubric.md, where it continues a sentence; only its first letter is raised here. */}
       <p className="mt-2 text-sm text-text first-letter:uppercase">{s.question}</p>
