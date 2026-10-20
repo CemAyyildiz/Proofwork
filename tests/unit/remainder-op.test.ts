@@ -66,10 +66,12 @@ const row = async () => {
 };
 const balance = async (contractId: string) => (await escrow.getEscrow(contractId)).balance;
 const returnOps = async () => (await conn.select().from(escrowOps)).filter((o) => o.kind === "withdraw_remaining");
-const prepare = (actor = resolver) => prepareRemainderReturn(CAMPAIGN, actor, escrow, conn);
+/** Horizon stand-in: a transaction is on chain once the fake escrow applied it. */
+const landed = async (txHash: string) => escrow.landed.has(txHash);
+const prepare = (actor = resolver) => prepareRemainderReturn(CAMPAIGN, actor, escrow, conn, landed);
 /** The resolver's wallet signs the prepared XDR; the fake hashes envelopes without their signatures. */
 const confirm = (op: { opId: string; unsignedXdr: string }, actor = resolver, signedXdr = op.unsignedXdr) =>
-  confirmRemainderReturn({ campaignId: CAMPAIGN, opId: op.opId, signedXdr }, actor, escrow, conn);
+  confirmRemainderReturn({ campaignId: CAMPAIGN, opId: op.opId, signedXdr }, actor, escrow, conn, landed);
 
 describe("prepareRemainderReturn / confirmRemainderReturn", () => {
   it("returns the whole on-chain balance to the escrow's funder in one distribution, and the campaign reads settled", async () => {
@@ -193,6 +195,50 @@ describe("prepareRemainderReturn / confirmRemainderReturn", () => {
     expect((await row()).remainderTxHash).toBe(txHash);
   });
 
+  it("a failed op is not confirmed by an escrow another transaction emptied, and nothing is recorded", async () => {
+    const contractId = await closed();
+    const op = await prepare();
+    escrow.failNextSubmit("throw");
+    await expect(confirm(op)).rejects.toThrow("send-transaction timed out");
+    // Swept outside the app (pnpm escrow:close --no-record): the escrow is empty, the prepared hash never landed.
+    await escrow.submit((await escrow.buildWithdrawRemaining(contractId, RESOLVER, [{ address: FUNDER, amount: "0.2" }])).unsignedXdr);
+    expect(await balance(contractId)).toBe("0");
+
+    await expect(prepare()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/escrow is empty and no remainder is recorded/) });
+    expect((await returnOps())[0]).toMatchObject({ status: "failed" });
+    expect((await row()).remainderTxHash).toBeNull();
+  });
+
+  it("a submit that times out after another transaction emptied the escrow is not confirmed", async () => {
+    const contractId = await closed();
+    const op = await prepare();
+    const outside = (await escrow.buildWithdrawRemaining(contractId, RESOLVER, [{ address: FUNDER, amount: "0.2" }])).unsignedXdr;
+    const real = escrow.submit.bind(escrow);
+    vi.spyOn(escrow, "submit").mockImplementationOnce(async () => {
+      await real(outside);
+      throw new Error("send-transaction timed out");
+    });
+    await expect(confirm(op)).rejects.toThrow("send-transaction timed out");
+    expect(await balance(contractId)).toBe("0");
+    expect((await returnOps())[0]).toMatchObject({ status: "failed" });
+    expect((await row()).remainderTxHash).toBeNull();
+  });
+
+  it("a failed op whose own transaction landed is confirmed and recorded by the next prepare", async () => {
+    const contractId = await closed();
+    const op = await prepare();
+    // The signed return reached the chain, but the row was left failed (the server lost the answer).
+    await escrow.submit(op.unsignedXdr);
+    await conn.update(escrowOps).set({ status: "failed" }).where(eq(escrowOps.id, op.opId));
+    expect(await balance(contractId)).toBe("0");
+
+    await expect(prepare()).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/already confirmed/) });
+    const [rec] = await returnOps();
+    expect(rec).toMatchObject({ status: "confirmed" });
+    expect(rec?.txHash).toMatch(/^[0-9a-f]{64}$/);
+    expect((await row()).remainderTxHash).toBe(rec?.txHash);
+  });
+
   it("a return accepted without effect is not recorded", async () => {
     const contractId = await closed();
     const op = await prepare();
@@ -232,7 +278,7 @@ describe("prepareRemainderReturn / confirmRemainderReturn", () => {
   });
 
   it("an unknown campaign is NOT_FOUND and a draft without escrow is refused", async () => {
-    await expect(prepareRemainderReturn("cmp_missing", resolver, escrow, conn)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(prepareRemainderReturn("cmp_missing", resolver, escrow, conn, landed)).rejects.toMatchObject({ code: "NOT_FOUND" });
     await expect(prepare()).rejects.toMatchObject({ code: "CONFLICT", message: "campaign has no escrow" });
   });
 

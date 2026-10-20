@@ -54,6 +54,7 @@ export default async function AdminPage() {
 
       {awaiting.length > 0 ? (
         <Section
+          id="awaiting"
           title="Awaiting your return"
           count={awaiting.length}
           description="This wallet is the dispute resolver of these closed campaigns. Returning sends what is left in each escrow to its funder; you sign in your own wallet."
@@ -69,13 +70,14 @@ export default async function AdminPage() {
       ) : null}
 
       {overview ? (
-        <Section title="Campaigns" count={overview.length} description="Every campaign, its stage and whose step it waits on.">
+        <Section id="campaigns" title="Campaigns" count={overview.length} description="Every campaign, its stage and whose step it waits on.">
           {overview.length === 0 ? <p className="text-sm text-muted">No campaigns yet.</p> : <CampaignsTable rows={overview} />}
         </Section>
       ) : null}
 
       {access ? (
         <Section
+          id="access"
           title="Funder access"
           description="Approve or reject requests and revoke access. Every grant and revocation is written to the access log; a rejection changes no role and stays on the request."
         >
@@ -92,11 +94,12 @@ export default async function AdminPage() {
   );
 }
 
-function Section({ title, count, description, children }: { title: string; count?: number; description: string; children: ReactNode }) {
+function Section({ id, title, count, description, children }: { id: string; title: string; count?: number; description: string; children: ReactNode }) {
+  const headingId = `${id}-heading`;
   return (
-    <section className="space-y-4" aria-label={title}>
+    <section className="space-y-4" aria-labelledby={headingId}>
       <div className="max-w-[720px]">
-        <h2 className="text-[20px] font-semibold tracking-[-0.02em]">
+        <h2 id={headingId} className="text-[20px] font-semibold tracking-[-0.02em]">
           {title}
           {count !== undefined ? <span className="ml-2 font-mono text-[12px] font-medium text-muted">{count}</span> : null}
         </h2>
@@ -153,11 +156,11 @@ function CampaignsTable({ rows }: { rows: CampaignOverviewRow[] }) {
       <table className="w-full text-sm">
         <thead>
           <tr>
-            <th className={th}>Campaign</th>
-            <th className={th}>Funder</th>
-            <th className={th}>Stage</th>
-            <th className={th}>Deadline</th>
-            <th className={th}>Waits on</th>
+            <th scope="col" className={th}>Campaign</th>
+            <th scope="col" className={th}>Funder</th>
+            <th scope="col" className={th}>Stage</th>
+            <th scope="col" className={th}>Deadline</th>
+            <th scope="col" className={th}>Waits on</th>
           </tr>
         </thead>
         <tbody>

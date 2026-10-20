@@ -1,13 +1,3 @@
-import "server-only";
-import { eq } from "drizzle-orm";
-import { db, type Db } from "@/db/client";
-import { campaigns, type Campaign } from "@/db/schema";
-import type { EscrowPort } from "@/escrow/port";
-import { AppError } from "@/lib/errors";
-import { findOp, prepareOp, submitOp, type OnConfirmed, type Verify } from "./escrow-ops";
-import { recordRemainder } from "./payout";
-import { checkRemainder, isEmptyBalance, RemainderError, type RemainderCheck } from "./remainder";
-
 /**
  * The remainder return started in the app (CAP-18, AD-4): the wallet that is
  * a closed campaign's dispute resolver signs `withdraw-remaining-funds` in
@@ -19,10 +9,23 @@ import { checkRemainder, isEmptyBalance, RemainderError, type RemainderCheck } f
  *             on-chain funder
  *   submit  → the signed hash must equal the prepared one; the checks run
  *             again; `remainder_tx_hash` is written once the escrow reads empty
+ *             and Horizon reports this op's own transaction as successful
  *
  * The contract lets the resolver name any receiver, so the app builds the one
  * distribution itself and never takes one from the caller.
  */
+import "server-only";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { env } from "@/config/env";
+import { db, type Db } from "@/db/client";
+import { campaigns, type Campaign } from "@/db/schema";
+import type { EscrowPort } from "@/escrow/port";
+import { AppError } from "@/lib/errors";
+import { findOp, prepareOp, submitOp, type OnConfirmed, type Verify } from "./escrow-ops";
+import { recordRemainder } from "./payout";
+import { checkRemainder, isEmptyBalance, RemainderError, type RemainderCheck } from "./remainder";
+
 export interface PreparedRemainder {
   opId: string;
   unsignedXdr: string;
@@ -70,9 +73,39 @@ async function sweepTarget(c: Campaign & { escrowContractId: string }, actor: { 
   return { funder: check.funder, amount: check.state.balance };
 }
 
-/** The return is visible once the escrow reads empty. */
-function emptied(escrow: EscrowPort, contractId: string): Verify {
-  return async () => isEmptyBalance((await escrow.getEscrow(contractId)).balance);
+/** Whether a transaction is on chain and successful. Injected so unit tests need no network. */
+export type TxLandedReader = (txHash: string) => Promise<boolean>;
+
+const TX_HASH = /^[0-9a-f]{64}$/;
+const horizonTx = z.object({ successful: z.boolean() });
+/** Horizon can lag the network by a ledger or two after a submit: a 404 is asked again before it counts. */
+const NOT_FOUND_RETRIES = 3;
+const RETRY_MS = 1_500;
+
+/** Default reader: Horizon's record of the transaction. 404 → false; anything else unreadable throws. */
+export const horizonTxLandedReader: TxLandedReader = async (txHash) => {
+  if (!TX_HASH.test(txHash)) return false;
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${env.HORIZON_URL}/transactions/${txHash}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+    if (res.status === 404) {
+      if (attempt + 1 >= NOT_FOUND_RETRIES) return false;
+      await new Promise((r) => setTimeout(r, RETRY_MS));
+      continue;
+    }
+    if (!res.ok) throw new AppError("ESCROW", `Horizon answered ${res.status} for the return transaction`);
+    const parsed = horizonTx.safeParse(await res.json().catch(() => null));
+    if (!parsed.success) throw new AppError("ESCROW", "unexpected transaction response from Horizon");
+    return parsed.data.successful;
+  }
+};
+
+/**
+ * The return is visible once this op's own transaction is successful on
+ * chain and the escrow reads empty. An escrow emptied by another
+ * transaction (a sweep with `pnpm escrow:close`) never confirms this op.
+ */
+function emptied(escrow: EscrowPort, contractId: string, landed: TxLandedReader): Verify {
+  return async (res) => (await landed(res.txHash)) && isEmptyBalance((await escrow.getEscrow(contractId)).balance);
 }
 
 /** Record the confirmed return on the campaign; the same hash again changes nothing. */
@@ -83,7 +116,13 @@ function returned(campaignId: string, conn: Db): OnConfirmed {
   };
 }
 
-export async function prepareRemainderReturn(campaignId: string, actor: { pubkey: string }, escrow: EscrowPort, conn: Db = db): Promise<PreparedRemainder> {
+export async function prepareRemainderReturn(
+  campaignId: string,
+  actor: { pubkey: string },
+  escrow: EscrowPort,
+  conn: Db = db,
+  landed: TxLandedReader = horizonTxLandedReader,
+): Promise<PreparedRemainder> {
   const c = await campaignForResolver(campaignId, actor, conn);
   const contractId = c.escrowContractId;
   // Filled by `build`; read only after prepareOp returns, which it does only after a build.
@@ -99,7 +138,7 @@ export async function prepareRemainderReturn(campaignId: string, actor: { pubkey
         const u = await escrow.buildWithdrawRemaining(contractId, actor.pubkey, [{ address: target.funder, amount: target.amount }]);
         return { unsignedXdr: u.unsignedXdr };
       },
-      verify: emptied(escrow, contractId),
+      verify: emptied(escrow, contractId, landed),
       onConfirmed: returned(campaignId, conn),
     },
     conn,
@@ -113,13 +152,14 @@ export async function confirmRemainderReturn(
   actor: { pubkey: string },
   escrow: EscrowPort,
   conn: Db = db,
+  landed: TxLandedReader = horizonTxLandedReader,
 ): Promise<{ txHash: string }> {
   const c = await campaignForResolver(input.campaignId, actor, conn);
   const op = await findOp(input.opId, input.campaignId, conn);
   if (op.kind !== KIND) throw AppError.validation(`operation is a ${op.kind}, not a remainder return`);
   // Again right before sending: a return recorded or a milestone opened since prepare stops it here.
   await sweepTarget(c, actor, escrow, conn);
-  const res = await submitOp({ ...input, expectedKind: KIND, verify: emptied(escrow, c.escrowContractId) }, escrow, conn);
+  const res = await submitOp({ ...input, expectedKind: KIND, verify: emptied(escrow, c.escrowContractId, landed) }, escrow, conn);
   await returned(input.campaignId, conn)(res.op);
   return { txHash: res.txHash };
 }

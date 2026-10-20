@@ -25,6 +25,7 @@ import {
   revokeFunder,
 } from "@/services/access";
 import { makeTestDb } from "./db";
+import { fakeFetch } from "./fake-fetch";
 import { horizonAccount, horizonAccountsOnly } from "./funder-wallet";
 
 const world = vi.hoisted(() => ({
@@ -82,6 +83,7 @@ const { default: AdminPage } = await import("@/app/(workspace)/admin/page");
 const { default: CampaignsPage } = await import("@/app/(workspace)/campaigns/page");
 const { default: CampaignPage } = await import("@/app/(workspace)/campaigns/[slug]/page");
 const { default: WorkspaceLayout } = await import("@/app/(workspace)/layout");
+const { default: PublicLayout } = await import("@/app/(public)/layout");
 const { encodeSession } = await import("@/lib/session");
 const { rolesFor } = await import("@/services/auth");
 const { STALE_SUBMITTED_MS } = await import("@/services/escrow-ops");
@@ -1224,6 +1226,30 @@ async function closedCampaign(resolver: string): Promise<{ id: string; slug: str
 const withdrawOps = async () => (await conn.select().from(escrowOps)).filter((o) => o.kind === "withdraw_remaining");
 
 describe("POST /api/campaigns/[id]/remainder", () => {
+  beforeEach(() => {
+    // Horizon as the return reads it: a transaction exists once the fake escrow applied it.
+    vi.stubGlobal(
+      "fetch",
+      fakeFetch((url) => {
+        const tx = /\/transactions\/([0-9a-f]{64})$/.exec(url)?.[1];
+        if (tx) return escrow.landed.has(tx) ? { status: 200, body: { successful: true } } : { status: 404, body: {} };
+        if (/^https:\/\/[^/]+\/accounts\/G[A-Z2-7]{55}$/.test(url)) return { status: 200, body: horizonAccount("1000.0000000") };
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+  });
+
+  it("answers 400 for a campaign id that is not an id, before anything is read", async () => {
+    signIn(Keypair.random().publicKey());
+    const read = vi.spyOn(escrow, "getEscrow");
+    for (const id of ["a b", "x".repeat(65), "../admin"]) {
+      const res = await remainderCall(id, { action: "prepare" });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: "VALIDATION" });
+    }
+    expect(read).not.toHaveBeenCalled();
+  });
+
   it("the campaign's resolver returns the remainder: prepare names the amount and the funder, submit records the tx", async () => {
     const RESOLVER = Keypair.random().publicKey();
     const { id, contractId } = await closedCampaign(RESOLVER);
@@ -1364,12 +1390,15 @@ describe("admin page campaigns and returns", () => {
   async function shell(): Promise<string> {
     return render(WorkspaceLayout({ children: createElement("p", null, "page body") }));
   }
+  async function publicBar(): Promise<string> {
+    return render(PublicLayout({ children: createElement("p", null, "page body") }));
+  }
 
   it("shows the operator every campaign: title, funder, stage, deadline and whose step it waits on", async () => {
     await seedStages();
     signIn(OPS);
     const html = await render(AdminPage());
-    const table = html.slice(html.indexOf('aria-label="Campaigns"'), html.indexOf('aria-label="Funder access"'));
+    const table = html.slice(html.indexOf('id="campaigns-heading"'), html.indexOf('id="access-heading"'));
     const rows = [...table.matchAll(/<tr class="border-t border-line">(.*?)<\/tr>/g)].map((m) => m[1] ?? "");
     expect(rows).toHaveLength(6);
     const awaiting = rows.find((r) => r.includes("Campaign c_await")) ?? "";
@@ -1397,6 +1426,7 @@ describe("admin page campaigns and returns", () => {
       expect(html).not.toContain(hidden);
     }
     expect(await shell()).toContain('href="/admin"');
+    expect(await publicBar()).toContain('href="/admin"');
   });
 
   it("is a not-found page for a resolver whose campaigns are all returned, and the nav drops the link", async () => {
@@ -1405,6 +1435,7 @@ describe("admin page campaigns and returns", () => {
     signIn(OTHER);
     await expect(AdminPage()).rejects.toThrow("NEXT_NOT_FOUND");
     expect(await shell()).not.toContain('href="/admin"');
+    expect(await publicBar()).not.toContain('href="/admin"');
   });
 
   it("shows an operator that is also a resolver both its returns and the operator sections", async () => {
@@ -1413,7 +1444,7 @@ describe("admin page campaigns and returns", () => {
     signIn(OPS);
     const html = await render(AdminPage());
     expect(html).toContain("Awaiting your return");
-    expect(html).toContain('aria-label="Campaigns"');
+    expect(html).toContain('id="campaigns-heading"');
     expect(html).toContain("Access log");
   });
 

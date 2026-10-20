@@ -1,11 +1,14 @@
 import { z } from "zod";
 import { getEscrow } from "@/escrow";
 import { requireUser } from "@/lib/current-user";
+import { AppError } from "@/lib/errors";
 import { jsonRoute } from "@/lib/http";
 import { enforce, limiters } from "@/lib/ratelimit";
 import { confirmRemainderReturn, prepareRemainderReturn } from "@/services/remainder-op";
 
 export const runtime = "nodejs";
+
+const idSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
 
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("prepare") }),
@@ -20,8 +23,13 @@ const schema = z.discriminatedUnion("action", [
  * here trusts the caller.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
-  const { id } = await ctx.params;
+  const { id: rawId } = await ctx.params;
   return jsonRoute(schema, async (input) => {
+    const parsedId = idSchema.safeParse(rawId);
+    if (!parsedId.success) {
+      throw AppError.validation("invalid request", { issues: parsedId.error.issues.map((i) => ({ path: ["id", ...i.path], message: i.message })) });
+    }
+    const id = parsedId.data;
     const user = await requireUser();
     await enforce(limiters.admin, `remainder:${user.pubkey}`);
     const escrow = getEscrow();

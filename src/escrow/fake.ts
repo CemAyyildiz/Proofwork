@@ -25,6 +25,8 @@ export class FakeEscrow implements EscrowPort {
   private nextSubmit: "normal" | "landed-then-throw" | "throw" | "accept-without-effect" = "normal";
   /** number of `submit` calls that reached the "network" */
   submits = 0;
+  /** hashes of the transactions whose effect was applied, as a chain explorer would list them */
+  readonly landed = new Set<string>();
 
   private next(prefix: string): string {
     this.seq += 1;
@@ -189,6 +191,7 @@ export class FakeEscrow implements EscrowPort {
     if (mode === "accept-without-effect") return { txHash };
     this.pending.delete(txHash);
     const contractId = action();
+    this.landed.add(txHash);
     if (mode === "landed-then-throw") throw new Error("send-transaction timed out");
     return contractId ? { txHash, contractId } : { txHash };
   }

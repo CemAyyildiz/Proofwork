@@ -3,8 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/wallet/kit", () => ({ signTransaction: async () => "" }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => undefined }) }));
 
-const { describeOutcome, RemainderRequestError, RemainderReturn, signAndSubmit } = await import("@/components/workspace/remainder-return");
+const { alreadyReturned, describeOutcome, describePrepareFailure, RemainderRequestError, RemainderReturn, signAndSubmit } = await import(
+  "@/components/workspace/remainder-return"
+);
 
 const HASH = "f".repeat(64);
 const OP = { opId: "op_1", unsignedXdr: "xdr_1" };
@@ -62,6 +65,30 @@ describe("signAndSubmit", () => {
   it("a server message that reads like a cancel is not taken for one", async () => {
     const outcome = await signAndSubmit(OP, deps({ submit: () => Promise.reject(new RemainderRequestError("request rejected", 502)) }));
     expect(outcome.kind).toBe("unknown");
+  });
+});
+
+describe("messages", () => {
+  it("drops one trailing period before going on, so no line reads '..'", async () => {
+    const outcome = await signAndSubmit(OP, deps({ submit: () => Promise.reject(new RemainderRequestError("signed transaction does not match.", 400)) }));
+    if (outcome.kind === "returned") throw new Error("unreachable");
+    expect(describeOutcome(outcome).text).toBe("signed transaction does not match. Nothing was sent.");
+    expect(describePrepareFailure("campaign is not closed.")).toBe("Return not prepared: campaign is not closed.");
+  });
+
+  it("a refused prepare never claims nothing was sent", () => {
+    const text = describePrepareFailure("withdraw_remaining is being submitted; wait for confirmation");
+    expect(text).toBe("Return not prepared: withdraw_remaining is being submitted; wait for confirmation.");
+    expect(text).not.toContain("Nothing was sent");
+  });
+
+  it.each([
+    ["withdraw_remaining already confirmed (tx abc)", true],
+    ["the remainder was already returned (tx abc)", true],
+    ["withdraw_remaining is being submitted; wait for confirmation", false],
+    ["campaign x is not closed in the app", false],
+  ])("'%s' means the return already went out: %s", (text, expected) => {
+    expect(alreadyReturned(text)).toBe(expected);
   });
 });
 

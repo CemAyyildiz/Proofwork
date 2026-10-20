@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { HashChip } from "@/components/ui/hash-chip";
@@ -53,6 +54,19 @@ const BEFORE_SEND = new Set([400, 401, 403, 404, 429]);
 
 const message = (e: unknown) => (e instanceof Error ? e.message : walletErrorMessage(e));
 
+/** A message as the start of a sentence that goes on: one trailing period dropped, so ". Nothing was sent." never reads "..". */
+const clause = (text: string) => text.replace(/\.$/, "");
+
+/** The server says the return already went out: the page behind it is out of date. */
+export function alreadyReturned(serverMessage: string): boolean {
+  return /already (confirmed|returned)/i.test(serverMessage);
+}
+
+/** The line for a refused prepare. Not "nothing was sent": an earlier submit of this return may be on its way. */
+export function describePrepareFailure(serverMessage: string): string {
+  return `Return not prepared: ${clause(serverMessage)}.`;
+}
+
 /**
  * Sign a prepared return in the wallet and hand it to the server. A cancel
  * is read only from the signing step; a server answer is never taken for
@@ -82,7 +96,7 @@ export function describeOutcome(o: Exclude<ReturnOutcome, { kind: "returned" }>)
     case "cancelled":
       return { tone: "muted", text: "Signature cancelled in your wallet. Nothing was sent." };
     case "not_sent":
-      return { tone: "fail", text: `${o.message}. Nothing was sent.` };
+      return { tone: "fail", text: `${clause(o.message)}. Nothing was sent.` };
     case "unknown":
       return { tone: "fail", text: `The return may have reached the chain; refresh to see (${o.message}).` };
   }
@@ -98,6 +112,7 @@ type Notice = { tone: "muted" | "fail"; text: string };
  * list, so the outcome stays here.
  */
 export function RemainderReturn({ campaignId, resolver }: { campaignId: string; resolver: string }) {
+  const router = useRouter();
   const [phase, setPhase] = useState<"idle" | "preparing" | "confirm" | "signing">("idle");
   const [prepared, setPrepared] = useState<PreparedReturn | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -110,8 +125,10 @@ export function RemainderReturn({ campaignId, resolver }: { campaignId: string; 
       setPrepared(await remainderCall<PreparedReturn>(campaignId, { action: "prepare" }));
       setPhase("confirm");
     } catch (e) {
-      setNotice({ tone: "fail", text: `Return refused: ${message(e)}. Nothing was sent.` });
+      const text = message(e);
+      setNotice({ tone: "fail", text: describePrepareFailure(text) });
       setPhase("idle");
+      if (alreadyReturned(text)) router.refresh();
     }
   }
 
