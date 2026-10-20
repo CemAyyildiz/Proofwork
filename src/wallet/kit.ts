@@ -1,7 +1,6 @@
 "use client";
 
-import { StellarWalletsKit } from "@creit.tech/stellar-wallets-kit/sdk";
-import { FreighterModule } from "@creit.tech/stellar-wallets-kit/modules/freighter";
+import type { StellarWalletsKit as Kit } from "@creit.tech/stellar-wallets-kit/sdk";
 import { Networks, type SwkAppTheme } from "@creit.tech/stellar-wallets-kit/types";
 import { publicEnv } from "@/config/public-env";
 
@@ -9,8 +8,12 @@ import { publicEnv } from "@/config/public-env";
  * Browser-only wallet layer. The kit is a static singleton; we initialise it
  * once, testnet only, Freighter first (it is what contributors will have).
  * Secret keys never exist in this process.
+ *
+ * The kit is loaded on the first wallet action, never with the page: on
+ * import it writes its theme variables onto <html>, and a page that loads it
+ * before hydration no longer matches the server's <html>.
  */
-let initialised = false;
+let loaded: Promise<typeof Kit> | null = null;
 
 /** The kit's modal in Proofwork's dark tokens, so it doesn't flash a white sheet over the page. */
 const THEME: SwkAppTheme = {
@@ -41,19 +44,29 @@ export class WalletCancelled extends Error {
   }
 }
 
-function ensureInit(): void {
-  if (initialised) return;
-  StellarWalletsKit.init({
-    modules: [new FreighterModule()],
-    network: Networks.TESTNET,
-    theme: THEME,
-    authModal: { showInstallLabel: true, hideUnsupportedWallets: false },
+function kit(): Promise<typeof Kit> {
+  loaded ??= (async () => {
+    const [{ StellarWalletsKit }, { FreighterModule }] = await Promise.all([
+      import("@creit.tech/stellar-wallets-kit/sdk"),
+      import("@creit.tech/stellar-wallets-kit/modules/freighter"),
+    ]);
+    StellarWalletsKit.init({
+      modules: [new FreighterModule()],
+      network: Networks.TESTNET,
+      theme: THEME,
+      authModal: { showInstallLabel: true, hideUnsupportedWallets: false },
+    });
+    return StellarWalletsKit;
+  })().catch((e: unknown) => {
+    // A failed load (a chunk that did not arrive) is retried on the next action.
+    loaded = null;
+    throw e;
   });
-  initialised = true;
+  return loaded;
 }
 
 export async function connectWallet(): Promise<string> {
-  ensureInit();
+  const StellarWalletsKit = await kit();
   try {
     const { address } = await StellarWalletsKit.authModal();
     return address;
@@ -65,13 +78,11 @@ export async function connectWallet(): Promise<string> {
 }
 
 export async function disconnectWallet(): Promise<void> {
-  ensureInit();
-  await StellarWalletsKit.disconnect();
+  await (await kit()).disconnect();
 }
 
 export async function signMessage(address: string, message: string): Promise<string> {
-  ensureInit();
-  const { signedMessage } = await StellarWalletsKit.signMessage(message, {
+  const { signedMessage } = await (await kit()).signMessage(message, {
     address,
     networkPassphrase: publicEnv.networkPassphrase,
   });
@@ -79,8 +90,7 @@ export async function signMessage(address: string, message: string): Promise<str
 }
 
 export async function signTransaction(address: string, unsignedXdr: string): Promise<string> {
-  ensureInit();
-  const { signedTxXdr } = await StellarWalletsKit.signTransaction(unsignedXdr, {
+  const { signedTxXdr } = await (await kit()).signTransaction(unsignedXdr, {
     address,
     networkPassphrase: publicEnv.networkPassphrase,
   });

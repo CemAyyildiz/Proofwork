@@ -1,10 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+
+const noSubscribe = () => () => undefined;
 
 export function CopyLink({ path }: { path: string }) {
   const [copied, setCopied] = useState(false);
-  const url = typeof window === "undefined" ? path : `${window.location.origin}${path}`;
+  // The server renders the path; the browser adds its origin after hydration, so both first renders match.
+  const url = useSyncExternalStore(
+    noSubscribe,
+    () => `${window.location.origin}${path}`,
+    () => path,
+  );
   async function copy() {
     try {
       await navigator.clipboard.writeText(url);
@@ -15,9 +22,9 @@ export function CopyLink({ path }: { path: string }) {
     }
   }
   return (
-    <div className="flex items-center gap-2">
-      <code className="flex-1 truncate rounded border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-800">{url}</code>
-      <button type="button" onClick={copy} className="rounded border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50">
+    <div className="flex min-w-0 items-center gap-2">
+      <code className="min-w-0 flex-1 truncate rounded-sm border border-line bg-sunken px-3 py-2 font-mono text-xs text-text-2">{url}</code>
+      <button type="button" onClick={copy} className="h-9 shrink-0 rounded-sm border border-line-strong px-3 text-xs font-medium text-text hover:bg-white/5">
         {copied ? "Copied" : "Copy"}
       </button>
     </div>
