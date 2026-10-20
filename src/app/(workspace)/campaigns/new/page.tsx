@@ -15,8 +15,8 @@ export default async function NewCampaignPage() {
   const limits = { ...funderLimits(), ...(await funderUsage(user.pubkey)) };
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">New campaign</h1>
-      <p className="text-sm text-neutral-600">
+      <h1 className="text-[clamp(28px,3.2vw,40px)] font-semibold leading-[1.05] tracking-[-0.04em]">New campaign</h1>
+      <p className="max-w-[760px] text-sm leading-normal text-text-2">
         You will sign two transactions after saving: one to deploy the escrow, one to move the budget into it. Rewards are
         paid net of the 0.3% Trustless Work protocol fee, and the same fee is taken from the remainder that returns to you
         when the campaign is closed.

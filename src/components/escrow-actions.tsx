@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { signTransaction } from "@/wallet/kit";
 
 type Stage = "draft" | "deployed" | "funded" | "closed";
@@ -65,41 +66,48 @@ export function EscrowActions({
   }
 
   if (stage === "closed") return null;
+  // The forward step is the surface's one yellow action; while it is blocked, the readiness panel's fix is.
+  const stepVariant = blocked ? "secondary" : "primary";
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         {stage === "draft" && offerStep ? (
-          <button type="button" disabled={busy !== null || blocked} onClick={() => run("deploy")} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
-            {busy === "deploy" ? "Waiting for wallet…" : "1 · Deploy escrow"}
-          </button>
+          <Button variant={stepVariant} disabled={busy !== null || blocked} busy={busy === "deploy"} busyLabel="Waiting for wallet…" onClick={() => run("deploy")}>
+            1 · Deploy escrow
+          </Button>
         ) : null}
         {stage === "deployed" && offerStep ? (
-          <button type="button" disabled={busy !== null || blocked} onClick={() => run("fund")} className="rounded bg-neutral-900 px-3 py-1.5 text-sm text-white disabled:opacity-50">
-            {busy === "fund" ? "Waiting for wallet…" : "2 · Fund budget"}
-          </button>
+          <Button variant={stepVariant} disabled={busy !== null || blocked} busy={busy === "fund"} busyLabel="Waiting for wallet…" onClick={() => run("fund")}>
+            2 · Fund budget
+          </Button>
         ) : null}
-        {stage === "funded" ? <span className="text-sm text-green-700">Funded. Contributors can submit.</span> : null}
-        {error ? <span className="text-sm text-red-600">{error}</span> : null}
+        {stage === "funded" ? <span className="text-sm text-pass">Funded. Contributors can submit.</span> : null}
+        {error ? <span className="text-sm text-fail">{error}</span> : null}
       </div>
       {stage === "deployed" && canAbandon ? (
         confirming ? (
-          <div className="max-w-[640px] space-y-2 rounded border border-red-300 p-3 text-sm">
+          <div className="max-w-[640px] space-y-3 rounded-lg border border-fail-line p-4 text-sm text-text-2">
             <p>
               Nothing is in this escrow: no fund transaction was ever sent for it, and the escrow is read to confirm it is empty
               before anything changes. Abandoning closes the campaign and frees its place under your limits. It cannot be funded
               afterwards.
             </p>
-            <div className="flex items-center gap-3">
-              <button type="button" disabled={busy !== null} onClick={() => void abandon()} className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50">
-                {busy === "abandon" ? "Closing…" : "Abandon campaign"}
-              </button>
-              <button type="button" disabled={busy !== null} onClick={() => setConfirming(false)} className="rounded border border-neutral-300 px-3 py-1.5 text-sm disabled:opacity-50">
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="danger" size="sm" disabled={busy !== null} busy={busy === "abandon"} busyLabel="Closing…" onClick={() => void abandon()}>
+                Abandon campaign
+              </Button>
+              <Button variant="secondary" size="sm" disabled={busy !== null} onClick={() => setConfirming(false)}>
                 Keep it
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
-          <button type="button" disabled={busy !== null} onClick={() => setConfirming(true)} className="text-sm text-red-700 underline disabled:opacity-50">
+          <button
+            type="button"
+            disabled={busy !== null}
+            onClick={() => setConfirming(true)}
+            className="inline-flex min-h-11 items-center text-sm text-fail underline hover:no-underline disabled:opacity-35 md:min-h-0"
+          >
             Abandon this campaign instead
           </button>
         )

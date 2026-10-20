@@ -2,10 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { cx } from "@/components/ui/cx";
 import { fromStroops, toStroops } from "@/escrow/amount";
 import { formatUsdc } from "@/lib/format";
 
-const field = "w-full rounded border border-neutral-300 px-3 py-2 text-sm";
+const field =
+  "mt-2 w-full rounded-[14px] border border-line-strong bg-sunken px-3.5 py-3 text-sm text-text placeholder:text-faint focus-visible:border-accent";
+const labelText = "text-[13px] font-medium text-text-2";
 
 /** The per-funder caps and what this wallet has open, as the server read them for this page. */
 export interface FunderLimitsView {
@@ -85,55 +89,59 @@ export function CampaignForm({ defaultDisputeResolver, now, limits }: { defaultD
         ) : null}
       </section>
       <label className="block text-sm">
-        <span className="font-medium">Title</span>
+        <span className={labelText}>Title</span>
         <input name="title" required minLength={3} maxLength={100} className={field} />
       </label>
       <label className="block text-sm">
-        <span className="font-medium">Brief</span>
+        <span className={labelText}>Brief</span>
         <textarea name="brief" required minLength={20} maxLength={4000} rows={6} className={field}
           placeholder="What should contributors do? What must the post include? Be specific: the rubric's 'follows the brief' signal is scored against this text." />
       </label>
       <div className="grid grid-cols-2 gap-4">
         <label className="block text-sm">
-          <span className="font-medium">Reward per approved submission (USDC)</span>
+          <span className={labelText}>Reward per approved submission (USDC)</span>
           <input name="rewardAmount" required inputMode="decimal" placeholder="5" className={field} />
         </label>
         <label className="block text-sm">
-          <span className="font-medium">Total budget (USDC)</span>
+          <span className={labelText}>Total budget (USDC)</span>
           <input name="budget" required inputMode="decimal" placeholder="100" className={field} />
         </label>
       </div>
       <fieldset className="text-sm">
-        <legend className="font-medium">Runs for</legend>
-        <div className="mt-1 flex flex-wrap gap-2">
+        <legend className={labelText}>Runs for</legend>
+        <div className="mt-2 flex flex-wrap gap-2">
           {[3, 7, 14, 30].map((d) => (
             <button
               key={d}
               type="button"
+              aria-pressed={days === d}
               onClick={() => setDays(d)}
-              className={`rounded border px-3 py-1.5 ${days === d ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-300 hover:bg-neutral-50"}`}
+              className={cx(
+                "inline-flex h-11 items-center rounded-[10px] border px-3.5 text-[13.5px] font-medium transition-colors duration-150 md:h-9",
+                days === d ? "border-accent-line bg-accent-soft text-text" : "border-line-strong text-text-2 hover:bg-raised hover:text-text",
+              )}
             >
               {d} days
             </button>
           ))}
         </div>
-        <p className="mt-1 text-xs text-neutral-500">
+        <p className="mt-2 text-xs text-muted">
           Closes {closesAt} UTC. After that you close the campaign here, and the dispute resolver returns what is left of the budget, less
           the 0.3% protocol fee.
         </p>
       </fieldset>
       <label className="block text-sm">
-        <span className="font-medium">Dispute resolver public key</span>
+        <span className={labelText}>Dispute resolver public key</span>
         <input name="disputeResolverPubkey" required defaultValue={defaultDisputeResolver} pattern="G[A-Z2-7]{55}" className={field} />
-        <span className="text-xs text-neutral-500">
+        <span className="mt-1.5 block text-xs text-muted">
           A key that is neither yours nor Proofwork&apos;s (the chapter lead). After you close the campaign, this key signs the return of what is left in
           the escrow.
         </span>
       </label>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      <button type="submit" disabled={busy || blocked !== null} className="rounded bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50">
-        {busy ? "Saving…" : "Save campaign"}
-      </button>
+      {error ? <p className="text-sm text-fail">{error}</p> : null}
+      <Button type="submit" disabled={blocked !== null} busy={busy} busyLabel="Saving…">
+        Save campaign
+      </Button>
     </form>
   );
 }

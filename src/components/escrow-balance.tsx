@@ -24,7 +24,7 @@ async function liveBalance(slug: string, contractId: string): Promise<string | n
 
 /** Shown while the balance streams in after the rest of the page. */
 export function EscrowBalanceLoading() {
-  return <p className="text-sm text-neutral-500">Reading balance from Stellar…</p>;
+  return <p className="text-sm text-muted">Reading balance from Stellar…</p>;
 }
 
 /** The funder page's balance line; rendered inside <Suspense> so the page never waits on the chain read. */
@@ -41,8 +41,8 @@ export async function EscrowBalance({ slug, contractId }: { slug: string; contra
     );
   }
   return (
-    <p className="text-sm">
-      Balance <strong>{formatUsdc(balance)}</strong> <span className="text-xs text-neutral-500">read from Stellar</span>
+    <p className="text-sm text-text">
+      Balance <strong>{formatUsdc(balance)}</strong> <span className="text-xs text-muted">read from Stellar</span>
     </p>
   );
 }
