@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Eyebrow } from "@/components/ui/eyebrow";
@@ -12,10 +12,9 @@ import { publicEnv } from "@/config/public-env";
 import { reasonLabel, type SignalId } from "@/domain/rubric";
 import { ReviewCard } from "./review-card";
 import {
-  commitErrorMessage,
+  commitResult,
   commitState,
   draftFor,
-  leavesQueue,
   nextAfter,
   queueCounts,
   ReviewClock,
@@ -26,7 +25,7 @@ import {
   type ReviewItem,
 } from "./review-state";
 
-/** How long a receipt stays in place before the next submission comes into focus. */
+/** How long a receipt stays in place before the next submission comes into focus, unless it is hovered or focused inside. */
 const RECEIPT_MS = 1500;
 
 /**
@@ -46,6 +45,8 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<{ id: string; message: string } | null>(null);
+  // Items whose last attempt got no response: it may have been recorded.
+  const [uncertain, setUncertain] = useState<ReadonlySet<string>>(new Set());
   const clocks = useRef(new Map<string, ReviewClock>());
   const focusTarget = useRef<HTMLDivElement>(null);
   const firstFocus = useRef(true);
@@ -75,15 +76,6 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
     focusTarget.current?.focus();
   }, [activeId]);
 
-  useEffect(() => {
-    if (!showing) return;
-    const t = setTimeout(() => {
-      setCurrentId(showing.next);
-      setShowing(null);
-    }, RECEIPT_MS);
-    return () => clearTimeout(t);
-  }, [showing]);
-
   // Only once the queue is empty does the page ask the server for anything that arrived meanwhile.
   const cleared = !showing && open.length === 0 && recorded.size + gone.size > 0;
   useEffect(() => {
@@ -92,6 +84,8 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
 
   function setDraft(id: string, next: Draft) {
     setDrafts((d) => new Map(d).set(id, next));
+    // An edit answers an old error on this item.
+    setError((e) => (e?.id === id ? null : e));
   }
 
   function onSignal(id: string, signal: SignalId, value: boolean) {
@@ -103,6 +97,7 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
   function go(delta: number) {
     if (!current || busyId) return;
     setNotice(null);
+    setError(null);
     setCurrentId(stepFrom(ids, current.submissionId, delta));
   }
 
@@ -117,9 +112,9 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
     setNotice(null);
     const clock = clocks.current.get(id);
     const at = Date.now();
-    let status = 0;
+    let res: { status: number; body: unknown };
     try {
-      const res = await fetch("/api/review", {
+      const r = await fetch("/api/review", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -133,35 +128,29 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
           sharedFundingCount: item.sharedFundingCount,
         }),
       });
-      status = res.status;
-      const json = (await res.json().catch(() => ({}))) as { id?: unknown; outcome?: unknown; reasonCode?: unknown; txHash?: unknown; message?: unknown };
-      const message = typeof json.message === "string" ? json.message : null;
-      if (res.ok && typeof json.id === "string") {
-        const receipt: Receipt = {
-          submissionId: id,
-          shortId: item.shortId,
-          campaignId: item.campaign.id,
-          outcome: json.outcome === "PASS" ? "PASS" : "FAIL",
-          reasonCode: typeof json.reasonCode === "string" ? json.reasonCode : state.reasonCode,
-          decisionId: json.id,
-          txHash: typeof json.txHash === "string" && json.txHash !== "" ? json.txHash : null,
-        };
-        setShowing({ receipt, next: nextAfter(ids, id) });
-        setRecorded((r) => new Set(r).add(id));
-        return;
-      }
-      if (leavesQueue(status)) {
-        setGone((g) => new Set(g).add(id));
-        setCurrentId(nextAfter(ids, id));
-        setNotice(commitErrorMessage(status, message));
-        return;
-      }
-      setError({ id, message: commitErrorMessage(res.ok ? 500 : status, message) });
+      res = { status: r.status, body: await r.json().catch(() => ({})) };
     } catch {
-      setError({ id, message: commitErrorMessage(status, null) });
-    } finally {
-      setBusyId(null);
+      res = { status: 0, body: {} };
     }
+    const result = commitResult(res, item, state.reasonCode, uncertain.has(id));
+    setUncertain((u) => {
+      const next = new Set(u);
+      if (res.status === 0) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    if (result.kind === "recorded") {
+      setShowing({ receipt: result.receipt, next: nextAfter(ids, id) });
+      setRecorded((r) => new Set(r).add(id));
+    } else if (result.kind === "left") {
+      const leaving = new Set(result.scope === "campaign" ? open.filter((i) => i.campaign.id === item.campaign.id).map((i) => i.submissionId) : [id]);
+      setGone((g) => new Set([...g, ...leaving]));
+      setCurrentId(nextAfter(ids, id, leaving));
+      setNotice(result.notice);
+    } else {
+      setError({ id, message: result.message });
+    }
+    setBusyId(null);
   }
 
   return (
@@ -180,6 +169,7 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
             setCurrentId(showing.next);
             setShowing(null);
           }}
+          advanceMs={RECEIPT_MS}
         />
       ) : current ? (
         <div className="space-y-4">
@@ -229,39 +219,72 @@ export function EmptyQueue() {
   );
 }
 
-/** The recorded decision, for about RECEIPT_MS. "On-chain" is said only when there is a transaction hash to show. */
-function ReceiptCard({ receipt, hasNext, onNext }: { receipt: Receipt; hasNext: boolean; onNext: () => void }) {
+/**
+ * The recorded decision. With a next item it moves on after `advanceMs`,
+ * paused while the pointer is over it or focus is on one of its links; after
+ * the last item it stays until "Done". "On-chain" is said only with a
+ * transaction hash to show.
+ */
+export function ReceiptCard({ receipt, hasNext, onNext, advanceMs }: { receipt: Receipt; hasNext: boolean; onNext: () => void; advanceMs: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [hovered, setHovered] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  const advance = useEffectEvent(onNext);
+
+  // Focus lands on the receipt, not on <body>, when it replaces the card.
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (!hasNext || hovered || focusInside) return;
+    const t = setTimeout(() => advance(), advanceMs);
+    return () => clearTimeout(t);
+  }, [hasNext, hovered, focusInside, advanceMs]);
+
   return (
-    <Card className="p-6 md:p-8" role="status">
-      <Eyebrow>{receipt.txHash ? "Recorded on-chain" : "Recorded"}</Eyebrow>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <span className="font-mono text-[15px] font-medium">{receipt.shortId}</span>
-        <span aria-hidden="true" className="text-muted">
-          →
-        </span>
-        <Pill tone={receipt.outcome === "PASS" ? "pass" : "fail"}>{receipt.outcome}</Pill>
-        <span className="font-mono text-[12.5px] text-text-2">{reasonLabel(receipt.reasonCode)}</span>
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-        {receipt.txHash ? (
-          <HashChip value={receipt.txHash} href={publicEnv.explorerTxUrl(receipt.txHash)} />
-        ) : (
-          <a
-            href={`/api/campaigns/${encodeURIComponent(receipt.campaignId)}/review-log`}
-            className="inline-flex min-h-11 items-center text-sm font-medium text-text-2 hover:text-text hover:underline md:min-h-0"
-          >
-            No transaction hash yet. See the review log
-          </a>
-        )}
-        <Link href={`/verify/${receipt.decisionId}`} className="inline-flex min-h-11 items-center text-sm font-medium text-accent hover:underline md:min-h-0">
-          Verify decision <span aria-hidden="true">→</span>
-        </Link>
-      </div>
-      <div className="mt-6">
-        <Button variant="secondary" size="sm" onClick={onNext}>
-          {hasNext ? "Next submission" : "Done"}
-        </Button>
-      </div>
-    </Card>
+    <div
+      ref={ref}
+      tabIndex={-1}
+      className="outline-none"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={(e) => setFocusInside(e.target !== e.currentTarget)}
+      onBlur={(e) => {
+        if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) setFocusInside(false);
+      }}
+    >
+      <Card className="p-6 md:p-8" role="status">
+        <Eyebrow>{receipt.txHash ? "Recorded on-chain" : "Recorded"}</Eyebrow>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <span className="font-mono text-[15px] font-medium">{receipt.shortId}</span>
+          <span aria-hidden="true" className="text-muted">
+            →
+          </span>
+          <Pill tone={receipt.outcome === "PASS" ? "pass" : "fail"}>{receipt.outcome}</Pill>
+          <span className="font-mono text-[12.5px] text-text-2">{reasonLabel(receipt.reasonCode)}</span>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+          {receipt.txHash ? (
+            <HashChip value={receipt.txHash} href={publicEnv.explorerTxUrl(receipt.txHash)} />
+          ) : (
+            <a
+              href={`/api/campaigns/${encodeURIComponent(receipt.campaignId)}/review-log`}
+              className="inline-flex min-h-11 items-center text-sm font-medium text-text-2 hover:text-text hover:underline md:min-h-0"
+            >
+              No transaction hash yet. See the review log
+            </a>
+          )}
+          <Link href={`/verify/${receipt.decisionId}`} className="inline-flex min-h-11 items-center text-sm font-medium text-accent hover:underline md:min-h-0">
+            Verify decision <span aria-hidden="true">→</span>
+          </Link>
+        </div>
+        <div className="mt-6">
+          <Button variant="secondary" size="sm" onClick={onNext}>
+            {hasNext ? "Next submission" : "Done"}
+          </Button>
+        </div>
+      </Card>
+    </div>
   );
 }

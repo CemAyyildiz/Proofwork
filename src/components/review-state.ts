@@ -105,15 +105,19 @@ export function stepFrom(ids: readonly string[], current: string | null, delta: 
 }
 
 /**
- * Which item comes after `left` once it leaves the list: the one that
- * followed it, or the first when it was last. Null when nothing else is open.
+ * Which item comes after `left` once it leaves the list, together with any
+ * ids in `alsoLeaving`: the first one that stays, scanning on from `left` and
+ * wrapping. Null when nothing else is open.
  */
-export function nextAfter(ids: readonly string[], left: string): string | null {
+export function nextAfter(ids: readonly string[], left: string, alsoLeaving: ReadonlySet<string> = new Set()): string | null {
+  const leaving = (id: string) => id === left || alsoLeaving.has(id);
   const at = ids.indexOf(left);
-  const rest = ids.filter((id) => id !== left);
-  if (rest.length === 0) return null;
-  if (at === -1) return rest[0] ?? null;
-  return rest[at % rest.length] ?? null;
+  const n = ids.length;
+  for (let step = 1; step <= n; step++) {
+    const id = ids[(at + step + n) % n];
+    if (id !== undefined && !leaving(id)) return id;
+  }
+  return null;
 }
 
 /**
@@ -193,19 +197,69 @@ export function keyAction(e: KeyInput): KeyAction | null {
   return null;
 }
 
-/** A refused decision on an item that is no longer this reviewer's to decide: it leaves the queue. */
-export function leavesQueue(status: number): boolean {
-  return status === 409;
+/** What the server answered for a decision, as `record` received it. */
+export interface CommitResponse {
+  /** HTTP status; 0 when no response arrived. */
+  status: number;
+  /** The parsed JSON body, or {} when there was none. */
+  body: unknown;
 }
 
-/** What to show when posting a decision did not record it, by HTTP status (0 = no response). */
-export function commitErrorMessage(status: number, serverMessage: string | null): string {
-  if (status === 409) {
-    return serverMessage === "campaign is closed" ? "This campaign is closed. The submission left the queue." : "Already decided by another reviewer. The submission left the queue.";
+export type CommitResult =
+  | { kind: "recorded"; receipt: Receipt }
+  /** The item is no longer this reviewer's to decide. `campaign`: every open item of its campaign leaves with it. */
+  | { kind: "left"; scope: "item" | "campaign"; notice: string }
+  /** Nothing was recorded; the card stays open with its answers. */
+  | { kind: "error"; message: string };
+
+const STELLAR_FAILED = "Couldn't write to Stellar. Try again.";
+
+/** The 409s that mean someone (or an earlier attempt) already decided the item: `decide` refuses it as no longer reviewable. */
+function alreadyDecided(message: string | null): boolean {
+  return message === "submission already decided" || (message !== null && /^submission is \w+, not reviewable$/.test(message));
+}
+
+/**
+ * What a decision post did, from the response. `uncertain`: an earlier
+ * attempt for this item got no response, so it may have been recorded and a
+ * 409 now says so instead of blaming another reviewer.
+ */
+export function commitResult(res: CommitResponse, item: ReviewItem, reasonCode: ReasonCode, uncertain: boolean): CommitResult {
+  const body = typeof res.body === "object" && res.body !== null ? (res.body as Record<string, unknown>) : {};
+  const message = typeof body["message"] === "string" ? body["message"] : null;
+  const ok = res.status >= 200 && res.status < 300;
+  if (ok && typeof body["id"] === "string") {
+    const txHash = body["txHash"];
+    return {
+      kind: "recorded",
+      receipt: {
+        submissionId: item.submissionId,
+        shortId: item.shortId,
+        campaignId: item.campaign.id,
+        outcome: body["outcome"] === "PASS" ? "PASS" : "FAIL",
+        reasonCode: typeof body["reasonCode"] === "string" ? body["reasonCode"] : reasonCode,
+        decisionId: body["id"],
+        txHash: typeof txHash === "string" && txHash !== "" ? txHash : null,
+      },
+    };
   }
-  if (status === 429) return "Too many decisions in a short time. Wait a minute.";
-  if (status === 0 || status >= 500) return "Couldn't write to Stellar. Try again.";
-  return serverMessage ?? `The decision was refused (${status}).`;
+  if (ok || res.status === 0 || res.status >= 500) return { kind: "error", message: STELLAR_FAILED };
+  if (res.status === 409 && message === "campaign is closed") {
+    return { kind: "left", scope: "campaign", notice: "This campaign is closed. Its submissions left the queue." };
+  }
+  if (res.status === 409 && alreadyDecided(message)) {
+    return {
+      kind: "left",
+      scope: "item",
+      notice: uncertain ? "Your earlier attempt may have been recorded. Check the review log." : "Already decided by another reviewer. The submission left the queue.",
+    };
+  }
+  if (res.status === 404) return { kind: "left", scope: "item", notice: "This submission no longer exists." };
+  if (res.status === 401 || res.status === 403) {
+    return { kind: "error", message: "Your session ended or lost the reviewer role. Sign in again; your answers are kept." };
+  }
+  if (res.status === 429) return { kind: "error", message: "Too many decisions in a short time. Wait a minute." };
+  return { kind: "error", message: message ?? `The decision was refused (${res.status}).` };
 }
 
 /**
@@ -234,7 +288,8 @@ export class ReviewClock {
   /** Seconds since the last answer (or since the item came on screen), booked to this signal. */
   lap(id: SignalId, now: number): void {
     if (this.since === null) return;
-    this.perSignal[id] = (this.perSignal[id] ?? 0) + Math.round((now - this.lastTick) / 1000);
+    // A clock that moved backwards books nothing: the server refuses negative seconds.
+    this.perSignal[id] = (this.perSignal[id] ?? 0) + Math.max(0, Math.round((now - this.lastTick) / 1000));
     this.lastTick = now;
   }
 

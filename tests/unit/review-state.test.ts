@@ -1,11 +1,13 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { ReceiptCard } from "@/components/review-queue";
 import {
-  commitErrorMessage,
+  commitResult,
   commitState,
   draftFor,
   emptyDraft,
   keyAction,
-  leavesQueue,
   nextAfter,
   queueCounts,
   ReviewClock,
@@ -15,6 +17,7 @@ import {
   withSignal,
   type Draft,
   type KeyInput,
+  type Receipt,
   type ReviewItem,
 } from "@/components/review-state";
 import { SIGNALS } from "@/domain/rubric";
@@ -50,6 +53,12 @@ describe("review queue navigation", () => {
     expect(nextAfter(["a", "b", "c"], "b")).toBe("c");
     expect(nextAfter(["a", "b", "c"], "c")).toBe("a");
     expect(nextAfter(["a"], "a")).toBeNull();
+  });
+
+  it("skips every item leaving with it, as when a campaign closed", () => {
+    expect(nextAfter(["a", "b", "c", "d"], "a", new Set(["b", "c"]))).toBe("d");
+    expect(nextAfter(["a", "b", "c", "d"], "c", new Set(["d", "a"]))).toBe("b");
+    expect(nextAfter(["a", "b"], "a", new Set(["b"]))).toBeNull();
   });
 
   it("reads N of M · K waiting, without counting an item someone else decided", () => {
@@ -141,20 +150,83 @@ describe("review keyboard", () => {
   });
 });
 
-describe("commit errors", () => {
-  it("names Stellar only when the server or network failed", () => {
-    expect(commitErrorMessage(502, "decision commit failed: tx_bad_seq")).toBe("Couldn't write to Stellar. Try again.");
-    expect(commitErrorMessage(0, null)).toBe("Couldn't write to Stellar. Try again.");
-    expect(commitErrorMessage(429, "too many requests")).toBe("Too many decisions in a short time. Wait a minute.");
-    expect(commitErrorMessage(400, "reason must be one of the failed signals: R03_TASK")).toBe("reason must be one of the failed signals: R03_TASK");
+describe("commit result", () => {
+  const sub = item("s1");
+  const result = (status: number, body: unknown = {}, uncertain = false) => commitResult({ status, body }, sub, "R00_PASS", uncertain);
+  const ok = { id: "dec_1", outcome: "PASS", reasonCode: "R00_PASS", ledgerKey: "pw:s1" };
+
+  it("a 200 becomes a receipt that carries a tx hash only when one came back", () => {
+    expect(result(200, { ...ok, txHash: "abc123" })).toEqual({
+      kind: "recorded",
+      receipt: { submissionId: "s1", shortId: "s1", campaignId: "c1", outcome: "PASS", reasonCode: "R00_PASS", decisionId: "dec_1", txHash: "abc123" },
+    });
+    for (const txHash of [null, "", 42, undefined]) {
+      expect(result(200, { ...ok, txHash })).toMatchObject({ kind: "recorded", receipt: { txHash: null } });
+    }
   });
 
-  it("a 409 takes the item out of the queue with a notice; nothing else does", () => {
-    expect(leavesQueue(409)).toBe(true);
-    for (const status of [0, 400, 403, 404, 429, 500, 502]) expect(leavesQueue(status)).toBe(false);
-    expect(commitErrorMessage(409, "submission is decided, not reviewable")).toMatch(/^Already decided by another reviewer/);
-    expect(commitErrorMessage(409, "submission already decided")).toMatch(/^Already decided by another reviewer/);
-    expect(commitErrorMessage(409, "campaign is closed")).toMatch(/^This campaign is closed/);
+  it("a 200 without a decision id is not shown as recorded", () => {
+    expect(result(200, {})).toEqual({ kind: "error", message: "Couldn't write to Stellar. Try again." });
+  });
+
+  it("names Stellar only when the server or network failed", () => {
+    expect(result(502, { message: "decision commit failed: tx_bad_seq" })).toEqual({ kind: "error", message: "Couldn't write to Stellar. Try again." });
+    expect(result(0)).toEqual({ kind: "error", message: "Couldn't write to Stellar. Try again." });
+    expect(result(429, { message: "too many requests" })).toEqual({ kind: "error", message: "Too many decisions in a short time. Wait a minute." });
+    expect(result(400, { message: "reason must be one of the failed signals: R03_TASK" })).toEqual({ kind: "error", message: "reason must be one of the failed signals: R03_TASK" });
+  });
+
+  it("asks to sign in again on 401 and 403, keeping the answers", () => {
+    for (const status of [401, 403]) {
+      expect(result(status, { message: "requires reviewer role" })).toEqual({
+        kind: "error",
+        message: "Your session ended or lost the reviewer role. Sign in again; your answers are kept.",
+      });
+    }
+  });
+
+  it("an item decided elsewhere leaves with a notice; one that may be this reviewer's own earlier attempt says so", () => {
+    for (const message of ["submission is decided, not reviewable", "submission is rejected, not reviewable", "submission already decided"]) {
+      expect(result(409, { message })).toEqual({ kind: "left", scope: "item", notice: "Already decided by another reviewer. The submission left the queue." });
+      expect(result(409, { message }, true)).toEqual({ kind: "left", scope: "item", notice: "Your earlier attempt may have been recorded. Check the review log." });
+    }
+  });
+
+  it("a closed campaign takes all its items out; a missing submission leaves; any other 409 stays with its message", () => {
+    expect(result(409, { message: "campaign is closed" })).toEqual({ kind: "left", scope: "campaign", notice: "This campaign is closed. Its submissions left the queue." });
+    expect(result(404, { message: "submission not found" })).toEqual({ kind: "left", scope: "item", notice: "This submission no longer exists." });
+    expect(result(409, { message: "appealed submission has no prior decision" })).toEqual({ kind: "error", message: "appealed submission has no prior decision" });
+  });
+});
+
+describe("receipt", () => {
+  const receipt = (txHash: string | null): Receipt => ({
+    submissionId: "sub_1",
+    shortId: "q4t9xw2m",
+    campaignId: "cmp_1",
+    outcome: "FAIL",
+    reasonCode: "R03_TASK",
+    decisionId: "dec_1",
+    txHash,
+  });
+  const render = (txHash: string | null) =>
+    renderToStaticMarkup(createElement(ReceiptCard, { receipt: receipt(txHash), hasNext: true, onNext: () => undefined, advanceMs: 1500 }));
+
+  it("says on-chain and links the explorer only with a tx hash", () => {
+    const html = render("a".repeat(64));
+    expect(html).toContain("Recorded on-chain");
+    expect(html).toContain(`https://stellar.expert/explorer/testnet/tx/${"a".repeat(64)}`);
+    expect(html).toContain('href="/verify/dec_1"');
+    expect(html).not.toContain("/review-log");
+  });
+
+  it("without a tx hash says recorded and links the review log instead", () => {
+    const html = render(null);
+    expect(html).toContain(">Recorded<");
+    expect(html).not.toContain("on-chain");
+    expect(html).not.toContain("stellar.expert");
+    expect(html).toContain('href="/api/campaigns/cmp_1/review-log"');
+    expect(html).toContain('href="/verify/dec_1"');
   });
 });
 
@@ -169,5 +241,20 @@ describe("review clock", () => {
     clock.lap("not_spam", 73_000);
     expect(clock.totalSeconds(75_000)).toBe(15);
     expect(clock.perSignal).toEqual({ task_done: 4, not_spam: 3 });
+  });
+
+  it("caps a review at 24 hours, the most the server accepts", () => {
+    const clock = new ReviewClock();
+    clock.resume(0);
+    expect(clock.totalSeconds(25 * 3_600_000)).toBe(86_400);
+  });
+
+  it("books nothing when the clock moves backwards", () => {
+    const clock = new ReviewClock();
+    clock.resume(10_000);
+    clock.lap("task_done", 4_000);
+    clock.lap("task_done", 6_000);
+    expect(clock.perSignal["task_done"]).toBe(2);
+    expect(clock.totalSeconds(5_000)).toBe(0);
   });
 });
