@@ -22,7 +22,7 @@ vi.mock("@/services/access", () => ({
 }));
 
 const { WalletButton } = await import("@/components/wallet-button");
-const { WorkspaceNav } = await import("@/components/workspace-nav");
+const { WorkspaceMenu, WorkspaceNav } = await import("@/components/workspace-nav");
 const { default: WorkspaceLayout } = await import("@/app/(workspace)/layout");
 const { default: PublicLayout } = await import("@/app/(public)/layout");
 const { Button } = await import("@/components/ui/button");
@@ -89,12 +89,50 @@ describe("workspace nav", () => {
   });
 });
 
+describe("workspace menu below lg", () => {
+  it("renders a closed Menu button that controls a hidden panel", () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceMenu, { campaigns: "manage", reviewer: true, admin: true }));
+    const id = /aria-controls="([^"]+)"/.exec(html)?.[1];
+    expect(html).toMatch(/<button[^>]*aria-expanded="false"[^>]*aria-label="Menu"[^>]*>.*Menu<\/span><\/button>/);
+    expect(id).toBeTruthy();
+    expect(html).toMatch(/^<nav aria-label="Main">/);
+    expect(html).toMatch(new RegExp(`<div id="${id}" hidden=""`));
+  });
+
+  it("lists every item the roles allow, in the sidebar's groups, with the current page marked", () => {
+    nav.pathname = "/admin";
+    const html = renderToStaticMarkup(createElement(WorkspaceMenu, { campaigns: "manage", reviewer: true, admin: true }));
+    for (const href of ["/campaigns", "/review", "/admin", "/explore", "/"]) expect(html).toContain(`href="${href}"`);
+    expect(html).toContain("Workspace");
+    expect(html).toContain("Public");
+    expect(html).toMatch(/href="\/admin" aria-current="page"/);
+    expect(html).not.toMatch(/href="\/review" aria-current="page"/);
+  });
+
+  it("shows only the Public group when signed out", () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceMenu, { campaigns: null, reviewer: false, admin: false }));
+    expect(html).toContain('href="/explore"');
+    expect(html).toContain('href="/"');
+    expect(html).not.toContain("Workspace");
+  });
+
+  it("leaves out what the wallet cannot use", () => {
+    const html = renderToStaticMarkup(createElement(WorkspaceMenu, { campaigns: "request", reviewer: false, admin: false }));
+    expect(html).toMatch(/href="\/campaigns"[^>]*>.*?Run a campaign<\/a>/);
+    expect(html).not.toContain('href="/review"');
+    expect(html).not.toContain('href="/admin"');
+  });
+});
+
 describe("workspace shell", () => {
   it("puts the sidebar behind lg and the top bar below it", async () => {
     session.user = { pubkey: WALLET, roles: new Set(["reviewer"]) };
     const html = await renderWorkspace();
     expect(html).toMatch(/<aside class="[^"]*\bhidden\b[^"]*\blg:flex\b/);
     expect(html).toMatch(/<header class="[^"]*\blg:hidden\b/);
+    const header = /<header[\s\S]*?<\/header>/.exec(html)?.[0] ?? "";
+    expect(header).toMatch(/<button[^>]*aria-expanded="false"[^>]*aria-controls=/);
+    expect(header).not.toContain("overflow-x-auto");
     expect(html).toContain("page body");
   });
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Logo } from "@/components/ui/logo";
 import { TestnetBadge } from "@/components/ui/testnet-badge";
 import { WalletButton } from "@/components/wallet-button";
-import { WorkspaceNav } from "@/components/workspace-nav";
+import { WorkspaceMenu, WorkspaceNav } from "@/components/workspace-nav";
 import { db } from "@/db/client";
 import { currentUser } from "@/lib/current-user";
 import { adminNav, campaignsNav } from "@/services/access";
@@ -34,22 +34,20 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
       <div className="min-w-0">
         <header className="sticky top-0 z-40 border-b border-line bg-canvas/80 backdrop-blur-[16px] lg:hidden">
           <div className="flex h-16 items-center justify-between gap-3 px-[18px] md:px-10">
-            <div className="flex min-w-0 items-center gap-3">
-              <Link href="/" className="inline-flex min-h-11 min-w-11 items-center rounded-sm" aria-label="Proofwork home">
-                <span className="sm:hidden">
-                  <Logo wordmark={false} />
-                </span>
-                <span className="hidden sm:inline">
-                  <Logo />
-                </span>
-              </Link>
-              <WorkspaceNav campaigns={campaigns} reviewer={reviewer} admin={admin} variant="top" />
-            </div>
+            <Link href="/" className="inline-flex min-h-11 min-w-11 items-center rounded-sm" aria-label="Proofwork home">
+              <span className="sm:hidden">
+                <Logo wordmark={false} />
+              </span>
+              <span className="hidden sm:inline">
+                <Logo />
+              </span>
+            </Link>
             <div className="flex shrink-0 items-center gap-3">
               <span className="hidden sm:contents">
                 <TestnetBadge />
               </span>
               <WalletButton pubkey={pubkey} />
+              <WorkspaceMenu campaigns={campaigns} reviewer={reviewer} admin={admin} />
             </div>
           </div>
         </header>
