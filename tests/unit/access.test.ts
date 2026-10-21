@@ -151,6 +151,15 @@ async function approved(): Promise<string> {
   return r.id;
 }
 
+/**
+ * The access log orders by time, then by a random id, so a grant and a revoke
+ * written in the same millisecond can sort either way. Tests that revoke right
+ * after granting move the earlier entries back a second first.
+ */
+async function backdateLog(pubkey: string): Promise<void> {
+  await conn.update(accessLog).set({ at: new Date(Date.now() - 1_000) }).where(eq(accessLog.pubkey, pubkey));
+}
+
 describe("requestFunderAccess", () => {
   it("stores a pending request the wallet and the operator can both see", async () => {
     const r = await requestFunderAccess(REQUEST, team(), conn);
@@ -418,6 +427,7 @@ describe("funderAccessState", () => {
 
   it("is removed for a funder granted with the script and then revoked, with no request at all", async () => {
     await changeRole({ pubkey: TEAM, role: "funder", action: "grant" }, { via: "script" }, conn);
+    await backdateLog(TEAM);
     await revokeFunder(TEAM, ops(), conn);
     expect(await funderAccessState(TEAM, conn)).toEqual({ state: "removed", request: null });
   });
@@ -437,6 +447,7 @@ describe("funderAccessState", () => {
     await decideRequest({ requestId: r.id, decision: "reject" }, ops(), conn);
     await conn.update(funderRequests).set({ decidedAt: new Date(Date.now() - 60_000) }).where(eq(funderRequests.id, r.id));
     await changeRole({ pubkey: TEAM, role: "funder", action: "grant" }, { via: "script" }, conn);
+    await backdateLog(TEAM);
     await changeRole({ pubkey: TEAM, role: "funder", action: "revoke" }, { via: "script" }, conn);
     expect(await stateOf(TEAM)).toBe("removed");
   });
@@ -1065,6 +1076,7 @@ describe("campaigns page without the funder role", () => {
 
   it("tells a funder granted with the script and then revoked that its access was removed", async () => {
     await changeRole({ pubkey: TEAM, role: "funder", action: "grant" }, { via: "script" }, conn);
+    await backdateLog(TEAM);
     await changeRole({ pubkey: TEAM, role: "funder", action: "revoke" }, { via: "script" }, conn);
     signIn(TEAM);
     const html = await render(CampaignsPage());
