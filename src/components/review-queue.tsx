@@ -275,7 +275,7 @@ export function ReceiptCard({ receipt, hasNext, onNext, advanceMs }: { receipt: 
               No transaction hash yet. See the review log
             </a>
           )}
-          <Link href={`/verify/${receipt.decisionId}`} className="inline-flex min-h-11 items-center text-sm font-medium text-accent hover:underline md:min-h-0">
+          <Link href={`/verify/${receipt.decisionId}`} className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-accent hover:underline md:min-h-0">
             Verify decision <span aria-hidden="true">→</span>
           </Link>
         </div>

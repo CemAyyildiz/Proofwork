@@ -48,7 +48,7 @@ export default async function ReviewPage() {
           <p className="mt-2 text-sm leading-normal text-text-2">
             Ask the operator to grant one.{logs.length > 0 ? " You can still download the review logs of the campaigns below." : null}
           </p>
-          <Link href="/explore" className="mt-4 inline-flex min-h-11 items-center text-sm font-medium text-accent hover:underline md:min-h-0">
+          <Link href="/explore" className="mt-4 inline-flex min-h-11 items-center gap-1 text-sm font-medium text-accent hover:underline md:min-h-0">
             Browse open campaigns <span aria-hidden="true">→</span>
           </Link>
         </Card>
