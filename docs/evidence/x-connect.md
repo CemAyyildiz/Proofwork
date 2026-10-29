@@ -133,13 +133,15 @@ The `submission` table held the same four rows after these requests.
 
 ## Run 5: live, against X
 
-Not recorded yet. It needs an X developer app with an OAuth 2.0 client and a plan that includes post lookup ([deployment → Sign in with X](../deployment.md#sign-in-with-x), [Post-author lookup](../deployment.md#post-author-lookup)).
+Recorded on proofwork.online on 2026-10-29, as part of the [live run](live-run.md). The post lookup alone was checked on 2026-10-19 with `pnpm x:check`: the account's own post matched (exit 0), another account's post did not (exit 1).
 
 | Live row | Result |
 |---|---|
-| Connect an X account to a wallet | not recorded yet |
-| Own post accepted | not recorded yet |
-| Another account's post rejected | not recorded yet |
+| Connect an X account to a wallet | X's consent page named the Proofwork app and asked only for `users.read tweet.read`; the return was `?x=connected` and the page showed "X account connected" ([screenshot](screenshots/live-07-sign-in-with-x.jpg)) |
+| Own post accepted | Submitted and In review; the post lookup answered as `src/x/api.ts` expects ([screenshot](screenshots/live-09-own-post-accepted.jpg)) |
+| Another account's post rejected | "this post was written by another X account", and the wallet could still submit afterwards, so no row was written ([screenshot](screenshots/live-08-other-account-refused.jpg)) |
+
+Steps 2 to 7 and 10 to 13 below were not run live.
 
 Before any of it, check the post lookup on its own: `pnpm x:check <post id> <expected X account id>` with a public post of the test account ([deployment → Checking the lookup](../deployment.md#checking-the-lookup)). Record its output here. On 2026-10-13 it was run without credentials (exit 3, "X is not configured") and with placeholder strings that belong to no X app (X answered 401; exit 3, `X gave no usable answer (step post, reason status, status 401)`). Neither is a live result.
 
