@@ -79,7 +79,7 @@ What the readiness check covers, and what it does not: it asks for 1 XLM free ab
 |---|---|---|
 | Loom recording of a product demo with a potential customer | | **open** · Cem |
 | User testing recording or UX session video | | **open** · Cem |
-| Website traffic report | A screenshot of the site's traffic report | **open** · Cem |
+| Website traffic report | Vercel Web Analytics for proofwork.online, last 30 days to 2026-10-29: 77 visitors, 197 page views ([chart](screenshots/traffic-30-days.jpg), [pages, referrers, countries](screenshots/traffic-pages-referrers.jpg)) | recorded |
 | Customer interview summary or feedback documentation | [customer-development/](customer-development/README.md) | recorded |
 | Other: live campaign and on-chain evidence | Month 1: the [Month 1 index](README.md) · the rehearsal: [external-funder-rehearsal.md](external-funder-rehearsal.md) · selected release: [selected-release.md](selected-release.md) · in-app return: [in-app-remainder.md](in-app-remainder.md) | recorded |
 
