@@ -29,7 +29,7 @@ const publicKeyList = z
 /**
  * Friendbot's testnet account: the `funder` Horizon reports for every wallet
  * Friendbot creates, even when a minion account is the transaction source.
- * Read back on testnet 2026-10-12, see docs/evidence/funding-source.md.
+ * Read back on testnet 2026-10-12 (README, Shared funding source).
  */
 export const FRIENDBOT_ACCOUNT = "GAIH3ULLFQ4DGSECF2AR555KZ4KNDGEKN4AFI4SU2M7B43MGK3QJZNSR";
 

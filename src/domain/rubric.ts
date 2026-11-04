@@ -6,7 +6,7 @@ import { z } from "zod";
  * per PRD §5. The funder's final approval remains the stricter human check.
  *
  * `question` and `failsWhen` are the reviewer's guide. They are copied verbatim
- * from docs/rubric.md (the question line, and the "Counts as fail" cell without
+ * from the reviewer guide in README.md (the question line, and the "Counts as fail" cell without
  * its example); tests/unit/rubric.test.ts fails when the two drift apart.
  */
 export const SIGNALS = [

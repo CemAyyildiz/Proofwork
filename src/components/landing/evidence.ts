@@ -1,7 +1,7 @@
 /**
- * Real testnet values from docs/evidence/escrow-cycle.md (run 2026-09-23).
+ * Real testnet values from the Month 1 escrow cycle in README.md (run 2026-09-23).
  * Copied, not imported, so the landing never reads repo docs at runtime.
- * tests/unit/landing.test.ts keeps these equal to the evidence file.
+ * tests/unit/landing.test.ts keeps these equal to the README.
  */
 export const SPIKE_CONTRACT = "CCDKBF7H5NOMNHBLYP7DFMAPBUA4YJ2DMOLETHIDNKKMLAX2PZC33WBF";
 

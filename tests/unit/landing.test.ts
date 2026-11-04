@@ -8,7 +8,7 @@ import { ledgerValue, type DecisionRecord } from "@/ledger/canonical";
 import { verdictFor } from "@/components/landing/rubric-playground";
 import { evaluate, SIGNALS, type Signals } from "@/domain/rubric";
 
-const EVIDENCE = readFileSync(fileURLToPath(new URL("../../docs/evidence/escrow-cycle.md", import.meta.url)), "utf8");
+const EVIDENCE = readFileSync(fileURLToPath(new URL("../../README.md", import.meta.url)), "utf8");
 
 describe("verify playground record", () => {
   it("hashes to the memo recorded on testnet", async () => {
@@ -17,7 +17,7 @@ describe("verify playground record", () => {
     expect(await sha256Hex(SPIKE_RECORD.canonicalJson)).toBe("6a72919fdfbd4426a88b50a293779bede72201987328912e593acbffd721220f");
   });
 
-  it("is the canonical JSON and decision tx in docs/evidence/escrow-cycle.md", () => {
+  it("is the canonical JSON and decision tx in the README escrow cycle", () => {
     expect(EVIDENCE).toContain(SPIKE_RECORD.canonicalJson);
     expect(EVIDENCE).toContain(`tx/${SPIKE_RECORD.txHash}`);
     expect(EVIDENCE).toContain(`key=${SPIKE_RECORD.ledgerKey}`);
@@ -31,7 +31,7 @@ describe("verify playground record", () => {
     expect(SPIKE_LEDGER_VALUE).toBe("v1|PASS|R00_PASS|6a72919fdfbd4426");
   });
 
-  it("uses only transaction hashes from the evidence file", () => {
+  it("uses only transaction hashes from the README evidence", () => {
     for (const tx of [...EVIDENCE_TXS.map((t) => t.hash), SPIKE_FUND.txHash, SPIKE_RELEASE.txHash]) {
       expect(tx).toMatch(/^[0-9a-f]{64}$/);
       expect(EVIDENCE).toContain(`tx/${tx}`);

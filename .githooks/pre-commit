@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Block secrets, forbidden files and stray Markdown from being committed.
+# Block secrets, forbidden files and any Markdown other than README.md from being committed.
 set -euo pipefail
 fail=0
 files="$(git diff --cached --name-only --diff-filter=ACMR)"
@@ -12,10 +12,7 @@ while IFS= read -r f; do
     .env|.env.*)
       [ "$f" != ".env.example" ] && { echo "pre-commit: env file '$f' must not be committed." >&2; fail=1; } ;;
     *.md)
-      case "$f" in
-        README.md|docs/*) ;;
-        *) echo "pre-commit: Markdown outside README.md and docs/ is not allowed: '$f'." >&2; fail=1 ;;
-      esac ;;
+      [ "$f" != "README.md" ] && { echo "pre-commit: README.md is the only Markdown file allowed: '$f'." >&2; fail=1; } ;;
   esac
 done <<< "$files"
 

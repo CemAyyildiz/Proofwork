@@ -49,3 +49,7 @@ tmp/
 
 # production secrets kept on this machine only
 .secrets/
+
+# Markdown: only README.md is tracked; scripts write local reports under docs/
+*.md
+!/README.md

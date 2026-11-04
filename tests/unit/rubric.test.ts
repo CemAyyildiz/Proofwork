@@ -29,9 +29,9 @@ describe("rubric", () => {
     expect(validateReason(fail, "R00_PASS").ok).toBe(false);
   });
 
-  const readDoc = () => readFileSync(fileURLToPath(new URL("../../docs/rubric.md", import.meta.url)), "utf8");
+  const readDoc = () => readFileSync(fileURLToPath(new URL("../../README.md", import.meta.url)), "utf8");
 
-  it("keeps docs/rubric.md in sync with the code", () => {
+  it("keeps the README rubric in sync with the code", () => {
     const doc = readDoc();
     const phrases = new Set([
       ...SIGNALS.map((s) => `${s.label} · fail code \`${s.failCode}\``),
@@ -43,14 +43,14 @@ describe("rubric", () => {
       ...[...phrases].filter((item) => !doc.includes(item)),
       ...counts.filter((item) => !new RegExp(`\\b${item}\\b`).test(doc)),
     ];
-    expect(missing, `missing from docs/rubric.md: ${missing.join(", ")}`).toEqual([]);
+    expect(missing, `missing from the README rubric: ${missing.join(", ")}`).toEqual([]);
   });
 
-  it("takes each signal's question and fail text verbatim from docs/rubric.md", () => {
+  it("takes each signal's question and fail text verbatim from the README rubric", () => {
     const doc = readDoc();
     // The question line and the start of the "Counts as fail" cell, exactly as the reviewer guide shows them.
     const missing = SIGNALS.flatMap((s) => [`*Question: ${s.question}*`, `| ${s.failsWhen} *E.g.`]).filter((t) => !doc.includes(t));
-    expect(missing, `not verbatim in docs/rubric.md: ${missing.join(" / ")}`).toEqual([]);
+    expect(missing, `not verbatim in the README rubric: ${missing.join(" / ")}`).toEqual([]);
   });
 
   it("labels every reason code and passes an unknown code through", () => {

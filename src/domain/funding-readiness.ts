@@ -10,7 +10,7 @@ import type { FunderAccount } from "@/wallet/onboarding";
 /**
  * Spendable XLM a wallet must hold for each escrow transaction it still has
  * to sign. Measured on testnet from the Week 1 run in
- * docs/evidence/escrow-cycle.md, read on Horizon 2026-10-13:
+ * the Month 1 escrow cycle in README.md, read on Horizon 2026-10-13:
  *
  *   deploy 31c9dd13adcad008bd8b82f1a16c3b3265005faf5024c730f7b065e5de5dcff4
  *          fee charged 0.0380569 XLM, fee bid 0.0444693 XLM

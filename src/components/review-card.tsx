@@ -312,7 +312,7 @@ function RubricGuide({ id }: { id: SignalId }) {
   return (
     <div className="mt-4 rounded-lg border border-line bg-sunken p-4">
       <Eyebrow as="h3">{`Signal ${Math.max(index, 0) + 1} · ${s.label}`}</Eyebrow>
-      {/* The question is quoted verbatim from docs/rubric.md, where it continues a sentence; only its first letter is raised here. */}
+      {/* The question is quoted verbatim from the README rubric, where it continues a sentence; only its first letter is raised here. */}
       <p className="mt-2 text-sm text-text first-letter:uppercase">{s.question}</p>
       <p className="mt-1.5 text-[13px] leading-normal text-text-2">
         <span className="text-fail">Fails when: </span>

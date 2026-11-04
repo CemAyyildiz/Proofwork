@@ -33,7 +33,7 @@ jobs:
           set -e
           bad=$(git ls-files | grep -E '^(CLAUDE\.md|AGENTS\.md|\.claude/|_bmad/|_bmad-output/|\.env$|\.env\.[^e])' || true)
           [ -z "$bad" ] || { echo "forbidden files tracked: $bad"; exit 1; }
-          md=$(git ls-files '*.md' | grep -Ev '^(README\.md|docs/)' || true)
-          [ -z "$md" ] || { echo "markdown outside README.md/docs: $md"; exit 1; }
+          md=$(git ls-files '*.md' | grep -Ev '^README\.md$' || true)
+          [ -z "$md" ] || { echo "markdown other than README.md: $md"; exit 1; }
           ! git ls-files | xargs grep -lE 'S[A-Z2-7]{55}' -- 2>/dev/null | grep -v '^tests/' || { echo "possible secret seed committed"; exit 1; }
       - run: pnpm build

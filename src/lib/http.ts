@@ -55,7 +55,7 @@ export function redirectTo(location: string): Response {
  * Client IP for rate-limit keys. Safe on Vercel only: the platform overwrites
  * x-forwarded-for with the connecting IP and sets x-real-ip to the same value,
  * so a client cannot spoof it. Behind another proxy or bare `next start`,
- * key on a header that proxy sets instead (see docs/deployment.md).
+ * key on a header that proxy sets instead (see README, Deployment).
  */
 export function clientIp(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");
