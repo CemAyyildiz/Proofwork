@@ -270,13 +270,15 @@ If both match, the decision you saw in the app is the one written to Stellar whe
 
 ## Customer development
 
-Conversations in Month 2 (October 2026). Teams are named; people are given by role only.
+Conversations in Month 2 (October–November 2026). Teams are named; people are given by role only.
 
 | Team | What was discussed | Next step |
 |---|---|---|
 | Rise In (marketing lead) | Feedback on Proofwork's X account and website | Use the feedback on the X account and the site |
 | SubRosa | At which stage SubRosa can be integrated with Proofwork | Pilot partnership planned for Month 3 |
 | SendAll | Paying every approved contributor of a campaign in one transaction through SendAll's multi-recipient payments | Possible partnership for batch payouts |
+| SprintOS | Running a campaign on Proofwork | Agreed to be named as a pilot partner |
+| Beaver402 | Running a campaign on Proofwork | Agreed to be named as a pilot partner |
 | Stellar Türkiye chapter | Where Proofwork stands, and when to apply to the Stellar Community Fund | Apply after the third Instawards month, with integrations and users in place |
 
 Website traffic, last 30 days to 2026-10-29 (Vercel Web Analytics): 77 visitors, 197 page views ([chart](docs/screenshots/traffic-30-days.jpg), [pages and referrers](docs/screenshots/traffic-pages-referrers.jpg)).
