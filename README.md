@@ -274,7 +274,6 @@ Conversations in Month 2 (October–November 2026). Teams are named; people are 
 
 | Team | What was discussed | Next step |
 |---|---|---|
-| Rise In (marketing lead) | Feedback on Proofwork's X account and website | Use the feedback on the X account and the site |
 | SubRosa | At which stage SubRosa can be integrated with Proofwork | Pilot partnership planned for Month 3 |
 | SendAll | Paying every approved contributor of a campaign in one transaction through SendAll's multi-recipient payments | Possible partnership for batch payouts |
 | SprintOS | Running a campaign on Proofwork | Agreed to be named as a pilot partner |
