@@ -7,10 +7,15 @@ overrides:
   sharp: 0.35.5
   # GHSA-68fv-2mgg-jv7q: @tailwindcss/node allows ^1.2.1, fix landed in 1.2.2
   source-map-js: 1.2.2
-  toml: 4.3.0
-  # follow-redirects credential-header advisories: axios (via the wallet kit's appkit) allows 1.16.0, fix landed in 1.16.1
-  follow-redirects: 1.16.1
+  # GHSA-4qx8-w7c3-pj3p and the dotted-keys advisory: @stellar/stellar-sdk allows ^3.0.0, fix landed in 5.0.1
+  toml: 5.0.1
+  # follow-redirects advisories (credential headers, GHSA-mrwp-f3q8-3g9p): axios (via the wallet kit's appkit) allows 1.16.0, fix landed in 1.16.2
+  follow-redirects: 1.16.2
 auditConfig:
   ignoreGhsas:
     # braces: no patched release exists. Reached only through eslint-config-next's fast-glob at lint time, on the repo's own patterns; never in the app bundle.
     - GHSA-vfj7-8cjw-p6xm
+    # zod array-issue memory exhaustion: the app's own zod is 4.6.7 (patched). The remaining copies are zod 3 inside
+    # the wallet kit's WalletConnect appkit, which pins 3.22.4 and has no patched 3.x; they run in the browser on the
+    # kit's own data, never on request bodies the server parses.
+    - GHSA-mrhx-c7xc-m3w5
