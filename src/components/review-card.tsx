@@ -5,7 +5,7 @@ import { Button, buttonClasses } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Pill } from "@/components/ui/pill";
-import { PASS_THRESHOLD, reasonLabel, SIGNALS, type ReasonCode, type SignalId, type Signals } from "@/domain/rubric";
+import { PASS_THRESHOLD, reasonLabel, RUBRIC_VERSION, SIGNALS, type ReasonCode, type SignalId, type Signals } from "@/domain/rubric";
 import { formatDateShort, formatRelative } from "@/lib/format";
 import { commitState, keyAction, type Draft, type ReviewItem } from "./review-state";
 
@@ -71,7 +71,7 @@ export function ReviewCard({
       <SubmissionPanel item={item} now={new Date(now)} />
 
       <section aria-label="Rubric" className="relative rounded-xl border border-line bg-surface p-5 md:p-6">
-        <h2 className="sr-only">Rubric</h2>
+        <h2 className="sr-only">{`Rubric ${RUBRIC_VERSION}`}</h2>
         <ScoreMeter passCount={state.passCount} outcome={state.outcome} signals={draft.signals} />
 
         <div className="mt-5 grid gap-2">
@@ -318,6 +318,12 @@ function RubricGuide({ id }: { id: SignalId }) {
         <span className="text-fail">Fails when: </span>
         {s.failsWhen}
       </p>
+      {s.v2Guidance ? (
+        <p className="mt-1.5 text-[13px] leading-normal text-text-2">
+          <span className="text-text">{`Rubric ${RUBRIC_VERSION}: `}</span>
+          {s.v2Guidance}
+        </p>
+      ) : null}
     </div>
   );
 }

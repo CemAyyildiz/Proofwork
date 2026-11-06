@@ -38,7 +38,7 @@ Built during the Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet 
 | Month | Scope | Status |
 |---|---|---|
 | 1 · Sep 2026 | Escrow and submission, review layer with on-chain decisions, one campaign run end to end by Proofwork | Delivered |
-| 2 · Oct 1 – Nov 1, 2026 | Campaigns run by other teams: funder access approved in the app, X account verification, multi-account warnings, team interviews | Delivered, live since 2026-10-21 |
+| 2 · Oct 1 – Nov 1, 2026 | Campaigns run by other teams: funder access approved in the app, X account verification, multi-account warnings, rubric v2, team interviews, a pilot campaign | Built and live since 2026-10-21; pilot campaign with SubRosa on testnet being scheduled |
 | 3 | Campaigns on mainnet, run by Stellar teams | Planned |
 
 **Month 2 at a glance**
@@ -48,10 +48,8 @@ Built during the Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet 
 - **Multi-account warning.** The reviewer sees how many other submissions in the same campaign come from wallets first funded by the same Stellar account. Friendbot and other public faucets don't count.
 - **End-to-end live run** on proofwork.online on 2026-10-29: new wallets, access request through payout, nothing done outside the app's pages ([below](#month-2--live-run-on-proofworkonline-2026-10-29)).
 
-**Two items moved out of Month 2:**
-
-- **Rubric v2.** The Month 1 campaign closed with two decisions, both passes, so there was no review data to revise the rubric from. The rubric stays at v1 until real campaigns produce that data.
-- **Team pilot campaign.** Teams fund campaigns to reach real users and pay real rewards, and testnet can't give them either. The pilot moves to Month 3 on mainnet. Until then, a [rehearsal](#month-2--team-path-rehearsal-2026-10-13) runs the full path for a funder that never had a role.
+- **Rubric v2.** The six signals and the gate stay. v2 adds guidance where Month 2 changed what the app checks before a reviewer sees a post, and every decision now records the rubric it was scored under ([Review rubric](#review-rubric)).
+- **Team pilot campaign.** Being scheduled with SubRosa: a campaign on testnet run with SubRosa's own wallet, from the access request to the remainder return, reviewed under rubric v2. The full path was first [rehearsed](#month-2--team-path-rehearsal-2026-10-13) with a funder wallet that never had a role.
 
 ---
 
@@ -108,7 +106,7 @@ Built during the Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet 
 | Field | Content |
 |---|---|
 | `manage_data` key | `pw:<submission id>`; the one-shot re-review writes `pw:<id>:a1` |
-| `manage_data` value | `v1\|<PASS or FAIL>\|<reason code>\|<first 16 hex of the record hash>` |
+| `manage_data` value | `v2\|<PASS or FAIL>\|<reason code>\|<first 16 hex of the record hash>`; decisions scored under rubric v1 start with `v1` |
 | `memo_hash` | SHA-256 of the canonical decision JSON |
 
 **Stack:** Next.js (App Router, TypeScript strict) · Postgres + Drizzle · Trustless Work Core API v1 · Stellar Wallets Kit (Freighter) · `@stellar/stellar-sdk` · X API v2 · Upstash Redis (rate limits) · Vercel + Neon.
@@ -117,7 +115,7 @@ Built during the Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet 
 
 ## Review rubric
 
-Before any money moves, a human reviewer answers the same six yes/no questions for every submission. A submission **passes at 4 of 6**. With **3 or fewer** it fails. A pass only makes the submission eligible for a reward: the funder's approval is the final human check.
+**Current version: v2.** Before any money moves, a human reviewer answers the same six yes/no questions for every submission. A submission **passes at 4 of 6**. With **3 or fewer** it fails. A pass only makes the submission eligible for a reward: the funder's approval is the final human check.
 
 | # | Signal | What it asks | Fail code |
 |---|---|---|---|
@@ -130,11 +128,26 @@ Before any money moves, a human reviewer answers the same six yes/no questions f
 
 A **PASS** always carries `R00_PASS`. A **FAIL** carries the code of the main failed signal, chosen by the reviewer from the signals that actually failed. Each decision also has a short written note for the contributor, which is not on-chain. A contributor can ask for **one re-review** of a rejected submission while the campaign is open. It is recorded under `pw:<id>:a1` and carries the hash of the first decision.
 
+**Every decision records its rubric.** A new decision's canonical record carries `"v":2,"rubric":"v2"`, and its on-chain value starts with `v2`. Decisions made under v1 keep their record exactly as it was written, so their hashes still match; `/verify` shows which rubric a decision used, and the review log export has a `rubric_version` column.
+
+### What changed in v2
+
+Month 1 gave no basis for changing a signal: 2 decisions, both PASS, no FAIL and no planted fakes, so no signal can be shown to miss or over-reject anything. v2 therefore keeps every signal, question, fail text, reason code and the 4-of-6 gate. What changed in Month 2 is what the app checks before a submission reaches the reviewer, and v2 tells the reviewer so.
+
+| Signal | Change | Reason |
+|---|---|---|
+| 1. Account genuine | Guidance added: authorship is already verified, judge only how established the account is | Since Month 2 a post is accepted only if X names the contributor's connected account as its author, and one X account is linked to one wallet. In v1 the reviewer could not tell who wrote a post |
+| 2. Content original | Guidance added: the same post cannot come in twice, look across different posts | Since Month 2 a post ID is stored once, under any handle or host, so exact resubmission is refused before review |
+| 5. Single-account check | Guidance added: how to weigh the shared-funding note, and what its absence does not prove | Since Month 2 the review card shows how many submissions share a wallet funding source. v1 said nothing about it, and a count alone must not decide an outcome |
+| 3, 4, 6 | None | Nothing in Month 2 changed what the reviewer sees for them |
+
 <details>
-<summary><strong>Full reviewer guide (v1): pass and fail examples for each signal</strong></summary>
+<summary><strong>Full reviewer guide (v2): pass and fail examples for each signal</strong></summary>
 
 ### 1. Account genuine · fail code `R01_ACCOUNT`
 *Question: is this a real, established account rather than a throwaway?*
+
+*Rubric v2: The app has already checked that the connected X account wrote this post, and that this X account is linked to no other wallet. Judge only whether the account itself is established.*
 
 | Counts as pass | Counts as fail |
 |---|---|
@@ -142,6 +155,8 @@ A **PASS** always carries `R00_PASS`. A **FAIL** carries the code of the main fa
 
 ### 2. Content original · fail code `R02_ORIGINAL`
 *Question: did this person write this themselves?*
+
+*Rubric v2: The same post cannot be submitted twice, under any handle or link. Look for near-duplicates across different posts.*
 
 | Counts as pass | Counts as fail |
 |---|---|
@@ -163,6 +178,8 @@ A **PASS** always carries `R00_PASS`. A **FAIL** carries the code of the main fa
 
 ### 5. Single-account check · fail code `R05_MULTI`
 *Question: is this one person submitting once, not one person behind several accounts?*
+
+*Rubric v2: A shared-funding note means the wallets were first funded by the same account, or one funded the other: compare writing style and timing before failing on it. No note, or a funding source that was not checked, is not proof of independence; wallets activated from Friendbot never link.*
 
 | Counts as pass | Counts as fail |
 |---|---|
@@ -313,7 +330,7 @@ Website traffic, last 30 days to 2026-10-29 (Vercel Web Analytics): 77 visitors,
 ## Roadmap
 
 - **Month 3:** campaigns on mainnet, run by Stellar teams through the funder flow, and the debrief interview afterwards.
-- Rubric v2 from real campaign data, with each decision recording the rubric version it was scored under.
+- Rubric v3 from real campaign data: catch rate and false-positive rate per signal, once campaigns with planted submissions have run.
 - Trustless Work v2 batch approve-and-release, so one signature pays every approved contributor.
 - A Soroban contract for decision records that can be queried by submission ID.
 - An in-app second-reviewer mode, to measure reviewer agreement on every campaign.

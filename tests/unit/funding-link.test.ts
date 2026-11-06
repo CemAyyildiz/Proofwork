@@ -12,6 +12,7 @@ import type { Db } from "@/db/client";
 import * as schema from "@/db/schema";
 import { campaigns, decisions, reviewTimes, roleGrants, submissions } from "@/db/schema";
 import { parseReviewLog } from "@/domain/results";
+import { SIGNALS } from "@/domain/rubric";
 import { canonicalJson, decisionHash, ledgerKey } from "@/ledger/canonical";
 import type { DecisionLedger } from "@/ledger/decision-ledger";
 import { parseCsv, toCsv } from "@/lib/csv";
@@ -306,11 +307,59 @@ describe("review queue and decision", () => {
     const ledger = new FakeLedger();
     const d = await pass(b, { ledger });
     expect(d).toMatchObject({ outcome: "PASS", reasonCode: "R00_PASS", signals: ALL_PASS });
-    expect(Object.keys(JSON.parse(d.canonicalJson) as object)).toEqual(["v", "submission", "campaign", "reviewer", "outcome", "reason", "signals", "appealOf", "decidedAt"]);
+    expect(Object.keys(JSON.parse(d.canonicalJson) as object)).toEqual(["v", "rubric", "submission", "campaign", "reviewer", "outcome", "reason", "signals", "appealOf", "decidedAt"]);
+    expect(d.canonicalJson.startsWith('{"v":2,"rubric":"v2",')).toBe(true);
     expect(d.canonicalJson).not.toMatch(/fund/i);
     expect(d.canonicalJson).not.toContain(A);
     expect(createHash("sha256").update(d.canonicalJson, "utf8").digest("hex")).toBe(d.decisionHash);
     expect(ledger.records).toHaveLength(1);
+  });
+
+  it("a re-review of a v1 decision is written under v2, linked by the v1 hash, and the log names both rubrics", async () => {
+    const b = await submit(B, FRIENDBOT);
+    const v1 = {
+      v: 1 as const,
+      submission: (await conn.select().from(submissions).where(eq(submissions.id, b)))[0]?.shortId ?? "",
+      campaign: "camp-1",
+      reviewer: REVIEWER.pubkey,
+      outcome: "FAIL" as const,
+      reason: "R03_TASK" as const,
+      signals: { ...ALL_PASS, task_done: false, follows_brief: false, not_spam: false },
+      appealOf: null,
+      decidedAt: "2026-10-20T10:00:00.000Z",
+    };
+    const v1Hash = decisionHash(v1).toString("hex");
+    await conn.insert(decisions).values({
+      id: "dec_v1",
+      submissionId: b,
+      reviewerPubkey: REVIEWER.pubkey,
+      outcome: "FAIL",
+      reasonCode: "R03_TASK",
+      signals: v1.signals,
+      note: "No specifics",
+      canonicalJson: canonicalJson(v1),
+      decisionHash: v1Hash,
+      ledgerKey: ledgerKey(v1.submission, false),
+      txHash: "tx_v1",
+      decidedAt: new Date(v1.decidedAt),
+    });
+    await conn.update(submissions).set({ status: "appealed" }).where(eq(submissions.id, b));
+
+    const ledger = new FakeLedger();
+    const d = await pass(b, { ledger });
+    const record = JSON.parse(d.canonicalJson) as { v: number; rubric: string; appealOf: string };
+    expect(record).toMatchObject({ v: 2, rubric: "v2", appealOf: v1Hash });
+    expect(d.ledgerKey).toBe(`pw:${v1.submission}:a1`);
+    expect((await conn.select().from(decisions).where(eq(decisions.id, "dec_v1")))[0]?.canonicalJson).toBe(canonicalJson(v1));
+
+    const { rows } = await reviewLog("cmp_1", REVIEWER, conn);
+    expect(rows.map((r) => [r.decision_id, r.rubric_version, r.is_appeal])).toEqual([
+      ["dec_v1", "v1", false],
+      [d.id, "v2", true],
+    ]);
+    const csv = toCsv(REVIEW_LOG_COLUMNS, rows);
+    expect(parseCsv(csv).rows.map((r) => r["rubric_version"])).toEqual(["v1", "v2"]);
+    expect(parseReviewLog(`\uFEFF${csv}`)).toHaveLength(2);
   });
 
   it("the review log carries the count and pnpm results still reads the export", async () => {
@@ -396,7 +445,7 @@ describe("Month 1 rows after the migration", () => {
 
       const { rows } = await reviewLog("cmp_m1", REVIEWER, conn);
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ decision_id: "dec_m1", decision_hash: hash, outcome: "PASS", pass_count: 6, shared_funding_count: null });
+      expect(rows[0]).toMatchObject({ decision_id: "dec_m1", decision_hash: hash, outcome: "PASS", pass_count: 6, shared_funding_count: null, rubric_version: "v1" });
       expect(parseCsv(toCsv(REVIEW_LOG_COLUMNS, rows)).rows.map((r) => r["shared_funding_count"])).toEqual([""]);
 
       // A Month 1 row has no stored source: not checked, and not counted even for a new wallet that its wallet created.
@@ -461,6 +510,12 @@ describe("review card", () => {
     const after = text(card(0, Date.parse("2026-10-20T18:00:00.000Z")));
     expect(after).toContain("Deadline passed 20 Oct · 18:00 UTC");
     expect(after).not.toContain("Closes");
+  });
+
+  it("the rubric guide shows the v2 guidance of the signal in focus", () => {
+    const shown = text(card(0));
+    expect(shown).toContain("Signal 1 · Account genuine");
+    expect(shown).toContain(`Rubric v2: ${SIGNALS[0].v2Guidance ?? ""}`);
   });
 
   it("an unlinked card shows no funding note", () => {

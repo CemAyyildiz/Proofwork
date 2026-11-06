@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { evaluate, PASS_THRESHOLD, REASON_LABELS, reasonCodeSchema, reasonLabel, SIGNALS, validateReason, type Signals } from "@/domain/rubric";
+import { evaluate, PASS_THRESHOLD, REASON_LABELS, reasonCodeSchema, reasonLabel, RUBRIC_VERSION, SIGNALS, validateReason, type Signals } from "@/domain/rubric";
 import { ledgerKey } from "@/ledger/canonical";
 
 const allPass: Signals = {
@@ -50,6 +50,16 @@ describe("rubric", () => {
     const doc = readDoc();
     // The question line and the start of the "Counts as fail" cell, exactly as the reviewer guide shows them.
     const missing = SIGNALS.flatMap((s) => [`*Question: ${s.question}*`, `| ${s.failsWhen} *E.g.`]).filter((t) => !doc.includes(t));
+    expect(missing, `not verbatim in the README rubric: ${missing.join(" / ")}`).toEqual([]);
+  });
+
+  it("quotes the current version and each v2 guidance verbatim in the README rubric", () => {
+    const doc = readDoc();
+    expect(doc).toContain(`**Current version: ${RUBRIC_VERSION}.**`);
+    expect(doc).toContain(`Full reviewer guide (${RUBRIC_VERSION})`);
+    const guided = SIGNALS.filter((s) => s.v2Guidance !== null);
+    expect(guided.map((s) => s.id)).toEqual(["account_genuine", "content_original", "single_account"]);
+    const missing = guided.map((s) => `*Rubric v2: ${s.v2Guidance}*`).filter((t) => !doc.includes(t));
     expect(missing, `not verbatim in the README rubric: ${missing.join(" / ")}`).toEqual([]);
   });
 

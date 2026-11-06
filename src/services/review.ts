@@ -5,9 +5,9 @@ import { db, type Db } from "@/db/client";
 import { campaigns, decisions, payouts, reviewTimes, roleGrants, submissions, type Decision, type Submission } from "@/db/schema";
 import { publicFundingSources } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
-import { evaluate, reasonCodeSchema, SIGNALS, signalsSchema, validateReason, type SignalId } from "@/domain/rubric";
+import { evaluate, reasonCodeSchema, RUBRIC_VERSION, SIGNALS, signalsSchema, validateReason, type SignalId } from "@/domain/rubric";
 import type { DecisionLedger } from "@/ledger/decision-ledger";
-import type { DecisionRecord } from "@/ledger/canonical";
+import { rubricVersionOf, type DecisionRecord } from "@/ledger/canonical";
 import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
@@ -170,7 +170,8 @@ export async function decide(
   if (!isAppeal && prior) throw AppError.conflict("submission already decided");
 
   const record: DecisionRecord = {
-    v: 1,
+    v: 2,
+    rubric: RUBRIC_VERSION,
     submission: row.s.shortId,
     campaign: row.c.slug,
     reviewer: actor.pubkey,
@@ -270,6 +271,8 @@ export async function getDecision(id: string, conn: Db = db) {
  *
  * `shared_funding_count` is the count the review card showed for the decision:
  * above 0 the card warned, 0 no link was found, empty the source was not checked.
+ * `rubric_version` is read from the stored canonical record: `v1` or `v2`,
+ * empty when the record is not one this app wrote.
  */
 export const REVIEW_LOG_COLUMNS = [
   "campaign_slug",
@@ -280,6 +283,7 @@ export const REVIEW_LOG_COLUMNS = [
   "is_appeal",
   "appeal_of",
   "reviewer_pubkey",
+  "rubric_version",
   ...SIGNALS.map((s) => `signal_${s.id}` as const),
   "pass_count",
   "outcome",
@@ -349,6 +353,7 @@ export async function reviewLog(
       is_appeal: d.appealOf !== null,
       appeal_of: d.appealOf,
       reviewer_pubkey: d.reviewerPubkey,
+      rubric_version: rubricVersionOf(d.canonicalJson),
       ...signals,
       pass_count: SIGNALS.filter((x) => d.signals[x.id] === true).length,
       outcome: d.outcome,

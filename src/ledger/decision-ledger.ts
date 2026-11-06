@@ -14,7 +14,7 @@ import { canonicalJson, decisionHash, ledgerKey, ledgerValue, type DecisionRecor
 /**
  * Writes one classic Stellar transaction per decision from the decision
  * ledger account (AD-5):
- *   - manage_data  key = pw:<shortId>[:a1]   value = "v1|PASS|R00_PASS|<hash8>"
+ *   - manage_data  key = pw:<shortId>[:a1]   value = "v2|PASS|R00_PASS|<hash8>" (v1 for records scored under rubric v1)
  *   - memo_hash    = sha256(canonical decision JSON)
  *
  * The transaction hash is the decision's on-chain reference. The memo lets

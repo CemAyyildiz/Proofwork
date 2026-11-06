@@ -267,7 +267,7 @@ export function renderCampaignEvidence(e: CampaignEvidence, opts: { siteUrl: str
 
   out.push("## Decision records", "");
   out.push(
-    "One classic Stellar transaction per decision from the decision ledger account: `manage_data` under the ledger key, value `v1|<outcome>|<reason>|<first 16 hex of the hash>`, and `memo_hash` = SHA-256 of the canonical decision JSON. The verify page recomputes that hash in the browser.",
+    "One classic Stellar transaction per decision from the decision ledger account: `manage_data` under the ledger key, value `<record version>|<outcome>|<reason>|<first 16 hex of the hash>` (`v2` for rubric v2 decisions, `v1` for earlier ones), and `memo_hash` = SHA-256 of the canonical decision JSON. The verify page recomputes that hash in the browser.",
     "",
   );
   if (e.decisions.length === 0) {

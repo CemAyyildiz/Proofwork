@@ -8,7 +8,15 @@ import { z } from "zod";
  * `question` and `failsWhen` are the reviewer's guide. They are copied verbatim
  * from the reviewer guide in README.md (the question line, and the "Counts as fail" cell without
  * its example); tests/unit/rubric.test.ts fails when the two drift apart.
+ *
+ * `v2Guidance` is what rubric v2 added to a signal: what the app has already
+ * checked before the reviewer sees the post, and how to weigh the shared-funding
+ * note. Signals, questions, fail texts, codes and the gate are the same as v1.
+ * The README quotes each guidance verbatim, and the same test holds it there.
  */
+export const RUBRIC_VERSION = "v2";
+export type RubricVersion = "v1" | "v2";
+
 export const SIGNALS = [
   {
     id: "account_genuine",
@@ -16,6 +24,8 @@ export const SIGNALS = [
     failCode: "R01_ACCOUNT",
     question: "is this a real, established account rather than a throwaway?",
     failsWhen: "Created just before or during the campaign, no post history, default avatar or throwaway handle pattern.",
+    v2Guidance:
+      "The app has already checked that the connected X account wrote this post, and that this X account is linked to no other wallet. Judge only whether the account itself is established.",
   },
   {
     id: "content_original",
@@ -23,6 +33,7 @@ export const SIGNALS = [
     failCode: "R02_ORIGINAL",
     question: "did this person write this themselves?",
     failsWhen: "Near-duplicate of another submission, or visibly pasted template text.",
+    v2Guidance: "The same post cannot be submitted twice, under any handle or link. Look for near-duplicates across different posts.",
   },
   {
     id: "task_done",
@@ -30,6 +41,7 @@ export const SIGNALS = [
     failCode: "R03_TASK",
     question: "does the post show the person really used the product?",
     failsWhen: "No specifics; could have been written without trying the product.",
+    v2Guidance: null,
   },
   {
     id: "follows_brief",
@@ -37,6 +49,7 @@ export const SIGNALS = [
     failCode: "R04_BRIEF",
     question: "does the post contain everything the campaign brief asked for?",
     failsWhen: "A required element is missing: no product mention, wrong link or wrong format.",
+    v2Guidance: null,
   },
   {
     id: "single_account",
@@ -44,6 +57,8 @@ export const SIGNALS = [
     failCode: "R05_MULTI",
     question: "is this one person submitting once, not one person behind several accounts?",
     failsWhen: "Writing style, timing pattern or wallet funding source links it to another submission.",
+    v2Guidance:
+      "A shared-funding note means the wallets were first funded by the same account, or one funded the other: compare writing style and timing before failing on it. No note, or a funding source that was not checked, is not proof of independence; wallets activated from Friendbot never link.",
   },
   {
     id: "not_spam",
@@ -51,6 +66,7 @@ export const SIGNALS = [
     failCode: "R06_SPAM",
     question: "is this a genuine contribution rather than reward farming?",
     failsWhen: "Generic praise with no detail, or phrasing that matches known farming patterns.",
+    v2Guidance: null,
   },
 ] as const;
 

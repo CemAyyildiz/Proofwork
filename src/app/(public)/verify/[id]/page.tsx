@@ -10,6 +10,7 @@ import { Pill } from "@/components/ui/pill";
 import { publicEnv } from "@/config/public-env";
 import { SIGNALS } from "@/domain/rubric";
 import { formatDateShort } from "@/lib/format";
+import { rubricVersionOf, storedLedgerValue } from "@/ledger/canonical";
 import { getDecision } from "@/services/review";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
   const signals = d.signals as Record<string, boolean>;
   const passed = SIGNALS.filter((sg) => signals[sg.id] === true).length;
   const pass = d.outcome === "PASS";
+  const rubric = rubricVersionOf(d.canonicalJson);
 
   return (
     <div className="mx-auto max-w-[1180px] pb-24 pt-4 md:pt-6">
@@ -59,7 +61,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
                   {d.outcome}
                 </p>
                 <p className="mt-2.5 font-mono text-[13px] font-medium text-muted">
-                  {d.reasonCode} · {passed} of {SIGNALS.length} signals
+                  {d.reasonCode} · {passed} of {SIGNALS.length} signals · {rubric ? `Rubric ${rubric}` : "Rubric unknown"}
                 </p>
               </div>
               <div className="flex flex-col items-end gap-2">
@@ -128,8 +130,8 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
               <HashChip value={d.ledgerKey} head={12} tail={6} />
             </OnChainRow>
             <OnChainRow label="Ledger value">
-              {/* What ledgerValue() in src/ledger/canonical.ts writes as the manage_data value. */}
-              <HashChip value={`v1|${d.outcome}|${d.reasonCode}|${d.decisionHash.slice(0, 16)}`} head={48} tail={0} className="whitespace-nowrap" />
+              {/* What ledgerValue() in src/ledger/canonical.ts wrote as the manage_data value; its prefix is the record version. */}
+              <HashChip value={storedLedgerValue(d)} head={48} tail={0} className="whitespace-nowrap" />
             </OnChainRow>
             <OnChainRow label="Memo hash">
               <HashChip value={d.decisionHash} />
