@@ -12,7 +12,11 @@
  */
 
 export interface EscrowRoles {
-  funder: string; // releaseSigner: the only key that moves money
+  funder: string; // campaign creator and remainder recipient
+  /** On-chain releaseSigner. Legacy campaigns omit it and use `funder`. */
+  releaseSigner?: string;
+  /** On-chain approver. Legacy campaigns omit it and use `platformOps`. */
+  approver?: string;
   platformAdmin: string; // platformAddress: appends milestones, receives (zero) fee
   platformOps: string; // serviceProvider + approver: marks delivered and records rubric approval
   disputeResolver: string;

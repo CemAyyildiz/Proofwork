@@ -217,8 +217,8 @@ export class TrustlessWorkAdapter implements EscrowPort {
 
 function toTwRoles(r: EscrowState["roles"]): TwRoles {
   return {
-    approver: r.platformOps,
-    releaseSigner: r.funder,
+    approver: r.approver ?? r.platformOps,
+    releaseSigner: r.releaseSigner ?? r.funder,
     serviceProvider: r.platformOps,
     platformAddress: r.platformAdmin,
     disputeResolver: r.disputeResolver,
@@ -260,12 +260,15 @@ function echoMilestone(m: TwMilestoneRead): TwMilestoneWrite {
 }
 
 function toState(e: TwEscrowRead): EscrowState {
+  const closeReceiver = e.milestones[0]?.receiver;
   return {
     contractId: e.contractId,
     engagementId: e.engagementId,
     balance: fromApiAmount(Number(e.balance ?? 0)),
     roles: {
-      funder: e.roles.releaseSigner,
+      funder: closeReceiver ?? e.roles.releaseSigner,
+      releaseSigner: e.roles.releaseSigner,
+      approver: e.roles.approver,
       platformAdmin: e.roles.platformAddress,
       platformOps: e.roles.serviceProvider,
       disputeResolver: e.roles.disputeResolver,

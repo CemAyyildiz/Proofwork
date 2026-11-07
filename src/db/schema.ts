@@ -67,6 +67,17 @@ export const accessAction = pgEnum("access_action", ["grant", "revoke"]);
 
 export const accessVia = pgEnum("access_via", ["admin", "script"]);
 
+export const sealedReviewStatus = pgEnum("sealed_review_status", [
+  "draft",
+  "open",
+  "revealing",
+  "cleared",
+  "finalizing",
+  "finalized",
+  "expired",
+  "failed",
+]);
+
 const id = () => text("id").primaryKey();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 
@@ -79,6 +90,9 @@ export const campaigns = pgTable("campaign", {
   budget: numeric("budget", { precision: 18, scale: 7 }).notNull(),
   deadlineAt: timestamp("deadline_at", { withTimezone: true }).notNull(),
   funderPubkey: text("funder_pubkey").notNull(),
+  /** New founder-sealed campaigns pin an external wallet as the on-chain release signer. Null keeps the legacy funder signer. */
+  releaseSignerPubkey: text("release_signer_pubkey"),
+  founderSealedReview: boolean("founder_sealed_review").notNull().default(false),
   disputeResolverPubkey: text("dispute_resolver_pubkey").notNull(),
   escrowContractId: text("escrow_contract_id").unique(),
   fundedAt: timestamp("funded_at", { withTimezone: true }),
@@ -279,6 +293,77 @@ export const reviewTimes = pgTable("review_time", {
 });
 
 /**
+ * Experimental Sub Rosa round attached to one otherwise-normal submission.
+ * No review plaintext is written here before a verified, cleared receipt.
+ */
+export const sealedReviews = pgTable(
+  "sealed_review",
+  {
+    id: id(),
+    submissionId: text("submission_id")
+      .notNull()
+      .references(() => submissions.id)
+      .unique(),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaigns.id),
+    status: sealedReviewStatus("status").notNull().default("draft"),
+    itemRef: text("item_ref").notNull(),
+    schemaRef: text("schema_ref").notNull(),
+    contractId: text("contract_id"),
+    roundId: text("round_id"),
+    revealRound: integer("reveal_round").notNull(),
+    commitDeadline: timestamp("commit_deadline", { withTimezone: true }).notNull(),
+    revealDeadline: timestamp("reveal_deadline", { withTimezone: true }).notNull(),
+    auditorPubkey: text("auditor_pubkey").notNull(),
+    operatorPubkey: text("operator_pubkey").notNull(),
+    createTxHash: text("create_tx_hash"),
+    clearTxHash: text("clear_tx_hash"),
+    receiptJson: text("receipt_json"),
+    receiptSha256: text("receipt_sha256"),
+    receiptVerified: boolean("receipt_verified").notNull().default(false),
+    finalDecisionId: text("final_decision_id").references(() => decisions.id),
+    failureCode: text("failure_code"),
+    createdBy: text("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("sealed_review_campaign_idx").on(t.campaignId),
+    uniqueIndex("sealed_review_round_idx").on(t.contractId, t.roundId),
+    uniqueIndex("sealed_review_create_tx_idx").on(t.createTxHash),
+    uniqueIndex("sealed_review_clear_tx_idx").on(t.clearTxHash),
+  ],
+);
+
+export const sealedReviewAssignments = pgTable(
+  "sealed_review_assignment",
+  {
+    id: id(),
+    sealedReviewId: text("sealed_review_id")
+      .notNull()
+      .references(() => sealedReviews.id),
+    reviewerPubkey: text("reviewer_pubkey").notNull(),
+    commitment: text("commitment"),
+    commitTxHash: text("commit_tx_hash"),
+    revealTxHash: text("reveal_tx_hash"),
+    /** Populated only after the cleared receipt passes canonical verification. */
+    revealedReview: jsonb("revealed_review").$type<Record<string, unknown>>(),
+    committedAt: timestamp("committed_at", { withTimezone: true }),
+    revealedAt: timestamp("revealed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("sealed_review_assignment_unique_idx").on(t.sealedReviewId, t.reviewerPubkey),
+    index("sealed_review_assignment_reviewer_idx").on(t.reviewerPubkey),
+    uniqueIndex("sealed_review_assignment_commit_tx_idx").on(t.commitTxHash),
+    uniqueIndex("sealed_review_assignment_reveal_tx_idx").on(t.revealTxHash),
+  ],
+);
+
+/**
  * A wallet's connected X account. The primary key gives one X account per
  * wallet, the unique index one wallet per X account. The numeric account ID is
  * the only thing from X this database holds: no token, handle or name.
@@ -296,3 +381,5 @@ export type Payout = typeof payouts.$inferSelect;
 export type EscrowOp = typeof escrowOps.$inferSelect;
 export type FunderRequest = typeof funderRequests.$inferSelect;
 export type AccessLogEntry = typeof accessLog.$inferSelect;
+export type SealedReview = typeof sealedReviews.$inferSelect;
+export type SealedReviewAssignment = typeof sealedReviewAssignments.$inferSelect;

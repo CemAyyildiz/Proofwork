@@ -55,6 +55,10 @@ Built during the Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet 
 
 ## How it works
 
+### Experimental: sealed dual review
+
+With `SEALED_DUAL_REVIEW_ENABLED=true`, a campaign funder or operator can assign two authorized reviewer wallets to one pending submission. Their rubric v2 assessments are timelock-encrypted in a zero-escrow Sub Rosa `ReceiptOnly` round and remain absent from Proofwork's database until both reveals and the canonical receipt verify. An authorized reviewer then selects the final human decision, and only that decision enters Proofwork's existing Stellar decision ledger. Single-review campaigns, X ownership checks, Trustless Work escrow, funder approval, payouts, remainder return, and `/verify` URLs are unchanged. See [the integration guide and security boundary](docs/sub-rosa-sealed-dual-review.txt) and [real testnet evidence](docs/evidence/sub-rosa-sealed-dual-review-testnet.json).
+
 | Step | Who signs | What happens on-chain |
 |---|---|---|
 | Request funder access | Team wallet (login only) | Nothing; the operator approves on `/admin`, and the grant is logged |

@@ -125,7 +125,14 @@ describe("TrustlessWorkAdapter (v1)", () => {
     const a = adapter(() => ({ status: 200, body: [escrowRead] }));
     const s = await a.getEscrow("C1");
     expect(s.balance).toBe("10.5");
-    expect(s.roles).toEqual({ funder, platformAdmin: admin.publicKey(), platformOps: ops.publicKey(), disputeResolver: resolver });
+    expect(s.roles).toEqual({
+      funder,
+      releaseSigner: funder,
+      approver: ops.publicKey(),
+      platformAdmin: admin.publicKey(),
+      platformOps: ops.publicKey(),
+      disputeResolver: resolver,
+    });
     expect(s.milestones[0]).toMatchObject({ index: 0, amount: "0.0000001", approved: false, released: false, disputed: false, resolved: false });
     expect(s.milestones[1]).toMatchObject({ index: 1, amount: "2", status: "completed", approved: true, released: true });
   });

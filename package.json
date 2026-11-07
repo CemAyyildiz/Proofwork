@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:testnet": "PROOFWORK_TESTNET=1 vitest run tests/testnet",
+    "test:sealed-review:testnet": "tsx scripts/sub-rosa-testnet-e2e.mts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
@@ -26,7 +27,9 @@
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.6.0",
+    "@openzeppelin/relayer-plugin-channels": "^0.20.0",
     "@stellar/stellar-sdk": "^14.6.1",
+    "@sub-rosa/sdk": "0.3.2",
     "@upstash/ratelimit": "^2.1.0",
     "@upstash/redis": "^1.39.0",
     "drizzle-orm": "^0.45.3",
@@ -56,5 +59,21 @@
   "packageManager": "pnpm@10.13.1",
   "engines": {
     "node": ">=22.12"
+  },
+  "pnpm": {
+    "overrides": {
+      "axios": "1.20.0",
+      "follow-redirects": "1.16.2",
+      "sharp": "0.35.5",
+      "source-map-js": "1.2.2",
+      "toml": "5.0.1"
+    },
+    "packageExtensions": {
+      "drand-client": {
+        "dependencies": {
+          "@noble/hashes": "^1.8.0"
+        }
+      }
+    }
   }
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import { StrKey } from "@stellar/stellar-sdk";
+import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { z } from "zod";
 import { assertPositiveAmount, fromStroops, toStroops } from "@/escrow/amount";
 
@@ -56,6 +56,8 @@ const blankAsUnset = (v: unknown) => (typeof v === "string" && v.trim() === "" ?
 
 const optional = <T extends z.ZodTypeAny>(inner: T) => z.preprocess(blankAsUnset, inner.optional());
 
+const featureFlag = z.preprocess(blankAsUnset, z.enum(["0", "1", "false", "true"]).default("false").transform((v) => v === "1" || v === "true"));
+
 /** Whole number from 1 to 9999, digits only: no sign, decimal point or exponent. */
 const positiveInteger = z
   .string()
@@ -108,6 +110,11 @@ const schema = z.object({
   /** Sum of the budgets of a funder's open campaigns, in USDC. */
   FUNDER_MAX_OPEN_BUDGET: z.preprocess(blankAsUnset, usdcAmount.default("100")),
 
+  /** Experimental ReceiptOnly integration. Off unless explicitly enabled. */
+  SEALED_DUAL_REVIEW_ENABLED: featureFlag,
+  /** Cem/founder wallet for the experimental workflow. Public key only: the backend must not hold its release-signing secret. */
+  SEALED_REVIEW_ADMIN_PUBKEY: optional(publicKey),
+
   /** X: Sign in with X (OAuth 2.0 confidential client) and the app-only token. All four or none, see `load`. */
   X_CLIENT_ID: optional(z.string().min(1)),
   X_CLIENT_SECRET: optional(z.string().min(1)),
@@ -146,6 +153,15 @@ function load(): Env {
   const seeds = [env.PLATFORM_ADMIN_SECRET, env.PLATFORM_OPS_SECRET, env.DECISION_LEDGER_SECRET];
   if (new Set(seeds).size !== seeds.length) {
     throw new Error("Invalid environment: server signing keys must be distinct");
+  }
+  if (env.SEALED_DUAL_REVIEW_ENABLED) {
+    if (!env.SEALED_REVIEW_ADMIN_PUBKEY) {
+      throw new Error("Invalid environment: SEALED_REVIEW_ADMIN_PUBKEY is required when sealed dual review is enabled");
+    }
+    const serverPubkeys = new Set(seeds.map((seed) => Keypair.fromSecret(seed).publicKey()));
+    if (serverPubkeys.has(env.SEALED_REVIEW_ADMIN_PUBKEY)) {
+      throw new Error("Invalid environment: sealed-review admin must be an external wallet whose secret is not held by the backend");
+    }
   }
   const x = [env.X_CLIENT_ID, env.X_CLIENT_SECRET, env.X_REDIRECT_URI, env.X_BEARER_TOKEN].filter((v) => v !== undefined);
   if (x.length !== 0 && x.length !== 4) {
@@ -186,6 +202,17 @@ export interface FunderLimits {
 /** The per-funder caps of this deployment. The same values for every funder; there is no override. */
 export function funderLimits(): FunderLimits {
   return { maxOpenCampaigns: env.FUNDER_MAX_OPEN_CAMPAIGNS, maxOpenBudget: env.FUNDER_MAX_OPEN_BUDGET };
+}
+
+export function sealedDualReviewEnabled(): boolean {
+  return env.SEALED_DUAL_REVIEW_ENABLED;
+}
+
+/** Trusted founder identity for sealed review and release signing. Never sourced from a request body. */
+export function sealedReviewAdminPubkey(): string {
+  const pubkey = env.SEALED_REVIEW_ADMIN_PUBKEY;
+  if (!pubkey) throw new Error("SEALED_REVIEW_ADMIN_PUBKEY is not configured");
+  return pubkey;
 }
 
 export interface XConfig {

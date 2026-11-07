@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Db } from "@/db/client";
-import { campaigns, decisions, payouts, reviewTimes, roleGrants, submissions, type Decision, type Submission } from "@/db/schema";
+import { campaigns, decisions, payouts, reviewTimes, roleGrants, sealedReviews, submissions, type Decision, type Submission } from "@/db/schema";
 import { publicFundingSources } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import { evaluate, reasonCodeSchema, RUBRIC_VERSION, SIGNALS, signalsSchema, validateReason, type SignalId } from "@/domain/rubric";
@@ -91,7 +91,7 @@ export async function reviewQueue(conn: Db = db, publicSources: ReadonlySet<stri
     .select({ s: submissions, c: campaigns })
     .from(submissions)
     .innerJoin(campaigns, eq(campaigns.id, submissions.campaignId))
-    .where(and(inArray(submissions.status, ["pending", "appealed"]), isNull(campaigns.closedAt)))
+    .where(and(inArray(submissions.status, ["pending", "appealed"]), isNull(campaigns.closedAt), eq(campaigns.founderSealedReview, false)))
     .orderBy(asc(submissions.status), sql`md5(${submissions.id})`); // stable but not chronological: order reveals nothing
 
   const appealed = rows.filter((r) => r.s.status === "appealed").map((r) => r.s.id);
@@ -127,6 +127,11 @@ export const decideSchema = z.object({
 });
 export type DecideInput = z.infer<typeof decideSchema>;
 
+/** Internal proof that a founder-sealed decision is coming from its verified round. */
+export interface DecideAuthority {
+  sealedReviewId?: string;
+}
+
 /**
  * Records a decision and commits it on-chain in the same call. The chain
  * write comes first: if it fails, nothing is stored, the error is surfaced
@@ -145,6 +150,7 @@ export async function decide(
   actor: { pubkey: string },
   ledger: DecisionLedger,
   conn: Db = db,
+  authority: DecideAuthority = {},
 ): Promise<Decision> {
   const reason = validateReason(input.signals, input.reasonCode);
   if (!reason.ok) throw AppError.validation(reason.message);
@@ -162,6 +168,30 @@ export async function decide(
   if (row.c.closedAt) throw AppError.conflict("campaign is closed");
   if (row.s.status !== "pending" && row.s.status !== "appealed") {
     throw AppError.conflict(`submission is ${row.s.status}, not reviewable`);
+  }
+
+  // Founder-sealed campaigns never enter the ordinary reviewer path. The only
+  // accepted call is the configured release signer finalizing this submission's
+  // already receipt-verified round. This is a service backstop, not a UI rule.
+  if (row.c.founderSealedReview) {
+    if (!row.c.releaseSignerPubkey || actor.pubkey !== row.c.releaseSignerPubkey || !authority.sealedReviewId) {
+      throw AppError.forbidden("founder-sealed submissions must be finalized through their verified sealed round");
+    }
+    const sealed = (
+      await conn
+        .select({ id: sealedReviews.id })
+        .from(sealedReviews)
+        .where(
+          and(
+            eq(sealedReviews.id, authority.sealedReviewId),
+            eq(sealedReviews.submissionId, row.s.id),
+            eq(sealedReviews.status, "finalizing"),
+            eq(sealedReviews.receiptVerified, true),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!sealed) throw AppError.forbidden("founder-sealed decision has no verified finalizing round");
   }
 
   const prior = (await conn.select().from(decisions).where(eq(decisions.submissionId, row.s.id)).orderBy(desc(decisions.decidedAt)).limit(1))[0];

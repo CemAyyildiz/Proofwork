@@ -36,6 +36,7 @@ export const createCampaignSchema = z
     budget: amount,
     deadlineAt: z.coerce.date().refine((d) => d.getTime() > Date.now() + 60 * 60 * 1000, "deadline must be at least one hour away"),
     disputeResolverPubkey: z.string().refine((v) => StrKey.isValidEd25519PublicKey(v), "invalid public key"),
+    founderSealedReview: z.boolean().default(false),
   })
   .refine((c) => toStroops(c.budget) >= toStroops(c.rewardAmount), { message: "budget must cover at least one reward", path: ["budget"] })
   // Escrow holds 50 milestones: the close milestone plus 49 rewards. Bigint division floors.
@@ -110,11 +111,18 @@ async function assertWithinLimits(pubkey: string, budget: string, limits: Funder
 
 export async function createCampaign(
   input: CreateCampaignInput,
-  actor: { pubkey: string; platformAdmin: string; platformOps: string },
+  actor: { pubkey: string; platformAdmin: string; platformOps: string; sealedReviewAdmin?: string | null; sealedReviewEnabled?: boolean },
   limits: FunderLimits,
   conn: Db = db,
 ): Promise<Campaign> {
-  const taken = new Set([actor.platformAdmin, actor.platformOps, actor.pubkey]);
+  const founder = actor.sealedReviewAdmin ?? null;
+  if (input.founderSealedReview && (!actor.sealedReviewEnabled || !founder)) {
+    throw AppError.validation("founder-sealed review is not enabled on this deployment");
+  }
+  if (input.founderSealedReview && founder === actor.pubkey) {
+    throw AppError.validation("founder-sealed review requires the founder and campaign creator to be different wallets");
+  }
+  const taken = new Set([actor.platformAdmin, actor.platformOps, actor.pubkey, ...(founder ? [founder] : [])]);
   if (taken.has(input.disputeResolverPubkey)) {
     throw AppError.validation("dispute resolver must be a neutral key, not the funder or a platform key");
   }
@@ -131,6 +139,8 @@ export async function createCampaign(
       budget: input.budget,
       deadlineAt: input.deadlineAt,
       funderPubkey: actor.pubkey,
+      releaseSignerPubkey: input.founderSealedReview ? founder : null,
+      founderSealedReview: input.founderSealedReview,
       disputeResolverPubkey: input.disputeResolverPubkey,
     })
     .returning();
@@ -253,6 +263,8 @@ export async function prepareDeploy(
           signer: c.funderPubkey,
           roles: {
             funder: c.funderPubkey,
+            releaseSigner: c.releaseSignerPubkey ?? c.funderPubkey,
+            approver: actor.platformOps,
             platformAdmin: actor.platformAdmin,
             platformOps: actor.platformOps,
             disputeResolver: c.disputeResolverPubkey,

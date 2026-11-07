@@ -1,0 +1,54 @@
+{
+  "ranAt": "2026-11-07T17:19:51.423Z",
+  "network": "Stellar Testnet",
+  "contractId": "CCOVGOQQZJKZ2R55GRWBLTJTGBAMSHXZVN3ICPG3WRVMLMM6RHISC5OV",
+  "roundId": "44",
+  "status": "Settled",
+  "mode": "ReceiptOnly",
+  "fixedEscrow": "0",
+  "itemRef": "35b0e9aa014dc83c463ba62c423fc879f8d8c9787edb9ad536b76035a36337e1",
+  "fixture": {
+    "campaignId": "cmp_proofwork_subrosa_testnet",
+    "campaignSlug": "proofwork-subrosa-testnet",
+    "submissionId": "sub_proofwork_subrosa_testnet",
+    "submissionShortId": "sdrtest1",
+    "rubric": "v2"
+  },
+  "fixedReviewerPair": {
+    "founder": "GDIJKRCXXHWKACR34QAHBYVREGJUIQS24OYPLTZPP5HJOLDGZSOLU7IC",
+    "campaignCreator": "GBMVGNGFRBVI7YBGR4SNJSQOYQ6YPGPPYYGD34352LDBI3YFXEATCPHM"
+  },
+  "reviewerWalletsDistinct": true,
+  "roundOpenedByCampaignCreator": true,
+  "transactions": {
+    "create": "4b493d5f835177b429f57af2cd297443d03daad54b87e15dc3c2c188ba793d6b",
+    "founderCommit": "d07b3f170cdac051acb5fb72c9c7577ed7f2225c03371b995234e7db1726faa5",
+    "creatorCommit": "2504e671d8b92f5d42922978469a503c9d9976541c201689fba02a18b236256b",
+    "openReveal": "64c64e9ca2c023bd5771686c8287768f925432bbd5ec8a68f4596a5e794ee284",
+    "founderReveal": "d095b52d2725b7a92a5d712cffe09a5c330c103bb837513a93303c953da9a9a6",
+    "creatorReveal": "17696f56176597fa700f5ec8656e3d643dad5d25b3f1046bcee2da47eb7ecf8d",
+    "clear": "38311dfee2f1df0092e8e5fb39dc3413564f17b2ed68938f557e8a00c003c67b"
+  },
+  "receiptSha256": "f7e49d4979110dd2034e36311bbf6a65f0eb91a5dcca7dd8c89d5da8657b0186",
+  "receiptVerification": {
+    "valid": true,
+    "issues": [],
+    "computedWinner": {
+      "address": null,
+      "value": null
+    }
+  },
+  "checks": {
+    "plaintextAbsentBeforeReveal": true,
+    "contractOverwriteObserved": true,
+    "proofworkPinsFirstCommitment": true,
+    "unauthorizedCommitRejected": true,
+    "fixedFounderCreatorPair": true,
+    "roundOpenedByCampaignCreator": true,
+    "reviewerBindingsVerified": true,
+    "submissionBindingVerified": true,
+    "zeroSubRosaEscrow": true,
+    "trustlessWorkCalls": 0,
+    "mainnetOperations": 0
+  }
+}

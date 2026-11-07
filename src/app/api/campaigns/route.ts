@@ -1,4 +1,4 @@
-import { funderLimits } from "@/config/env";
+import { funderLimits, sealedDualReviewEnabled, sealedReviewAdminPubkey } from "@/config/env";
 import { getEscrow, getPlatformKeys } from "@/escrow";
 import { requireUserRole } from "@/lib/current-user";
 import { jsonRoute } from "@/lib/http";
@@ -13,7 +13,18 @@ export const POST = jsonRoute(createCampaignSchema, async (input) => {
   await enforce(limiters.campaign, `campaign:${user.pubkey}`);
   getEscrow(); // fail here on misconfiguration, not at first signing
   const keys = getPlatformKeys();
-  const c = await createCampaign(input, { pubkey: user.pubkey, platformAdmin: keys.admin, platformOps: keys.ops }, funderLimits());
+  const sealedEnabled = sealedDualReviewEnabled();
+  const c = await createCampaign(
+    input,
+    {
+      pubkey: user.pubkey,
+      platformAdmin: keys.admin,
+      platformOps: keys.ops,
+      sealedReviewAdmin: sealedEnabled ? sealedReviewAdminPubkey() : null,
+      sealedReviewEnabled: sealedEnabled,
+    },
+    funderLimits(),
+  );
   return { id: c.id, slug: c.slug };
 });
 

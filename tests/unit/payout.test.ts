@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
-import { campaigns, decisions, escrowOps, payouts, submissions } from "@/db/schema";
+import { campaigns, decisions, escrowOps, payouts, sealedReviews, submissions } from "@/db/schema";
 import { FakeEscrow } from "@/escrow/fake";
 import { confirmDeploy, confirmFund, prepareDeploy, prepareFund, submissionCountsFor } from "@/services/campaign";
 import { approveForPayout, campaignForEscrow, confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp, recordRemainder } from "@/services/payout";
@@ -373,6 +373,72 @@ describe("prepareReleaseOp: only the selected payouts", () => {
     const { ids } = await passed(1);
     await approve(ids);
     await expect(prepareReleaseOp(CAMPAIGN, ids, { pubkey: "G_OTHER" }, escrow, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+});
+
+describe("founder-sealed payout authority", () => {
+  const SEALED_ADMIN = "G_FOUNDER_EXTERNAL";
+
+  async function founderSealedPassed() {
+    await conn
+      .update(campaigns)
+      .set({ founderSealedReview: true, releaseSignerPubkey: SEALED_ADMIN })
+      .where(eq(campaigns.id, CAMPAIGN));
+    const contractId = await funded();
+    const submissionId = await pass(1);
+    await conn.insert(sealedReviews).values({
+      id: "sealed_1",
+      submissionId,
+      campaignId: CAMPAIGN,
+      status: "finalized",
+      itemRef: "proofwork:camp-1:s1",
+      schemaRef: "proofwork:rubric-v2",
+      revealRound: 1,
+      commitDeadline: new Date(Date.now() - 20_000),
+      revealDeadline: new Date(Date.now() - 10_000),
+      auditorPubkey: "11".repeat(32),
+      operatorPubkey: FUNDER,
+      receiptVerified: true,
+      finalDecisionId: "dec_1",
+      createdBy: FUNDER,
+    });
+    return { contractId, submissionId };
+  }
+
+  it("makes the external founder the on-chain release signer and refuses owner or unrelated payout authority", async () => {
+    const { contractId, submissionId } = await founderSealedPassed();
+    const state = await escrow.getEscrow(contractId);
+    expect(state.roles).toMatchObject({ funder: FUNDER, releaseSigner: SEALED_ADMIN, approver: "G_OPS" });
+
+    await expect(approveForPayout(CAMPAIGN, [submissionId], { pubkey: FUNDER }, escrow, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(approveForPayout(CAMPAIGN, [submissionId], { pubkey: "G_UNRELATED" }, escrow, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(approveForPayout(CAMPAIGN, [submissionId], { pubkey: SEALED_ADMIN }, escrow, conn)).resolves.toMatchObject({ appended: 1 });
+
+    await expect(prepareReleaseOp(CAMPAIGN, [submissionId], { pubkey: FUNDER }, escrow, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(prepareReleaseOp(CAMPAIGN, [submissionId], { pubkey: "G_UNRELATED" }, escrow, conn)).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    // Bypass the Proofwork service and attempt the release against the escrow
+    // itself: the campaign creator is not the contract's release signer.
+    const [ownerAttempt] = await escrow.buildRelease(contractId, FUNDER, [1]);
+    if (!ownerAttempt) throw new Error("owner release transaction missing");
+    await expect(escrow.submit(ownerAttempt.unsignedXdr)).rejects.toThrow("not a release signer");
+    expect((await escrow.getEscrow(contractId)).milestones[1]?.released).toBe(false);
+
+    const [op] = await prepareReleaseOp(CAMPAIGN, [submissionId], { pubkey: SEALED_ADMIN }, escrow, conn);
+    if (!op) throw new Error("founder release operation missing");
+    await expect(
+      confirmReleaseOp({ campaignId: CAMPAIGN, opId: op.opId, signedXdr: op.unsignedXdr }, { pubkey: SEALED_ADMIN }, escrow, conn),
+    ).resolves.toMatchObject({ milestoneIndex: 1 });
+    expect((await escrow.getEscrow(contractId)).milestones[1]?.released).toBe(true);
+  });
+
+  it("requires the sealed round to be receipt-verified and linked to the latest PASS decision", async () => {
+    const { submissionId } = await founderSealedPassed();
+    await conn.update(sealedReviews).set({ receiptVerified: false }).where(eq(sealedReviews.id, "sealed_1"));
+    await expect(approveForPayout(CAMPAIGN, [submissionId], { pubkey: SEALED_ADMIN }, escrow, conn)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringContaining("no verified founder final decision"),
+    });
   });
 });
 

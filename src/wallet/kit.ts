@@ -97,6 +97,14 @@ export async function signTransaction(address: string, unsignedXdr: string): Pro
   return signedTxXdr;
 }
 
+export async function signAuthEntry(address: string, authEntry: string): Promise<string> {
+  const { signedAuthEntry } = await (await kit()).signAuthEntry(authEntry, {
+    address,
+    networkPassphrase: publicEnv.networkPassphrase,
+  });
+  return signedAuthEntry;
+}
+
 /** Full login: connect → challenge → sign → verify. Returns the session identity. */
 export async function login(): Promise<{ pubkey: string; roles: string[] }> {
   const pubkey = await connectWallet();
