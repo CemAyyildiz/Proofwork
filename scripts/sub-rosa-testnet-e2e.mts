@@ -84,24 +84,24 @@ async function clearWhenReady(client: SubRosaClient, roundId: bigint): Promise<v
 }
 
 async function main(): Promise<void> {
-  const operator = Keypair.random();
-  const first = Keypair.random();
-  const second = Keypair.random();
-  await Promise.all([fund(operator), fund(first), fund(second)]);
+  const founder = Keypair.random();
+  const creator = Keypair.random();
+  const outsider = Keypair.random();
+  await Promise.all([fund(founder), fund(creator), fund(outsider)]);
 
-  const operatorClient = new SubRosaClient({ network: "testnet", secretKey: operator.secret() });
-  const firstClient = new SubRosaClient({ network: "testnet", secretKey: first.secret() });
-  const secondClient = new SubRosaClient({ network: "testnet", secretKey: second.secret() });
+  const founderClient = new SubRosaClient({ network: "testnet", secretKey: founder.secret() });
+  const creatorClient = new SubRosaClient({ network: "testnet", secretKey: creator.secret() });
+  const outsiderClient = new SubRosaClient({ network: "testnet", secretKey: outsider.secret() });
   const drand = quicknet();
   const [info, revealRound] = await Promise.all([chainInfo(drand), roundInSeconds(drand, 120)]);
   const privacyAt = drandRoundTime(revealRound, info);
   const commitDeadline = privacyAt - 20;
   const revealDeadline = privacyAt + 60;
   const auditor = generateAuditorKeypair();
-  const reviewers = [first.publicKey(), second.publicKey()];
+  const reviewers = [founder.publicKey(), creator.publicKey()];
   const itemRef = binding(reviewers);
 
-  const roundId = await createSealedProposalRound(operatorClient, {
+  const roundId = await createSealedProposalRound(creatorClient, {
     itemRef,
     revealRound,
     commitDeadline,
@@ -111,49 +111,49 @@ async function main(): Promise<void> {
     maxParticipants: 2,
   });
 
-  const firstAssessment = assessment(roundId, first.publicKey(), ALL_PASS, "Independent reviewer one: evidence satisfies rubric v2.");
-  const secondAssessment = assessment(roundId, second.publicKey(), ONE_FAIL, "Independent reviewer two: original enough overall; one signal failed.");
-  const [firstSeal, secondSeal, outsiderSeal] = await Promise.all([
-    sealProposal({ round: revealRound, drand, identity: new TextEncoder().encode(first.publicKey()), auditorPublicKey: auditor.publicKey, proposal: { timelineDays: 1, approach: sealedAssessmentJson(firstAssessment) } }),
-    sealProposal({ round: revealRound, drand, identity: new TextEncoder().encode(second.publicKey()), auditorPublicKey: auditor.publicKey, proposal: { timelineDays: 1, approach: sealedAssessmentJson(secondAssessment) } }),
-    sealProposal({ round: revealRound, drand, identity: new TextEncoder().encode(operator.publicKey()), auditorPublicKey: auditor.publicKey, proposal: { timelineDays: 1, approach: sealedAssessmentJson({ ...firstAssessment, reviewer: operator.publicKey() }) } }),
+  const founderAssessment = assessment(roundId, founder.publicKey(), ALL_PASS, "Founder assessment: evidence satisfies rubric v2.");
+  const creatorAssessment = assessment(roundId, creator.publicKey(), ONE_FAIL, "Campaign creator assessment: original enough overall; one signal failed.");
+  const [founderSeal, creatorSeal, outsiderSeal] = await Promise.all([
+    sealProposal({ round: revealRound, drand, identity: new TextEncoder().encode(founder.publicKey()), auditorPublicKey: auditor.publicKey, proposal: { timelineDays: 1, approach: sealedAssessmentJson(founderAssessment) } }),
+    sealProposal({ round: revealRound, drand, identity: new TextEncoder().encode(creator.publicKey()), auditorPublicKey: auditor.publicKey, proposal: { timelineDays: 1, approach: sealedAssessmentJson(creatorAssessment) } }),
+    sealProposal({ round: revealRound, drand, identity: new TextEncoder().encode(outsider.publicKey()), auditorPublicKey: auditor.publicKey, proposal: { timelineDays: 1, approach: sealedAssessmentJson({ ...founderAssessment, reviewer: outsider.publicKey() }) } }),
   ]);
-  await firstClient.submitV2({ roundId, sealed: firstSeal, escrow: 0n });
-  await secondClient.submitV2({ roundId, sealed: secondSeal, escrow: 0n });
+  await founderClient.submitV2({ roundId, sealed: founderSeal, escrow: 0n });
+  await creatorClient.submitV2({ roundId, sealed: creatorSeal, escrow: 0n });
 
   const [duplicate, unauthorized] = await Promise.all([
-    firstClient.preflightCommitV2({ roundId, sealed: firstSeal, escrow: 0n }),
-    operatorClient.preflightCommitV2({ roundId, sealed: outsiderSeal, escrow: 0n }),
+    founderClient.preflightCommitV2({ roundId, sealed: founderSeal, escrow: 0n }),
+    outsiderClient.preflightCommitV2({ roundId, sealed: outsiderSeal, escrow: 0n }),
   ]);
   if (unauthorized.ok) throw new Error("unauthorized commit unexpectedly passed preflight");
 
-  const before = await operatorClient.exportReceiptV2(roundId);
+  const before = await creatorClient.exportReceiptV2(roundId);
   const beforeJson = serializeReceiptV2(before);
-  if (beforeJson.includes(firstAssessment.note) || beforeJson.includes(secondAssessment.note)) throw new Error("review plaintext leaked before reveal");
+  if (beforeJson.includes(founderAssessment.note) || beforeJson.includes(creatorAssessment.note)) throw new Error("review plaintext leaked before reveal");
   if (reviewers.some((reviewer) => before.submissions[reviewer]?.revealedEnvelope !== null)) throw new Error("receipt exposed an envelope before reveal");
 
   const waitMs = Math.max(0, privacyAt * 1000 - Date.now() + 4_000);
   if (waitMs > 0) await sleep(waitMs);
-  await operatorClient.openRevealV2(roundId, await beacon(revealRound));
+  await creatorClient.openRevealV2(roundId, await beacon(revealRound));
 
-  const [storedFirstSeal, storedSecondSeal] = await Promise.all([
-    firstClient.getSealV2(roundId, first.publicKey()),
-    secondClient.getSealV2(roundId, second.publicKey()),
+  const [storedFounderSeal, storedCreatorSeal] = await Promise.all([
+    founderClient.getSealV2(roundId, founder.publicKey()),
+    creatorClient.getSealV2(roundId, creator.publicKey()),
   ]);
-  if (!storedFirstSeal || !storedSecondSeal) throw new Error("sealed payload expired before reveal");
-  const [firstEnvelope, secondEnvelope] = await Promise.all([
-    openPayload(storedFirstSeal.ciphertext, drand),
-    openPayload(storedSecondSeal.ciphertext, drand),
+  if (!storedFounderSeal || !storedCreatorSeal) throw new Error("sealed payload expired before reveal");
+  const [founderEnvelope, creatorEnvelope] = await Promise.all([
+    openPayload(storedFounderSeal.ciphertext, drand),
+    openPayload(storedCreatorSeal.ciphertext, drand),
   ]);
   await Promise.all([
-    firstClient.revealV2({ roundId, bidder: first.publicKey(), envelope: firstEnvelope }),
-    secondClient.revealV2({ roundId, bidder: second.publicKey(), envelope: secondEnvelope }),
+    founderClient.revealV2({ roundId, bidder: founder.publicKey(), envelope: founderEnvelope }),
+    creatorClient.revealV2({ roundId, bidder: creator.publicKey(), envelope: creatorEnvelope }),
   ]);
   const clearWaitMs = Math.max(0, revealDeadline * 1000 - Date.now() + 4_000);
   if (clearWaitMs > 0) await sleep(clearWaitMs);
-  await clearWhenReady(operatorClient, roundId);
+  await clearWhenReady(creatorClient, roundId);
 
-  const receipt = await operatorClient.exportReceiptV2(roundId);
+  const receipt = await creatorClient.exportReceiptV2(roundId);
   const verification = verifyReceiptV2(receipt);
   if (!verification.valid) throw new Error(`receipt invalid: ${verification.issues.map((issue) => issue.code).join(",")}`);
   if (receipt.mode !== "ReceiptOnly" || receipt.policy.fixedEscrow !== "0" || receipt.status !== "Settled") throw new Error("unexpected final round state");
@@ -175,20 +175,22 @@ async function main(): Promise<void> {
     network: "Stellar Testnet",
     contractId: receipt.contractId,
     roundId: receipt.roundId,
+    status: receipt.status,
     mode: receipt.mode,
     fixedEscrow: receipt.policy.fixedEscrow,
     itemRef: receipt.itemRef,
     fixture,
-    reviewerWallets: reviewers,
+    fixedReviewerPair: { founder: founder.publicKey(), campaignCreator: creator.publicKey() },
     reviewerWalletsDistinct: new Set(reviewers).size === 2,
+    roundOpenedByCampaignCreator: receipt.operator === creator.publicKey(),
     transactions: {
-      create: operatorClient.submittedTransactionHashes[0],
-      firstCommit: firstClient.submittedTransactionHashes[0],
-      secondCommit: secondClient.submittedTransactionHashes[0],
-      openReveal: operatorClient.submittedTransactionHashes[1],
-      firstReveal: firstClient.submittedTransactionHashes[1],
-      secondReveal: secondClient.submittedTransactionHashes[1],
-      clear: operatorClient.submittedTransactionHashes[2],
+      create: creatorClient.submittedTransactionHashes[0],
+      founderCommit: founderClient.submittedTransactionHashes[0],
+      creatorCommit: creatorClient.submittedTransactionHashes[1],
+      openReveal: creatorClient.submittedTransactionHashes[2],
+      founderReveal: founderClient.submittedTransactionHashes[1],
+      creatorReveal: creatorClient.submittedTransactionHashes[3],
+      clear: creatorClient.submittedTransactionHashes[4],
     },
     receiptSha256: createHash("sha256").update(receiptJson).digest("hex"),
     receiptVerification: verification,
@@ -197,8 +199,13 @@ async function main(): Promise<void> {
       contractOverwriteObserved: duplicate.ok,
       proofworkPinsFirstCommitment: true,
       unauthorizedCommitRejected: !unauthorized.ok,
+      fixedFounderCreatorPair: true,
+      roundOpenedByCampaignCreator: receipt.operator === creator.publicKey(),
+      reviewerBindingsVerified: decoded.every((value) => reviewers.includes(value.reviewer)),
       submissionBindingVerified: true,
       zeroSubRosaEscrow: receipt.policy.fixedEscrow === "0",
+      trustlessWorkCalls: 0,
+      mainnetOperations: 0,
     },
   };
   process.stdout.write(`${JSON.stringify(output, null, 2)}\n`);

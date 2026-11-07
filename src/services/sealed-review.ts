@@ -15,17 +15,18 @@ import {
   type CoreV2Receipt,
 } from "@sub-rosa/sdk";
 import { z } from "zod";
-import { campaigns, sealedReviewAssignments, sealedReviews, submissions, type SealedReview } from "@/db/schema";
+import { sealedReviewAdminPubkey } from "@/config/env";
+import { campaigns, decisions, payouts, sealedReviewAssignments, sealedReviews, submissions, type Campaign, type SealedReview } from "@/db/schema";
 import { type Db, db } from "@/db/client";
 import { pubkeySchema } from "@/domain/wallet-auth";
 import { RUBRIC_VERSION } from "@/domain/rubric";
 import { parseSealedAssessment, type SealedAssessment } from "@/domain/sealed-review";
 import { AppError, isUniqueViolation } from "@/lib/errors";
 import { newId, sha256Hex } from "@/lib/ids";
-import { canManageCampaign } from "./access";
-import { rolesFor } from "./auth";
 import { decide, type DecideInput } from "./review";
 import type { DecisionLedger } from "@/ledger/decision-ledger";
+import type { EscrowPort } from "@/escrow/port";
+import { getEscrow } from "@/escrow";
 
 const txHashSchema = z.string().regex(/^[0-9a-f]{64}$/i, "invalid transaction hash");
 const roundIdSchema = z.string().regex(/^[1-9]\d*$/, "invalid round id");
@@ -33,7 +34,6 @@ const roundIdSchema = z.string().regex(/^[1-9]\d*$/, "invalid round id");
 export const prepareSealedReviewSchema = z.object({
   action: z.literal("prepare"),
   submissionId: z.string().min(1),
-  reviewerPubkeys: z.tuple([pubkeySchema, pubkeySchema]),
   revealDelaySeconds: z.number().int().min(300).max(3600).default(600),
 });
 
@@ -103,6 +103,14 @@ interface Actor {
   roles?: ReadonlySet<"funder" | "reviewer" | "ops">;
 }
 
+export interface SealedReviewAuthority {
+  adminPubkey: string;
+}
+
+function liveAuthority(): SealedReviewAuthority {
+  return { adminPubkey: sealedReviewAdminPubkey() };
+}
+
 interface RoundWithContext {
   round: SealedReview;
   campaign: typeof campaigns.$inferSelect;
@@ -137,7 +145,7 @@ function bindingJson(input: {
   });
 }
 
-async function context(id: string, conn: Db): Promise<RoundWithContext> {
+async function context(id: string, conn: Db, authority: SealedReviewAuthority): Promise<RoundWithContext> {
   const found = (
     await conn
       .select({ round: sealedReviews, campaign: campaigns, submission: submissions })
@@ -152,16 +160,25 @@ async function context(id: string, conn: Db): Promise<RoundWithContext> {
     .select({ reviewer: sealedReviewAssignments.reviewerPubkey })
     .from(sealedReviewAssignments)
     .where(eq(sealedReviewAssignments.sealedReviewId, id));
-  return { ...found, reviewers: assignments.map((a) => a.reviewer) };
+  const reviewers = assignments.map((a) => a.reviewer);
+  const expected = [authority.adminPubkey, found.campaign.funderPubkey];
+  if (
+    authority.adminPubkey === found.campaign.funderPubkey ||
+    !found.campaign.founderSealedReview ||
+    found.campaign.releaseSignerPubkey !== authority.adminPubkey ||
+    !sameMembers(reviewers, expected)
+  ) {
+    throw AppError.conflict("sealed review assignment does not match the trusted founder and campaign creator");
+  }
+  return { ...found, reviewers };
 }
 
-async function isManager(value: RoundWithContext, actor: Actor, conn: Db): Promise<boolean> {
-  const roles = actor.roles ?? (await rolesFor(actor.pubkey, value.campaign.id, conn));
-  return roles.has("ops") || canManageCampaign(value.campaign, { pubkey: actor.pubkey, roles });
+function isRoundCreator(value: RoundWithContext, actor: Actor): boolean {
+  return actor.pubkey === value.campaign.funderPubkey && actor.pubkey === value.round.operatorPubkey;
 }
 
-async function requireManager(value: RoundWithContext, actor: Actor, conn: Db): Promise<void> {
-  if (!(await isManager(value, actor, conn))) throw AppError.forbidden("sealed review is managed by campaign funder or ops");
+function requireRoundCreator(value: RoundWithContext, actor: Actor): void {
+  if (!isRoundCreator(value, actor)) throw AppError.forbidden("only the campaign creator can create this fixed-reviewer round");
 }
 
 async function assertTransactionHashUnused(txHash: string, conn: Db): Promise<void> {
@@ -206,15 +223,43 @@ function assertReceiptBinding(value: RoundWithContext, receipt: CoreV2Receipt, e
   }
 }
 
+/**
+ * A founder-sealed campaign is eligible only when its already-deployed escrow
+ * proves the creator is not the reward release signer, platform ops is the
+ * approver, and the external founder wallet is the release signer. Existing
+ * funded escrows are never rewritten.
+ */
+export async function assertFounderEscrowAuthority(
+  campaign: Campaign,
+  authority: SealedReviewAuthority,
+  escrow: Pick<EscrowPort, "getEscrow">,
+): Promise<void> {
+  if (!campaign.founderSealedReview || !campaign.escrowContractId || !campaign.fundedAt) {
+    throw AppError.conflict("founder-sealed review requires a compatible newly funded escrow");
+  }
+  const state = await escrow.getEscrow(campaign.escrowContractId);
+  const releaseSigner = state.roles.releaseSigner ?? state.roles.funder;
+  const approver = state.roles.approver ?? state.roles.platformOps;
+  if (
+    state.engagementId !== campaign.slug ||
+    state.roles.funder !== campaign.funderPubkey ||
+    releaseSigner !== authority.adminPubkey ||
+    approver !== state.roles.platformOps ||
+    approver === campaign.funderPubkey
+  ) {
+    throw AppError.conflict("escrow roles do not enforce founder-only reward authorization");
+  }
+}
+
 export async function prepareSealedReview(
   input: z.infer<typeof prepareSealedReviewSchema>,
   actor: Actor,
   conn: Db = db,
   now = new Date(),
   planner: RoundPlanner = liveRoundPlanner(),
+  authority: SealedReviewAuthority = liveAuthority(),
+  escrow: Pick<EscrowPort, "getEscrow"> = getEscrow(),
 ): Promise<SealedReview> {
-  const [first, second] = input.reviewerPubkeys;
-  if (first === second) throw AppError.validation("two distinct reviewer wallets are required");
   const found = (
     await conn
       .select({ submission: submissions, campaign: campaigns })
@@ -226,15 +271,15 @@ export async function prepareSealedReview(
   if (!found) throw AppError.notFound("submission");
   if (found.campaign.closedAt) throw AppError.conflict("campaign is closed");
   if (found.submission.status !== "pending") throw AppError.conflict("only a pending submission can enter sealed dual review");
-  const actorRoles = actor.roles ?? (await rolesFor(actor.pubkey, found.campaign.id, conn));
-  if (!actorRoles.has("ops") && !canManageCampaign(found.campaign, { pubkey: actor.pubkey, roles: actorRoles })) {
-    throw AppError.forbidden("sealed review is managed by campaign funder or ops");
+  if (actor.pubkey !== found.campaign.funderPubkey) throw AppError.forbidden("only the campaign creator can open this sealed review");
+  if (authority.adminPubkey === found.campaign.funderPubkey) {
+    throw AppError.conflict("founder and campaign creator must be distinct wallets");
   }
-  for (const reviewer of [first, second]) {
-    if (!(await rolesFor(reviewer, found.campaign.id, conn)).has("reviewer")) {
-      throw AppError.validation("both assigned wallets must have reviewer access");
-    }
+  if (!found.campaign.founderSealedReview || found.campaign.releaseSignerPubkey !== authority.adminPubkey) {
+    throw AppError.conflict("campaign was not created with founder-sealed escrow authority");
   }
+  await assertFounderEscrowAuthority(found.campaign, authority, escrow);
+  const reviewers = [authority.adminPubkey, found.campaign.funderPubkey] as const;
 
   const { revealRound, commitDeadline, revealDeadline, auditorPubkey } = await planner.plan(input.revealDelaySeconds);
   if (commitDeadline <= now) throw AppError.conflict("reveal boundary leaves no commit window");
@@ -244,7 +289,7 @@ export async function prepareSealedReview(
       campaignSlug: found.campaign.slug,
       submissionId: found.submission.id,
       submissionShortId: found.submission.shortId,
-      reviewers: [first, second],
+      reviewers,
     }),
   );
   const id = newId("sdr");
@@ -267,8 +312,8 @@ export async function prepareSealedReview(
         })
         .returning();
       await tx.insert(sealedReviewAssignments).values([
-        { id: newId("sra"), sealedReviewId: id, reviewerPubkey: first },
-        { id: newId("sra"), sealedReviewId: id, reviewerPubkey: second },
+        { id: newId("sra"), sealedReviewId: id, reviewerPubkey: authority.adminPubkey },
+        { id: newId("sra"), sealedReviewId: id, reviewerPubkey: found.campaign.funderPubkey },
       ]);
       return round as SealedReview;
     });
@@ -283,9 +328,10 @@ export async function registerSealedReview(
   actor: Actor,
   gateway: ReceiptGateway = liveReceiptGateway(),
   conn: Db = db,
+  authority: SealedReviewAuthority = liveAuthority(),
 ): Promise<void> {
-  const value = await context(input.sealedReviewId, conn);
-  await requireManager(value, actor, conn);
+  const value = await context(input.sealedReviewId, conn, authority);
+  requireRoundCreator(value, actor);
   await assertTransactionHashUnused(input.txHash, conn);
   if (value.round.status !== "draft" || value.round.roundId !== null) throw AppError.conflict("sealed review round is already registered");
   const candidate = { ...value, round: { ...value.round, roundId: input.roundId } };
@@ -307,9 +353,8 @@ async function receiptFor(value: RoundWithContext, gateway: ReceiptGateway): Pro
   return receipt;
 }
 
-async function requireAssigned(value: RoundWithContext, actor: Actor, conn: Db): Promise<void> {
+function requireAssigned(value: RoundWithContext, actor: Actor): void {
   if (!value.reviewers.includes(actor.pubkey)) throw AppError.forbidden("wallet is not assigned to this sealed review");
-  if (!(await rolesFor(actor.pubkey, value.campaign.id, conn)).has("reviewer")) throw AppError.forbidden("assigned wallet no longer has reviewer access");
 }
 
 async function maybeExpired(value: RoundWithContext, conn: Db, now = new Date()): Promise<RoundWithContext> {
@@ -333,9 +378,10 @@ export async function recordSealedCommit(
   actor: Actor,
   gateway: ReceiptGateway = liveReceiptGateway(),
   conn: Db = db,
+  authority: SealedReviewAuthority = liveAuthority(),
 ): Promise<void> {
-  const value = await maybeExpired(await context(input.sealedReviewId, conn), conn);
-  await requireAssigned(value, actor, conn);
+  const value = await maybeExpired(await context(input.sealedReviewId, conn, authority), conn);
+  requireAssigned(value, actor);
   await assertTransactionHashUnused(input.txHash, conn);
   if (value.round.status !== "open") throw AppError.conflict("round is not accepting sealed reviews");
   if (new Date() > value.round.commitDeadline) throw AppError.conflict("commit deadline has passed");
@@ -357,9 +403,10 @@ export async function recordSealedReveal(
   actor: Actor,
   gateway: ReceiptGateway = liveReceiptGateway(),
   conn: Db = db,
+  authority: SealedReviewAuthority = liveAuthority(),
 ): Promise<void> {
-  const value = await maybeExpired(await context(input.sealedReviewId, conn), conn);
-  await requireAssigned(value, actor, conn);
+  const value = await maybeExpired(await context(input.sealedReviewId, conn, authority), conn);
+  requireAssigned(value, actor);
   await assertTransactionHashUnused(input.txHash, conn);
   if (value.round.status !== "open" && value.round.status !== "revealing") throw AppError.conflict("round is not revealing");
   const receipt = await receiptFor(value, gateway);
@@ -416,10 +463,11 @@ export async function recordSealedClear(
   actor: Actor,
   gateway: ReceiptGateway = liveReceiptGateway(),
   conn: Db = db,
+  authority: SealedReviewAuthority = liveAuthority(),
 ): Promise<{ receiptSha256: string }> {
-  const value = await context(input.sealedReviewId, conn);
-  const assigned = value.reviewers.includes(actor.pubkey) && (await rolesFor(actor.pubkey, value.campaign.id, conn)).has("reviewer");
-  if (!(assigned || (await isManager(value, actor, conn)))) throw AppError.forbidden();
+  const value = await context(input.sealedReviewId, conn, authority);
+  const assigned = value.reviewers.includes(actor.pubkey);
+  if (!assigned) throw AppError.forbidden();
   await assertTransactionHashUnused(input.txHash, conn);
   if (value.round.status !== "revealing" && value.round.status !== "open") throw AppError.conflict("round cannot be cleared from its current state");
   const receipt = await receiptFor(value, gateway);
@@ -457,10 +505,10 @@ export async function finalizeSealedReview(
   actor: Actor,
   ledger: DecisionLedger,
   conn: Db = db,
+  authority: SealedReviewAuthority = liveAuthority(),
 ): Promise<{ decisionId: string; txHash: string | null }> {
-  const value = await context(input.sealedReviewId, conn);
-  const roles = actor.roles ?? (await rolesFor(actor.pubkey, value.campaign.id, conn));
-  if (!roles.has("reviewer")) throw AppError.forbidden("final decision requires reviewer role");
+  const value = await context(input.sealedReviewId, conn, authority);
+  if (actor.pubkey !== authority.adminPubkey) throw AppError.forbidden("only the configured founder wallet can record the final decision");
   if (!value.reviewers.includes(input.selectedReviewer)) throw AppError.validation("selected review is not assigned to this round");
   if (value.round.status !== "cleared" || !value.round.receiptVerified || !value.round.receiptSha256) {
     throw AppError.conflict("both reviews and the canonical receipt must be verified first");
@@ -490,7 +538,7 @@ export async function finalizeSealedReview(
       secondsPerSignal: {},
       sharedFundingCount: null,
     };
-    const decision = await decide(decisionInput, actor, ledger, conn);
+    const decision = await decide(decisionInput, actor, ledger, conn, { sealedReviewId: value.round.id });
     await conn
       .update(sealedReviews)
       .set({ status: "finalized", finalDecisionId: decision.id, updatedAt: new Date() })
@@ -502,11 +550,11 @@ export async function finalizeSealedReview(
   }
 }
 
-export async function sealedReviewView(id: string, actor: Actor, conn: Db = db) {
-  const value = await maybeExpired(await context(id, conn), conn);
-  const manager = await isManager(value, actor, conn);
-  const assigned = value.reviewers.includes(actor.pubkey) && (await rolesFor(actor.pubkey, value.campaign.id, conn)).has("reviewer");
-  if (!manager && !assigned) throw AppError.forbidden("sealed review is private to its managers and assigned reviewers");
+export async function sealedReviewView(id: string, actor: Actor, conn: Db = db, authority: SealedReviewAuthority = liveAuthority()) {
+  const value = await maybeExpired(await context(id, conn, authority), conn);
+  const manager = isRoundCreator(value, actor);
+  const assigned = value.reviewers.includes(actor.pubkey);
+  if (!assigned) throw AppError.forbidden("sealed review is private to the founder and campaign creator");
   const assignments = await conn
     .select()
     .from(sealedReviewAssignments)
@@ -514,9 +562,13 @@ export async function sealedReviewView(id: string, actor: Actor, conn: Db = db) 
   const revealed = value.round.receiptVerified
     ? assignments.map((a) => ({ reviewerPubkey: a.reviewerPubkey, review: a.revealedReview }))
     : [];
+  const finalDecision = value.round.finalDecisionId
+    ? (await conn.select().from(decisions).where(eq(decisions.id, value.round.finalDecisionId)).limit(1))[0] ?? null
+    : null;
+  const payout = (await conn.select().from(payouts).where(eq(payouts.submissionId, value.submission.id)).limit(1))[0] ?? null;
   return {
     round: value.round,
-    campaign: { id: value.campaign.id, slug: value.campaign.slug, title: value.campaign.title, brief: value.campaign.brief },
+    campaign: { id: value.campaign.id, slug: value.campaign.slug, title: value.campaign.title, brief: value.campaign.brief, creatorPubkey: value.campaign.funderPubkey },
     submission: { id: value.submission.id, shortId: value.submission.shortId, workUrl: value.submission.workUrl },
     reviewers: value.reviewers,
     assignments: assignments.map((a) => ({
@@ -528,13 +580,15 @@ export async function sealedReviewView(id: string, actor: Actor, conn: Db = db) 
       revealedAt: a.revealedAt,
     })),
     revealed,
+    finalDecision,
+    payout,
     manager,
     assigned,
+    admin: actor.pubkey === authority.adminPubkey,
   };
 }
 
-export async function sealedReviewList(actor: Actor, conn: Db = db) {
-  const roles = actor.roles ?? (await rolesFor(actor.pubkey, null, conn));
+export async function sealedReviewList(actor: Actor, conn: Db = db, authority: SealedReviewAuthority = liveAuthority()) {
   const assignedRows = await conn
     .select({ round: sealedReviews, assignment: sealedReviewAssignments, submission: submissions, campaign: campaigns })
     .from(sealedReviewAssignments)
@@ -542,23 +596,18 @@ export async function sealedReviewList(actor: Actor, conn: Db = db) {
     .innerJoin(submissions, eq(submissions.id, sealedReviews.submissionId))
     .innerJoin(campaigns, eq(campaigns.id, sealedReviews.campaignId))
     .where(eq(sealedReviewAssignments.reviewerPubkey, actor.pubkey));
-  const assigned = (
-    await Promise.all(assignedRows.map(async (item) => ((await rolesFor(actor.pubkey, item.campaign.id, conn)).has("reviewer") ? item : null)))
-  ).filter((item): item is (typeof assignedRows)[number] => item !== null);
-  const managed = roles.has("ops")
-    ? await conn.select({ round: sealedReviews, submission: submissions, campaign: campaigns }).from(sealedReviews).innerJoin(submissions, eq(submissions.id, sealedReviews.submissionId)).innerJoin(campaigns, eq(campaigns.id, sealedReviews.campaignId))
-    : await conn
-        .select({ round: sealedReviews, submission: submissions, campaign: campaigns })
-        .from(sealedReviews)
-        .innerJoin(submissions, eq(submissions.id, sealedReviews.submissionId))
-        .innerJoin(campaigns, eq(campaigns.id, sealedReviews.campaignId))
-        .where(eq(campaigns.funderPubkey, actor.pubkey));
+  const assigned = assignedRows.filter((item) => item.campaign.releaseSignerPubkey === authority.adminPubkey && item.campaign.founderSealedReview);
+  const managed = await conn
+    .select({ round: sealedReviews, submission: submissions, campaign: campaigns })
+    .from(sealedReviews)
+    .innerJoin(submissions, eq(submissions.id, sealedReviews.submissionId))
+    .innerJoin(campaigns, eq(campaigns.id, sealedReviews.campaignId))
+    .where(and(eq(campaigns.funderPubkey, actor.pubkey), eq(campaigns.founderSealedReview, true), eq(campaigns.releaseSignerPubkey, authority.adminPubkey)));
   return { assigned, managed };
 }
 
-export async function sealedReviewCandidates(actor: Actor, conn: Db = db) {
-  const roles = actor.roles ?? (await rolesFor(actor.pubkey, null, conn));
-  if (!roles.has("ops") && !roles.has("funder")) return [];
+export async function sealedReviewCandidates(actor: Actor, conn: Db = db, authority: SealedReviewAuthority = liveAuthority()) {
+  if (actor.pubkey === authority.adminPubkey) return [];
   return conn
     .select({
       submissionId: submissions.id,
@@ -572,7 +621,11 @@ export async function sealedReviewCandidates(actor: Actor, conn: Db = db) {
       and(
         eq(submissions.status, "pending"),
         isNull(campaigns.closedAt),
-        roles.has("ops") ? undefined : eq(campaigns.funderPubkey, actor.pubkey),
+        eq(campaigns.funderPubkey, actor.pubkey),
+        eq(campaigns.founderSealedReview, true),
+        eq(campaigns.releaseSignerPubkey, authority.adminPubkey),
+        isNotNull(campaigns.escrowContractId),
+        isNotNull(campaigns.fundedAt),
         notExists(conn.select({ id: sealedReviews.id }).from(sealedReviews).where(eq(sealedReviews.submissionId, submissions.id))),
       ),
     );

@@ -1,32 +1,32 @@
 Sealed dual review (experimental)
 =================================
 
-Proofwork can optionally assign two authorized reviewer wallets to one pending submission and use a Sub Rosa Core v2 ReceiptOnly round to keep their rubric v2 assessments sealed until a shared Drand reveal boundary. The feature is additive and off by default.
+Proofwork can optionally bind one pending submission to exactly two reviewers: the configured founder wallet and the campaign's original creator wallet. A Sub Rosa Core v2 ReceiptOnly round keeps their independent rubric v2 assessments sealed until a shared Drand reveal boundary. The feature is additive and off by default.
 
 Enable on a preview deployment
 ------------------------------
 
 1. Create a Neon preview branch; do not point this branch at the production database.
 2. Set DATABASE_URL to the preview branch and run `corepack pnpm db:migrate`.
-3. Set SEALED_DUAL_REVIEW_ENABLED=true and deploy the preview.
-4. Grant two distinct wallets the existing reviewer role.
-5. Open /review/sealed, choose a pending submission, assign both wallets, and create the testnet round with the manager wallet.
+3. Set SEALED_DUAL_REVIEW_ENABLED=true and SEALED_REVIEW_ADMIN_PUBKEY to the founder's external wallet. The public key must not match any backend-held signing key.
+4. Deploy the preview. Create a new campaign and select Founder-sealed review before its escrow is deployed.
+5. Fund that new escrow, then connect the campaign creator wallet at /review/sealed and open the round. There are no reviewer address fields: Proofwork derives the pair from trusted configuration and the immutable campaign creator.
 
-Migrations 0007_clammy_professor_monster.sql and 0008_lively_typhoid_mary.sql add the sealed_review_status enum, the sealed_review / sealed_review_assignment tables, and replay-protection indexes on their evidence transaction hashes. They do not alter existing campaign, submission, decision, escrow, payout, X-account, or role rows.
+Migrations 0007 and 0008 add the sealed review tables and replay protection. Migration 0009 adds a founder-sealed flag and the escrow release-signer public key to campaigns. Both default to the legacy behavior, so existing campaigns and deployed escrows are not rewritten.
 
 Lifecycle and trust boundary
 ----------------------------
 
-- The campaign funder or an ops wallet prepares an allowlisted two-person round. Both assignees must already have campaign or global reviewer access.
-- The manager wallet creates the round through the published @sub-rosa/sdk@0.3.2. It is pinned to Stellar testnet, the SDK's canonical Core v2 contract, ReceiptOnly, two allowlisted participants, and fixed escrow 0.
+- Only the original campaign creator can prepare and create the round. Proofwork derives the exact allowlist as [configured founder, original campaign creator] and rejects a same-wallet pair.
+- The campaign creator creates the round through the published @sub-rosa/sdk@0.3.2. It is pinned to Stellar testnet, the SDK's canonical Core v2 contract, ReceiptOnly, those two allowlisted participants, and fixed escrow 0.
 - Each assigned reviewer signs its own Soroban commit. Proofwork receives only the transaction hash and verifies the resulting on-chain commitment before recording it.
 - Before reveal, Proofwork stores no assessment signals, reason, note, plaintext envelope, ciphertext, nonce, or wallet secret. The ciphertext lives in Sub Rosa temporary contract storage.
 - Core v2 permits a participant to overwrite its own sealed payload before the commit deadline. Proofwork pins the first commitment it records and rejects a reveal or receipt if the final on-chain commitment differs. The UI also removes the commit action after the first accepted commit.
 - After Drand publishes the configured round, reveal is permissionless to open. Each assigned reviewer decrypts and reveals its own payload. Clearing is allowed only after the reveal deadline; for ReceiptOnly, clearV2 finalizes the contract state directly to Settled.
 - Proofwork exports the receipt from on-chain state, calls verifyReceiptV2, checks the contract/network/mode/zero-escrow policy, exact allowlist, item and schema references, deadlines, operator, reviewer commitments, and every embedded Proofwork binding. Only then are the two plaintext assessments stored and displayed.
-- An authorized Proofwork reviewer selects one verified assessment as the final human decision. That action calls the existing decide service and writes exactly one normal Proofwork decision-ledger record.
+- Only the configured founder wallet can select one verified assessment as the final human decision. The ordinary review queue and decision endpoint reject founder-sealed submissions. Finalization calls the existing ledger path with a verified-round capability and writes exactly one normal Proofwork decision-ledger record.
 
-Sub Rosa does not authorize payout, custody USDC, append a Trustless Work milestone, approve a milestone, release funds, return campaign remainder, or change the funder's release authority. All existing single-review campaigns and their /review API remain unchanged.
+Sub Rosa does not custody USDC or call Trustless Work. For a newly created compatible campaign, Proofwork deploys Trustless Work with the campaign creator as funder/remainder recipient, platform ops as approver, and the external founder wallet as releaseSigner. After a receipt-verified founder PASS, only that founder session can request milestone approval and only that founder wallet can sign the release XDR. The backend holds no founder secret. The creator cannot release a reward directly on chain, but remains able to close the campaign through the existing dispute/remainder path. Existing funded escrows and all single-review campaigns retain their original roles and behavior.
 
 Privacy and operational limits
 ------------------------------
@@ -40,6 +40,8 @@ Reproduce the live proof
 
 Run `corepack pnpm test:sealed-review:testnet`.
 
-The harness creates three fresh testnet accounts (operator plus two reviewers), funds only their XLM fees with Friendbot, creates a real round, submits two zero-escrow sealed assessments, checks pre-reveal privacy and allowlist rejection, waits for timed reveal, reveals both in parallel, waits for the ledger-defined clear boundary, clears, exports the canonical receipt, verifies it, decodes the Proofwork bindings, and prints evidence JSON. It uses no mainnet account, token, USDC, Trustless Work call, or application secret.
+The harness creates three fresh testnet accounts (founder, campaign creator, and unauthorized outsider), funds only their XLM fees with Friendbot, has the creator open a real round for the fixed founder/creator pair, submits their two zero-escrow sealed assessments, checks pre-reveal privacy and outsider rejection, waits for timed reveal, reveals both in parallel, clears, verifies the canonical receipt and Proofwork bindings, and prints evidence JSON. It uses no mainnet account, token, USDC, Trustless Work call, or application secret.
+
+The Trustless Work authorization model is additionally covered by adapter/service tests: a founder-sealed deployment records the external founder as releaseSigner; creator and unrelated payout requests are refused; and a direct creator-signed release attempted against the escrow model fails before the founder-signed release succeeds. A live Trustless Work testnet run requires TW_API_KEY plus a funded testnet-USDC account and must never target a production escrow.
 
 The committed run is recorded in docs/evidence/sub-rosa-sealed-dual-review-testnet.json.

@@ -1,5 +1,5 @@
 import "server-only";
-import { StrKey } from "@stellar/stellar-sdk";
+import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { z } from "zod";
 import { assertPositiveAmount, fromStroops, toStroops } from "@/escrow/amount";
 
@@ -112,6 +112,8 @@ const schema = z.object({
 
   /** Experimental ReceiptOnly integration. Off unless explicitly enabled. */
   SEALED_DUAL_REVIEW_ENABLED: featureFlag,
+  /** Cem/founder wallet for the experimental workflow. Public key only: the backend must not hold its release-signing secret. */
+  SEALED_REVIEW_ADMIN_PUBKEY: optional(publicKey),
 
   /** X: Sign in with X (OAuth 2.0 confidential client) and the app-only token. All four or none, see `load`. */
   X_CLIENT_ID: optional(z.string().min(1)),
@@ -151,6 +153,15 @@ function load(): Env {
   const seeds = [env.PLATFORM_ADMIN_SECRET, env.PLATFORM_OPS_SECRET, env.DECISION_LEDGER_SECRET];
   if (new Set(seeds).size !== seeds.length) {
     throw new Error("Invalid environment: server signing keys must be distinct");
+  }
+  if (env.SEALED_DUAL_REVIEW_ENABLED) {
+    if (!env.SEALED_REVIEW_ADMIN_PUBKEY) {
+      throw new Error("Invalid environment: SEALED_REVIEW_ADMIN_PUBKEY is required when sealed dual review is enabled");
+    }
+    const serverPubkeys = new Set(seeds.map((seed) => Keypair.fromSecret(seed).publicKey()));
+    if (serverPubkeys.has(env.SEALED_REVIEW_ADMIN_PUBKEY)) {
+      throw new Error("Invalid environment: sealed-review admin must be an external wallet whose secret is not held by the backend");
+    }
   }
   const x = [env.X_CLIENT_ID, env.X_CLIENT_SECRET, env.X_REDIRECT_URI, env.X_BEARER_TOKEN].filter((v) => v !== undefined);
   if (x.length !== 0 && x.length !== 4) {
@@ -195,6 +206,13 @@ export function funderLimits(): FunderLimits {
 
 export function sealedDualReviewEnabled(): boolean {
   return env.SEALED_DUAL_REVIEW_ENABLED;
+}
+
+/** Trusted founder identity for sealed review and release signing. Never sourced from a request body. */
+export function sealedReviewAdminPubkey(): string {
+  const pubkey = env.SEALED_REVIEW_ADMIN_PUBKEY;
+  if (!pubkey) throw new Error("SEALED_REVIEW_ADMIN_PUBKEY is not configured");
+  return pubkey;
 }
 
 export interface XConfig {

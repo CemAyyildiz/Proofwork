@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { CampaignForm } from "@/components/campaign-form";
-import { env, funderLimits } from "@/config/env";
+import { env, funderLimits, sealedDualReviewEnabled } from "@/config/env";
 import { requestNow } from "@/lib/clock";
 import { currentUser } from "@/lib/current-user";
 import { funderUsage } from "@/services/campaign";
@@ -21,7 +21,12 @@ export default async function NewCampaignPage() {
         paid net of the 0.3% Trustless Work protocol fee, and the same fee is taken from the remainder that returns to you
         when the campaign is closed.
       </p>
-      <CampaignForm defaultDisputeResolver={env.DEFAULT_DISPUTE_RESOLVER_PUBKEY ?? ""} now={now} limits={limits} />
+      <CampaignForm
+        defaultDisputeResolver={env.DEFAULT_DISPUTE_RESOLVER_PUBKEY ?? ""}
+        now={now}
+        limits={limits}
+        sealedReviewAvailable={sealedDualReviewEnabled()}
+      />
     </div>
   );
 }

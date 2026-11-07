@@ -16,6 +16,8 @@ const base: Campaign = {
   budget: "50",
   deadlineAt: new Date(NOW.getTime() + DAY),
   funderPubkey: "G_FUNDER",
+  releaseSignerPubkey: null,
+  founderSealedReview: false,
   disputeResolverPubkey: "G_RESOLVER",
   escrowContractId: null,
   fundedAt: null,

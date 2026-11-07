@@ -69,6 +69,19 @@ const base = {
 };
 
 describe("createCampaignSchema reward cap", () => {
+  it("accepts only the founder-sealed mode flag and strips client-supplied reviewer wallets", () => {
+    const parsed = createCampaignSchema.parse({
+      ...base,
+      budget: "10",
+      founderSealedReview: true,
+      reviewerPubkeys: [Keypair.random().publicKey(), Keypair.random().publicKey()],
+      releaseSignerPubkey: Keypair.random().publicKey(),
+    });
+    expect(parsed.founderSealedReview).toBe(true);
+    expect(parsed).not.toHaveProperty("reviewerPubkeys");
+    expect(parsed).not.toHaveProperty("releaseSignerPubkey");
+  });
+
   it.each([
     ["490", true],
     ["499.9999999", true],
@@ -157,6 +170,32 @@ async function campaignRow(id: string): Promise<Campaign> {
   if (!c) throw new Error("campaign missing");
   return c;
 }
+
+describe("founder-sealed campaign creation", () => {
+  const SEALED_ADMIN = Keypair.random().publicKey();
+
+  it("derives the external release signer from trusted server configuration", async () => {
+    const c = await createCampaign(
+      createCampaignSchema.parse({ ...base, budget: "10", founderSealedReview: true }),
+      { ...actor, sealedReviewEnabled: true, sealedReviewAdmin: SEALED_ADMIN },
+      LIMITS,
+      conn,
+    );
+    expect(c).toMatchObject({ founderSealedReview: true, releaseSignerPubkey: SEALED_ADMIN, funderPubkey: FUNDER });
+    await deploy(c);
+    const state = await escrow.getEscrow((await campaignRow(c.id)).escrowContractId as string);
+    expect(state.roles).toMatchObject({ funder: FUNDER, releaseSigner: SEALED_ADMIN, approver: PLATFORM.ops });
+  });
+
+  it("refuses the mode when disabled or when founder and creator are the same wallet", async () => {
+    const sealedInput = createCampaignSchema.parse({ ...base, budget: "10", founderSealedReview: true });
+    await expect(createCampaign(sealedInput, actor, LIMITS, conn)).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(
+      createCampaign(sealedInput, { ...actor, sealedReviewEnabled: true, sealedReviewAdmin: FUNDER }, LIMITS, conn),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(await campaignRows()).toHaveLength(0);
+  });
+});
 
 describe("per-funder caps", () => {
   it("under both caps: with one open campaign of 40, one of 50 is created", async () => {

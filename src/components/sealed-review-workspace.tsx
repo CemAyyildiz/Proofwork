@@ -41,13 +41,16 @@ interface View {
     receiptVerified: boolean;
     finalDecisionId: string | null;
   };
-  campaign: { id: string; slug: string; title: string; brief: string };
+  campaign: { id: string; slug: string; title: string; brief: string; creatorPubkey: string };
   submission: { id: string; shortId: string; workUrl: string };
   reviewers: string[];
   assignments: Assignment[];
   revealed: Array<{ reviewerPubkey: string; review: Record<string, unknown> | null }>;
+  finalDecision: { id: string; outcome: "PASS" | "FAIL" } | null;
+  payout: { status: "milestone_added" | "delivered" | "approved" | "released" | "failed"; releaseTxHash: string | null } | null;
   manager: boolean;
   assigned: boolean;
+  admin: boolean;
 }
 
 const ALL_PASS = Object.fromEntries(SIGNALS.map((signal) => [signal.id, true])) as Signals;
@@ -183,6 +186,31 @@ export function SealedReviewWorkspace({ view, address }: { view: View; address: 
     return `Final Proofwork decision recorded: ${String(response["decisionId"] ?? "")}`;
   }
 
+  async function payoutPost(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const res = await fetch(`/api/campaigns/${encodeURIComponent(view.campaign.id)}/payouts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) throw new Error(typeof json["message"] === "string" ? json["message"] : "Reward action failed.");
+    return json;
+  }
+
+  async function approveReward(): Promise<string> {
+    await payoutPost({ action: "approve", submissionIds: [view.submission.id] });
+    return "Reward milestone approved after founder decision. No funds moved yet.";
+  }
+
+  async function releaseReward(): Promise<string> {
+    const prepared = await payoutPost({ action: "prepare", kind: "release", submissionIds: [view.submission.id] });
+    const op = (prepared["ops"] as Array<{ opId: string; unsignedXdr: string }> | undefined)?.[0];
+    if (!op) throw new Error("No releasable reward is available.");
+    const signedXdr = await signTransaction(address, op.unsignedXdr);
+    const result = await payoutPost({ action: "submit", kind: "release", opId: op.opId, signedXdr });
+    return `Reward released in transaction ${String(result["txHash"] ?? "")}.`;
+  }
+
   const outcome = evaluate(signals).outcome;
   return (
     <div className="space-y-5">
@@ -211,9 +239,9 @@ export function SealedReviewWorkspace({ view, address }: { view: View; address: 
       <Card className="p-5 md:p-6">
         <h2 className="text-base font-semibold">Reviewer status</h2>
         <ul className="mt-3 divide-y divide-line">
-          {view.assignments.map((assignment, index) => (
+          {view.assignments.map((assignment) => (
             <li key={assignment.reviewerPubkey} className="grid gap-1 py-3 text-xs md:grid-cols-[120px_1fr_auto] md:items-center">
-              <span className="text-muted">{`Reviewer ${index + 1}`}</span>
+              <span className="text-muted">{assignment.reviewerPubkey === view.campaign.creatorPubkey ? "Campaign creator" : "Founder"}</span>
               <span className="truncate font-mono">{assignment.reviewerPubkey}</span>
               <span className="text-text-2">{assignment.revealTxHash ? "Revealed" : assignment.commitTxHash ? "Sealed" : "Waiting"}</span>
             </li>
@@ -279,11 +307,27 @@ export function SealedReviewWorkspace({ view, address }: { view: View; address: 
                 <p className="font-mono text-xs text-muted">{`Reviewer ${index + 1} · ${reviewer.slice(0, 8)}…${reviewer.slice(-6)}`}</p>
                 <p className="mt-2 text-lg font-semibold">{assessmentOutcome(review)}</p>
                 <p className="mt-2 text-sm text-text-2">{review.note}</p>
-                {view.round.status === "cleared" ? <Button className="mt-4" size="sm" busy={busy === `final-${reviewer}`} busyLabel="Recording…" onClick={() => void run(`final-${reviewer}`, () => finalize(reviewer))}>Use as final decision</Button> : null}
+                {view.admin && view.round.status === "cleared" ? <Button className="mt-4" size="sm" busy={busy === `final-${reviewer}`} busyLabel="Recording…" onClick={() => void run(`final-${reviewer}`, () => finalize(reviewer))}>Use as founder decision</Button> : null}
               </div>
             ))}
           </div>
-          <p className="mt-4 text-xs text-muted">Only this final action writes Proofwork’s decision ledger. Sub Rosa never authorizes or releases a payout.</p>
+          <p className="mt-4 text-xs text-muted">Only the configured founder wallet can write Proofwork&apos;s final decision ledger record.</p>
+        </Card>
+      ) : null}
+
+      {view.admin && view.round.status === "finalized" && view.finalDecision?.outcome === "PASS" ? (
+        <Card className="p-5 md:p-6">
+          <h2 className="text-base font-semibold">Founder-authorized reward</h2>
+          <p className="mt-1 text-sm text-muted">The campaign creator is not the escrow release signer. Approval is accepted only from this founder session; release requires this wallet&apos;s Stellar signature.</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {!view.payout || view.payout.status === "failed" || view.payout.status === "milestone_added" || view.payout.status === "delivered" ? (
+              <Button busy={busy === "approve-reward"} busyLabel="Approving…" onClick={() => void run("approve-reward", approveReward)}>Approve reward</Button>
+            ) : null}
+            {view.payout?.status === "approved" ? (
+              <Button busy={busy === "release-reward"} busyLabel="Waiting for signature…" onClick={() => void run("release-reward", releaseReward)}>Sign and release reward</Button>
+            ) : null}
+            {view.payout?.status === "released" ? <Pill tone="pass">Reward released</Pill> : null}
+          </div>
         </Card>
       ) : null}
     </div>

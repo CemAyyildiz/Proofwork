@@ -91,7 +91,7 @@ export class FakeEscrow implements EscrowPort {
     return idx.map((i) =>
       this.defer(() => {
         const s = this.state(contractId);
-        if (releaseSigner !== s.roles.funder) throw new Error("not a release signer");
+        if (releaseSigner !== (s.roles.releaseSigner ?? s.roles.funder)) throw new Error("not a release signer");
         const m = this.milestone(s, i);
         if (!m.approved || m.released || m.disputed) throw new Error(`milestone ${i} not releasable`);
         s.balance = subAmounts(s.balance, m.amount);

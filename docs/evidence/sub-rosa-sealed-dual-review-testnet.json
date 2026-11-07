@@ -1,12 +1,12 @@
 {
-  "ranAt": "2026-11-07T15:13:26Z",
+  "ranAt": "2026-11-07T17:19:51.423Z",
   "network": "Stellar Testnet",
   "contractId": "CCOVGOQQZJKZ2R55GRWBLTJTGBAMSHXZVN3ICPG3WRVMLMM6RHISC5OV",
-  "roundId": "42",
+  "roundId": "44",
   "status": "Settled",
   "mode": "ReceiptOnly",
   "fixedEscrow": "0",
-  "itemRef": "55191ad4e047ada12123afa8dc7e80741148f79c5304b63f983d2a7600329b19",
+  "itemRef": "35b0e9aa014dc83c463ba62c423fc879f8d8c9787edb9ad536b76035a36337e1",
   "fixture": {
     "campaignId": "cmp_proofwork_subrosa_testnet",
     "campaignSlug": "proofwork-subrosa-testnet",
@@ -14,25 +14,22 @@
     "submissionShortId": "sdrtest1",
     "rubric": "v2"
   },
-  "reviewerWallets": [
-    "GCHESDZO7UDAEDUACMA3CJ775EFB7E7WOD2QYWCEQ7FAM3CMHLYEXCFS",
-    "GDKJF3AVWZ6XSMYMDWF553F5AKTF3Z4RTARBNXNI5UDMKE22K2KWYCFM"
-  ],
+  "fixedReviewerPair": {
+    "founder": "GDIJKRCXXHWKACR34QAHBYVREGJUIQS24OYPLTZPP5HJOLDGZSOLU7IC",
+    "campaignCreator": "GBMVGNGFRBVI7YBGR4SNJSQOYQ6YPGPPYYGD34352LDBI3YFXEATCPHM"
+  },
   "reviewerWalletsDistinct": true,
+  "roundOpenedByCampaignCreator": true,
   "transactions": {
-    "create": "cd248c57040e001b586e56d92b1449a31ea4a3ddb5614e79ff4887d62eed027e",
-    "firstCommit": "e549c6c7b4d9558cc757f02b9125cd7ae1e1f5c850a5f77d612d33a0b5b7513e",
-    "secondCommit": "a3837fcb4b6e65c5d700aa11758445dead9c2b62fa4118aee1c4a321deba695b",
-    "openReveal": "a12edf7f655631b6f257e7e082e902b09c43f5c8e1ca95073b588bbb07fb1fa3",
-    "firstReveal": "44442db9cf13250a7d800aa7fb236238da5b7d6f3d94140bb6af3049b14e9798",
-    "secondReveal": "0e444990ebfd7ffe02f21f7d2fed30f7b89b130d8fcd885e39c69bc8ece06069",
-    "clear": "0ef61c3a37720f483b4adcd3fedcf7cacb7b7853aabf47d9464c6b1b6ea89d72"
+    "create": "4b493d5f835177b429f57af2cd297443d03daad54b87e15dc3c2c188ba793d6b",
+    "founderCommit": "d07b3f170cdac051acb5fb72c9c7577ed7f2225c03371b995234e7db1726faa5",
+    "creatorCommit": "2504e671d8b92f5d42922978469a503c9d9976541c201689fba02a18b236256b",
+    "openReveal": "64c64e9ca2c023bd5771686c8287768f925432bbd5ec8a68f4596a5e794ee284",
+    "founderReveal": "d095b52d2725b7a92a5d712cffe09a5c330c103bb837513a93303c953da9a9a6",
+    "creatorReveal": "17696f56176597fa700f5ec8656e3d643dad5d25b3f1046bcee2da47eb7ecf8d",
+    "clear": "38311dfee2f1df0092e8e5fb39dc3413564f17b2ed68938f557e8a00c003c67b"
   },
-  "commitments": {
-    "GCHESDZO7UDAEDUACMA3CJ775EFB7E7WOD2QYWCEQ7FAM3CMHLYEXCFS": "3ddd6d1300d20813b64f82cfe77be5668218ee6bd44389f7f139fc7a828545da",
-    "GDKJF3AVWZ6XSMYMDWF553F5AKTF3Z4RTARBNXNI5UDMKE22K2KWYCFM": "cd342c360b8d1f2d02f193cc40e9bc8ef83c7f0ebd9c6361dc20f94d935b3b68"
-  },
-  "receiptSha256": "c49fb9c2e4f4a067671d3a75db9b6ae1556f1febac2b364270f93503d0bc184d",
+  "receiptSha256": "f7e49d4979110dd2034e36311bbf6a65f0eb91a5dcca7dd8c89d5da8657b0186",
   "receiptVerification": {
     "valid": true,
     "issues": [],
@@ -43,8 +40,11 @@
   },
   "checks": {
     "plaintextAbsentBeforeReveal": true,
-    "unauthorizedCommitRejected": true,
+    "contractOverwriteObserved": true,
     "proofworkPinsFirstCommitment": true,
+    "unauthorizedCommitRejected": true,
+    "fixedFounderCreatorPair": true,
+    "roundOpenedByCampaignCreator": true,
     "reviewerBindingsVerified": true,
     "submissionBindingVerified": true,
     "zeroSubRosaEscrow": true,

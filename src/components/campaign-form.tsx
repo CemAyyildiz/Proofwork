@@ -20,7 +20,17 @@ export interface FunderLimitsView {
   openBudget: string;
 }
 
-export function CampaignForm({ defaultDisputeResolver, now, limits }: { defaultDisputeResolver: string; now: number; limits: FunderLimitsView }) {
+export function CampaignForm({
+  defaultDisputeResolver,
+  now,
+  limits,
+  sealedReviewAvailable = false,
+}: {
+  defaultDisputeResolver: string;
+  now: number;
+  limits: FunderLimitsView;
+  sealedReviewAvailable?: boolean;
+}) {
   const router = useRouter();
   const budgetLeft = toStroops(limits.maxOpenBudget) - toStroops(limits.openBudget);
   // A limit is reached: the server refuses a new campaign, so say it before the form is filled in.
@@ -48,6 +58,7 @@ export function CampaignForm({ defaultDisputeResolver, now, limits }: { defaultD
       budget: f.get("budget"),
       deadlineAt: new Date(Date.now() + days * 86_400_000).toISOString(),
       disputeResolverPubkey: f.get("disputeResolverPubkey"),
+      founderSealedReview: f.get("founderSealedReview") === "on",
     };
     try {
       const res = await fetch("/api/campaigns", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -130,6 +141,17 @@ export function CampaignForm({ defaultDisputeResolver, now, limits }: { defaultD
           the 0.3% protocol fee.
         </p>
       </fieldset>
+      {sealedReviewAvailable ? (
+        <label className="flex gap-3 rounded-[14px] border border-line-strong bg-sunken p-4 text-sm">
+          <input name="founderSealedReview" type="checkbox" className="mt-0.5" />
+          <span>
+            <span className="block font-medium">Founder-sealed review</span>
+            <span className="mt-1 block text-xs text-muted">
+              Reviews are fixed to your wallet and Proofwork&apos;s configured founder wallet. Only the founder can record the final decision and sign reward release.
+            </span>
+          </span>
+        </label>
+      ) : null}
       <label className="block text-sm">
         <span className={labelText}>Dispute resolver public key</span>
         <input name="disputeResolverPubkey" required defaultValue={defaultDisputeResolver} pattern="G[A-Z2-7]{55}" className={field} />

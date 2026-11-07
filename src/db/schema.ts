@@ -90,6 +90,9 @@ export const campaigns = pgTable("campaign", {
   budget: numeric("budget", { precision: 18, scale: 7 }).notNull(),
   deadlineAt: timestamp("deadline_at", { withTimezone: true }).notNull(),
   funderPubkey: text("funder_pubkey").notNull(),
+  /** New founder-sealed campaigns pin an external wallet as the on-chain release signer. Null keeps the legacy funder signer. */
+  releaseSignerPubkey: text("release_signer_pubkey"),
+  founderSealedReview: boolean("founder_sealed_review").notNull().default(false),
   disputeResolverPubkey: text("dispute_resolver_pubkey").notNull(),
   escrowContractId: text("escrow_contract_id").unique(),
   fundedAt: timestamp("funded_at", { withTimezone: true }),

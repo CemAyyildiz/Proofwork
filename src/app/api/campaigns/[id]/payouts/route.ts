@@ -34,7 +34,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const user = await requireUser(id);
     const c = await getCampaignById(id);
     if (!c) throw AppError.notFound("campaign");
-    if (!canManageCampaign(c, user)) {
+    const rewardAction = input.action === "approve" || (input.action === "prepare" && input.kind === "release") || (input.action === "submit" && input.kind === "release");
+    if (rewardAction && c.founderSealedReview) {
+      if (!c.releaseSignerPubkey || user.pubkey !== c.releaseSignerPubkey) {
+        throw AppError.forbidden("founder-sealed rewards require the configured founder wallet");
+      }
+    } else if (!canManageCampaign(c, user)) {
       throw AppError.forbidden(c.funderPubkey === user.pubkey ? "requires funder role" : "not the funder of this campaign");
     }
     const escrow = getEscrow();

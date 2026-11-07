@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
-import { campaigns, decisions, escrowOps, payouts, submissions, type Campaign, type Decision, type EscrowOp, type Payout, type Submission } from "@/db/schema";
+import { campaigns, decisions, escrowOps, payouts, sealedReviews, submissions, type Campaign, type Decision, type EscrowOp, type Payout, type Submission } from "@/db/schema";
 import { addAmounts, toStroops } from "@/escrow/amount";
 import type { EscrowMilestone, EscrowPort } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
@@ -25,6 +25,24 @@ export interface FunderSubmissionRow {
   submission: Submission;
   latest: Decision | null;
   payout: Payout | null;
+}
+
+/**
+ * Legacy campaigns remain controlled by their funder. A founder-sealed
+ * campaign instead requires its immutable external release signer for every
+ * reward approval/release request; the campaign creator is refused even if it
+ * still has the global funder role.
+ */
+async function campaignForRewardAuthority(campaignId: string, actorPubkey: string, conn: Db): Promise<Campaign> {
+  const c = (await conn.select().from(campaigns).where(eq(campaigns.id, campaignId)).limit(1))[0];
+  if (!c) throw AppError.notFound("campaign");
+  if (c.founderSealedReview) {
+    if (!c.releaseSignerPubkey || actorPubkey !== c.releaseSignerPubkey) {
+      throw AppError.forbidden("founder-sealed rewards require the configured founder wallet");
+    }
+    return c;
+  }
+  return campaignOwnedBy(campaignId, actorPubkey, conn);
 }
 
 export async function submissionsForFunder(campaignId: string, conn: Db = db): Promise<FunderSubmissionRow[]> {
@@ -130,12 +148,12 @@ export async function approveForPayout(
   escrow: EscrowPort,
   conn: Db = db,
 ): Promise<{ appended: number; txHash: string }> {
-  await campaignOwnedBy(campaignId, actor.pubkey, conn);
+  await campaignForRewardAuthority(campaignId, actor.pubkey, conn);
   const unique = [...new Set(submissionIds)];
   if (unique.length === 0) throw AppError.validation("no submissions selected");
 
   return withPayoutLease(campaignId, conn, async (renew) => {
-    const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
+    const c = await campaignForRewardAuthority(campaignId, actor.pubkey, conn);
     if (!c.escrowContractId || !c.fundedAt) throw AppError.conflict("campaign is not funded");
     if (c.closedAt) throw AppError.conflict("campaign is closed");
     const contractId = c.escrowContractId;
@@ -143,10 +161,20 @@ export async function approveForPayout(
     const rows = await submissionsForFunder(campaignId, conn);
     const chosen = rows.filter((r) => unique.includes(r.submission.id));
     if (chosen.length !== unique.length) throw AppError.notFound("submission");
+    const sealed = c.founderSealedReview
+      ? await conn.select().from(sealedReviews).where(inArray(sealedReviews.submissionId, chosen.map((r) => r.submission.id)))
+      : [];
+    const sealedBySubmission = new Map(sealed.map((round) => [round.submissionId, round]));
     for (const r of chosen) {
       if (r.payout?.status === "released") throw AppError.conflict(`${r.submission.shortId} is already paid`);
       if (r.submission.status !== "decided" || r.latest?.outcome !== "PASS") {
         throw AppError.conflict(`${r.submission.shortId} has not passed the rubric`);
+      }
+      if (c.founderSealedReview) {
+        const round = sealedBySubmission.get(r.submission.id);
+        if (!round || round.status !== "finalized" || !round.receiptVerified || round.finalDecisionId !== r.latest.id) {
+          throw AppError.conflict(`${r.submission.shortId} has no verified founder final decision`);
+        }
       }
     }
 
@@ -342,7 +370,7 @@ export async function prepareReleaseOp(
 ): Promise<PreparedOp[]> {
   const selected = [...new Set(submissionIds)];
   if (selected.length === 0) throw AppError.validation("no submissions selected");
-  const c = await campaignOwnedBy(campaignId, actor.pubkey, conn);
+  const c = await campaignForRewardAuthority(campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
   const kind = "release" as const;
   const wanted: Payout["status"] = "approved";
@@ -365,7 +393,7 @@ export async function prepareReleaseOp(
           kind,
           keyParts: [kind, campaignId, idx],
           build: async () => {
-            const built = await escrow.buildRelease(contractId, c.funderPubkey, [idx]);
+            const built = await escrow.buildRelease(contractId, c.releaseSignerPubkey ?? c.funderPubkey, [idx]);
             const u = built[0];
             if (!u) throw new AppError("ESCROW", "provider returned no transaction");
             return { unsignedXdr: u.unsignedXdr, milestoneIndex: idx };
@@ -386,7 +414,7 @@ export async function confirmReleaseOp(
   escrow: EscrowPort,
   conn: Db = db,
 ): Promise<{ txHash: string; milestoneIndex: number }> {
-  const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
+  const c = await campaignForRewardAuthority(input.campaignId, actor.pubkey, conn);
   if (!c.escrowContractId) throw AppError.conflict("campaign is not funded");
   const op = await findOp(input.opId, input.campaignId, conn);
   if (op.kind !== "release") throw AppError.validation(`operation is a ${op.kind}, not a release`);
