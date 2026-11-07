@@ -5,10 +5,11 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
+  axios: 1.20.0
+  follow-redirects: 1.16.2
   sharp: 0.35.5
   source-map-js: 1.2.2
   toml: 5.0.1
-  follow-redirects: 1.16.2
 
 packageExtensionsChecksum: sha256-Z9PoklkhhwcDAg079Of1cxD2PjhVdMMdBUjh59gsj38=
 
@@ -2427,10 +2428,7 @@ packages:
   axios-retry@4.5.0:
     resolution: {integrity: sha512-aR99oXhpEDGo0UuAlYcn2iGRds30k366Zfa05XWScR9QaQD4JYiP3/1Qt1u7YlefUOK+cn0CcwoL1oefavQUlQ==}
     peerDependencies:
-      axios: 0.x || 1.x
-
-  axios@1.15.0:
-    resolution: {integrity: sha512-wWyJDlAatxk30ZJer+GeCWS209sA42X+N5jU2jy6oHTp7ufw8uzUTVFBX9+wTfAlhiJXGS0Bq7X6efruWjuK9Q==}
+      axios: 1.20.0
 
   axios@1.20.0:
     resolution: {integrity: sha512-r8aOh8j9cGKpgQAqpzrUHnSIc6a59Y3Xf/cv8sy1DrHCkZHzQGEuoq1tARk6qSyDdtQGSDgpb9kFlruzPvrgwg==}
@@ -6820,7 +6818,7 @@ snapshots:
   '@stellar/stellar-sdk@15.1.0':
     dependencies:
       '@stellar/stellar-base': 15.0.0
-      axios: 1.15.0
+      axios: 1.20.0
       bignumber.js: 9.3.1
       commander: 14.0.3
       eventsource: 2.0.2
@@ -6830,6 +6828,7 @@ snapshots:
       urijs: 1.19.11
     transitivePeerDependencies:
       - debug
+      - supports-color
 
   '@stellar/stellar-sdk@17.1.0':
     dependencies:
@@ -6855,6 +6854,7 @@ snapshots:
       buffer: 6.0.3
     transitivePeerDependencies:
       - debug
+      - supports-color
 
   '@sub-rosa/sdk@0.3.2(@openzeppelin/relayer-plugin-channels@0.20.0)':
     dependencies:
@@ -7924,14 +7924,6 @@ snapshots:
       axios: 1.20.0
       is-retry-allowed: 2.2.0
     optional: true
-
-  axios@1.15.0:
-    dependencies:
-      follow-redirects: 1.16.2
-      form-data: 4.0.6
-      proxy-from-env: 2.1.0
-    transitivePeerDependencies:
-      - debug
 
   axios@1.20.0:
     dependencies:
