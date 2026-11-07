@@ -56,6 +56,8 @@ const blankAsUnset = (v: unknown) => (typeof v === "string" && v.trim() === "" ?
 
 const optional = <T extends z.ZodTypeAny>(inner: T) => z.preprocess(blankAsUnset, inner.optional());
 
+const featureFlag = z.preprocess(blankAsUnset, z.enum(["0", "1", "false", "true"]).default("false").transform((v) => v === "1" || v === "true"));
+
 /** Whole number from 1 to 9999, digits only: no sign, decimal point or exponent. */
 const positiveInteger = z
   .string()
@@ -107,6 +109,9 @@ const schema = z.object({
   FUNDER_MAX_OPEN_CAMPAIGNS: z.preprocess(blankAsUnset, positiveInteger.default(2)),
   /** Sum of the budgets of a funder's open campaigns, in USDC. */
   FUNDER_MAX_OPEN_BUDGET: z.preprocess(blankAsUnset, usdcAmount.default("100")),
+
+  /** Experimental ReceiptOnly integration. Off unless explicitly enabled. */
+  SEALED_DUAL_REVIEW_ENABLED: featureFlag,
 
   /** X: Sign in with X (OAuth 2.0 confidential client) and the app-only token. All four or none, see `load`. */
   X_CLIENT_ID: optional(z.string().min(1)),
@@ -186,6 +191,10 @@ export interface FunderLimits {
 /** The per-funder caps of this deployment. The same values for every funder; there is no override. */
 export function funderLimits(): FunderLimits {
   return { maxOpenCampaigns: env.FUNDER_MAX_OPEN_CAMPAIGNS, maxOpenBudget: env.FUNDER_MAX_OPEN_BUDGET };
+}
+
+export function sealedDualReviewEnabled(): boolean {
+  return env.SEALED_DUAL_REVIEW_ENABLED;
 }
 
 export interface XConfig {

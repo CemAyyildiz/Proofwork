@@ -50,6 +50,20 @@
       "when": 1791883129661,
       "tag": "0006_keen_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794062787561,
+      "tag": "0007_clammy_professor_monster",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794064930732,
+      "tag": "0008_lively_typhoid_mary",
+      "breakpoints": true
     }
   ]
 }

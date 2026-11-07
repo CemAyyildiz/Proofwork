@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/workspace/page-header";
 import { requestNow } from "@/lib/clock";
 import { currentUser } from "@/lib/current-user";
 import { reviewLogCampaigns, reviewQueue } from "@/services/review";
+import { sealedDualReviewEnabled } from "@/config/env";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,13 @@ export default async function ReviewPage() {
         title="Review queue"
         description="Score every signal, pick the primary reason, write one line the contributor could act on. Each decision is committed on-chain the moment you record it."
       />
+
+      {sealedDualReviewEnabled() ? (
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-5">
+          <div><p className="text-sm font-semibold">Experimental sealed dual review</p><p className="mt-1 text-[13px] text-muted">Two independent rubric assessments, hidden until a shared timed reveal.</p></div>
+          <Link href="/review/sealed" className={buttonClasses("secondary", "sm")}>Open sealed reviews</Link>
+        </Card>
+      ) : null}
 
       {reviewer ? (
         <ReviewQueue

@@ -1,0 +1,54 @@
+{
+  "ranAt": "2026-11-07T15:13:26Z",
+  "network": "Stellar Testnet",
+  "contractId": "CCOVGOQQZJKZ2R55GRWBLTJTGBAMSHXZVN3ICPG3WRVMLMM6RHISC5OV",
+  "roundId": "42",
+  "status": "Settled",
+  "mode": "ReceiptOnly",
+  "fixedEscrow": "0",
+  "itemRef": "55191ad4e047ada12123afa8dc7e80741148f79c5304b63f983d2a7600329b19",
+  "fixture": {
+    "campaignId": "cmp_proofwork_subrosa_testnet",
+    "campaignSlug": "proofwork-subrosa-testnet",
+    "submissionId": "sub_proofwork_subrosa_testnet",
+    "submissionShortId": "sdrtest1",
+    "rubric": "v2"
+  },
+  "reviewerWallets": [
+    "GCHESDZO7UDAEDUACMA3CJ775EFB7E7WOD2QYWCEQ7FAM3CMHLYEXCFS",
+    "GDKJF3AVWZ6XSMYMDWF553F5AKTF3Z4RTARBNXNI5UDMKE22K2KWYCFM"
+  ],
+  "reviewerWalletsDistinct": true,
+  "transactions": {
+    "create": "cd248c57040e001b586e56d92b1449a31ea4a3ddb5614e79ff4887d62eed027e",
+    "firstCommit": "e549c6c7b4d9558cc757f02b9125cd7ae1e1f5c850a5f77d612d33a0b5b7513e",
+    "secondCommit": "a3837fcb4b6e65c5d700aa11758445dead9c2b62fa4118aee1c4a321deba695b",
+    "openReveal": "a12edf7f655631b6f257e7e082e902b09c43f5c8e1ca95073b588bbb07fb1fa3",
+    "firstReveal": "44442db9cf13250a7d800aa7fb236238da5b7d6f3d94140bb6af3049b14e9798",
+    "secondReveal": "0e444990ebfd7ffe02f21f7d2fed30f7b89b130d8fcd885e39c69bc8ece06069",
+    "clear": "0ef61c3a37720f483b4adcd3fedcf7cacb7b7853aabf47d9464c6b1b6ea89d72"
+  },
+  "commitments": {
+    "GCHESDZO7UDAEDUACMA3CJ775EFB7E7WOD2QYWCEQ7FAM3CMHLYEXCFS": "3ddd6d1300d20813b64f82cfe77be5668218ee6bd44389f7f139fc7a828545da",
+    "GDKJF3AVWZ6XSMYMDWF553F5AKTF3Z4RTARBNXNI5UDMKE22K2KWYCFM": "cd342c360b8d1f2d02f193cc40e9bc8ef83c7f0ebd9c6361dc20f94d935b3b68"
+  },
+  "receiptSha256": "c49fb9c2e4f4a067671d3a75db9b6ae1556f1febac2b364270f93503d0bc184d",
+  "receiptVerification": {
+    "valid": true,
+    "issues": [],
+    "computedWinner": {
+      "address": null,
+      "value": null
+    }
+  },
+  "checks": {
+    "plaintextAbsentBeforeReveal": true,
+    "unauthorizedCommitRejected": true,
+    "proofworkPinsFirstCommitment": true,
+    "reviewerBindingsVerified": true,
+    "submissionBindingVerified": true,
+    "zeroSubRosaEscrow": true,
+    "trustlessWorkCalls": 0,
+    "mainnetOperations": 0
+  }
+}
