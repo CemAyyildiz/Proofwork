@@ -196,6 +196,18 @@ function fundConfirmed(campaignId: string, conn: Db): OnConfirmed {
   };
 }
 
+/**
+ * No budget goes into a campaign whose deadline has passed: it could take no
+ * submissions and would sit in escrow until closed. Checked where a deploy or
+ * fund transaction is built or first sent, never when one that already went
+ * out is read back.
+ */
+function assertBeforeDeadline(c: Campaign): void {
+  if (c.deadlineAt.getTime() <= Date.now()) {
+    throw AppError.conflict("the deadline has passed, so this campaign can no longer be deployed or funded");
+  }
+}
+
 /** Reads what a funder's wallet holds on Stellar. Injected so unit tests need no network. */
 export type FunderAccountReader = (pubkey: string) => Promise<FunderAccount>;
 
@@ -254,6 +266,7 @@ export async function prepareDeploy(
       kind: "deploy",
       keyParts: ["deploy", campaignId],
       build: async () => {
+        assertBeforeDeadline(c);
         // This campaign is not deployed yet, so it is added to what the funder's other campaigns use.
         await assertWithinLimits(actor.pubkey, c.budget, gate.limits, conn);
         await assertReady(actor.pubkey, c.budget, "deploy", gate.account);
@@ -291,7 +304,10 @@ export async function confirmDeploy(
   // Deploys prepared for several drafts while under the caps must not all go out, so the caps are
   // checked again while this one is still unsent. An op past `intent` gets `submitOp`'s own answer.
   const op = await findOp(input.opId, input.campaignId, conn);
-  if (op.status === "intent" && !c.escrowContractId) await assertWithinLimits(actor.pubkey, c.budget, limits, conn);
+  if (op.status === "intent" && !c.escrowContractId) {
+    assertBeforeDeadline(c);
+    await assertWithinLimits(actor.pubkey, c.budget, limits, conn);
+  }
   const res = await submitOp({ ...input, expectedKind: "deploy", verify: deployVisible(escrow, c.slug) }, escrow, conn);
   if (!res.contractId) throw new AppError("ESCROW", "deploy confirmed but provider returned no contract id", { txHash: res.txHash });
   await deployConfirmed(input.campaignId, conn)(res.op);
@@ -337,6 +353,7 @@ export async function prepareFund(
       kind: "fund",
       keyParts: ["fund", campaignId],
       build: async () => {
+        assertBeforeDeadline(c);
         await assertReady(actor.pubkey, c.budget, "fund", account);
         return escrow.buildFund(contractId, c.funderPubkey, c.budget);
       },
@@ -356,6 +373,8 @@ export async function confirmFund(
   const c = await campaignOwnedBy(input.campaignId, actor.pubkey, conn);
   // An abandoned campaign takes no money, even through a fund that was prepared before it was abandoned.
   if (c.closedAt) throw AppError.conflict("campaign is closed");
+  // A fund that was built but not yet sent is held to the deadline too; one already sent is only read back.
+  if ((await findOp(input.opId, input.campaignId, conn)).status === "intent") assertBeforeDeadline(c);
   const res = await submitOp({ ...input, expectedKind: "fund", verify: fundVisible(escrow, c.escrowContractId, c.budget) }, escrow, conn);
   await fundConfirmed(input.campaignId, conn)(res.op);
   return { txHash: res.txHash };

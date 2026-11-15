@@ -365,6 +365,36 @@ describe("per-funder caps", () => {
   });
 });
 
+describe("a campaign past its deadline", () => {
+  const expire = (id: string) => conn.update(campaigns).set({ deadlineAt: new Date(Date.now() - 1000) }).where(eq(campaigns.id, id));
+  const refusal = { code: "CONFLICT", message: expect.stringContaining("deadline has passed") };
+
+  it("is not deployed: neither a new deploy nor one prepared before the deadline goes out", async () => {
+    const c = await draft("20");
+    const prepared = await prepareDeploy(c.id, actor, escrow, openGate(), conn);
+    const submits = escrow.submits;
+    await expire(c.id);
+    await expect(confirmDeploy({ campaignId: c.id, opId: prepared.opId, signedXdr: prepared.unsignedXdr }, actor, escrow, LIMITS, conn)).rejects.toMatchObject(refusal);
+    const d = await draft("20");
+    await expire(d.id);
+    await expect(prepareDeploy(d.id, actor, escrow, openGate(), conn)).rejects.toMatchObject(refusal);
+    expect(escrow.submits).toBe(submits);
+  });
+
+  it("is not funded: neither a new fund nor one prepared before the deadline goes out", async () => {
+    const a = await deployed("20");
+    const b = await deployed("20");
+    const prepared = await prepareFund(a.id, actor, escrow, openGate().account, conn);
+    const submits = escrow.submits;
+    await expire(a.id);
+    await expect(confirmFund({ campaignId: a.id, opId: prepared.opId, signedXdr: prepared.unsignedXdr }, actor, escrow, conn)).rejects.toMatchObject(refusal);
+    await expire(b.id);
+    await expect(prepareFund(b.id, actor, escrow, openGate().account, conn)).rejects.toMatchObject(refusal);
+    expect(escrow.submits).toBe(submits);
+    expect((await campaignRow(a.id)).fundedAt).toBeNull();
+  });
+});
+
 describe("abandoning a deployed campaign that was never funded", () => {
   it("closes it without touching the chain, frees the cap, and the campaign can no longer be funded", async () => {
     const a = await deployed("60");
