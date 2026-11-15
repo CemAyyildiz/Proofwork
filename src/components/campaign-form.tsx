@@ -157,7 +157,10 @@ export function CampaignForm({
         <input name="disputeResolverPubkey" required defaultValue={defaultDisputeResolver} pattern="G[A-Z2-7]{55}" className={field} />
         <span className="mt-1.5 block text-xs text-muted">
           Proofwork&apos;s resolver key, kept in a wallet and never on the server. After you close the campaign, it signs the return of what is left in
-          the escrow, and that transaction can only pay your wallet.
+          the escrow, and that transaction can only pay your wallet.{" "}
+          <a href="/custody" target="_blank" rel="noreferrer" className="underline hover:text-text">
+            Custody and fees ↗
+          </a>
         </span>
       </label>
       {error ? <p className="text-sm text-fail">{error}</p> : null}

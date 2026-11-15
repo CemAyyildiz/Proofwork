@@ -363,7 +363,12 @@ export default async function Home() {
       </section>
 
       <footer className="-mx-[18px] -mb-10 flex flex-col justify-between gap-3 border-t border-line px-[18px] py-[26px] text-[13px] text-muted md:-mx-10 md:flex-row md:gap-5 md:px-10">
-        <span>© 2026 Proofwork · Stellar Instawards grantee</span>
+        <span>
+          © 2026 Proofwork · Stellar Instawards grantee ·{" "}
+          <Link href="/custody" className="rounded-sm underline hover:text-text">
+            Custody and fees
+          </Link>
+        </span>
         <span className="max-w-[560px] md:text-right">
           Independent software, not affiliated with, sponsored or endorsed by the Stellar Development Foundation.{publicEnv.isMainnet ? "" : " Testnet only."}
         </span>

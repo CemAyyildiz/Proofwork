@@ -95,3 +95,32 @@ describe("server environment per network", () => {
     expect([...(await load("mainnet", "mainnet", { PUBLIC_FUNDING_SOURCES: exchange })).sources()]).toEqual([exchange]);
   });
 });
+
+describe("custody and fees page", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("states the limits of this deployment, the protocol fee and who signs", async () => {
+    vi.resetModules();
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@localhost/db");
+    vi.stubEnv("STELLAR_NETWORK", "testnet");
+    vi.stubEnv("TW_API_KEY", "k".repeat(16));
+    vi.stubEnv("PLATFORM_ADMIN_SECRET", Keypair.random().secret());
+    vi.stubEnv("PLATFORM_OPS_SECRET", Keypair.random().secret());
+    vi.stubEnv("DECISION_LEDGER_SECRET", Keypair.random().secret());
+    vi.stubEnv("SESSION_SECRET", "s".repeat(43));
+    vi.stubEnv("FUNDER_MAX_OPEN_CAMPAIGNS", "3");
+    vi.stubEnv("FUNDER_MAX_OPEN_BUDGET", "250");
+    const { renderToStaticMarkup } = await import("react-dom/server");
+    const { default: CustodyPage } = await import("@/app/(public)/custody/page");
+    const html = renderToStaticMarkup(CustodyPage());
+    expect(html).toContain("3 campaigns open at a time");
+    expect(html).toContain("250 USDC of open budget");
+    expect(html).toContain("Trustless Work protocol fee: 0.3%");
+    expect(html).toContain("Proofwork platform fee: 0%");
+    expect(html).toContain("No payout leaves the escrow without your signature");
+    // The sealed-review exception is only told where that mode is switched on.
+    expect(html).not.toContain("founder-sealed");
+  });
+});
