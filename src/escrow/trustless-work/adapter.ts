@@ -1,4 +1,4 @@
-import { Keypair, Networks, TransactionBuilder } from "@stellar/stellar-sdk";
+import { Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
 import { AppError } from "@/lib/errors";
 import type {
   DeployInput,
@@ -24,7 +24,7 @@ export interface TrustlessWorkAdapterOptions {
   platformAdmin: Keypair;
   /** escrow role `serviceProvider` — marks milestones delivered */
   platformOps: Keypair;
-  networkPassphrase?: string;
+  networkPassphrase: string;
 }
 
 /**
@@ -44,7 +44,7 @@ export class TrustlessWorkAdapter implements EscrowPort {
     this.usdcIssuer = o.usdcIssuer;
     this.admin = o.platformAdmin;
     this.ops = o.platformOps;
-    this.passphrase = o.networkPassphrase ?? Networks.TESTNET;
+    this.passphrase = o.networkPassphrase;
   }
 
   async buildDeploy(input: DeployInput): Promise<Unsigned> {

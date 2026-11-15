@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { publicEnv } from "@/config/public-env";
+import { explorerFor } from "@/config/network";
 import { SIGNALS } from "@/domain/rubric";
 import { cx } from "@/components/ui/cx";
 import { HashChip } from "@/components/ui/hash-chip";
 import { useMediaQuery, useReducedMotion } from "@/components/use-reduced-motion";
 import { SPIKE_CONTRACT, SPIKE_FUND, SPIKE_LEDGER_VALUE, SPIKE_RECORD, SPIKE_RELEASE } from "./evidence";
+
+/** The figures on this page come from a recorded testnet run, so its links stay on testnet on any deployment. */
+const evidenceExplorer = explorerFor("testnet");
 
 const STEPS = [
   {
@@ -147,7 +150,7 @@ const SCENES: ReactNode[] = [
     </p>
     <p className="mt-4 font-mono text-[13px] text-muted">Funded in the testnet run · Trustless Work escrow</p>
     <div className="mt-3 flex justify-center">
-      <HashChip value={SPIKE_CONTRACT} href={publicEnv.explorerAccountUrl(SPIKE_CONTRACT)} />
+      <HashChip value={SPIKE_CONTRACT} href={evidenceExplorer.account(SPIKE_CONTRACT)} />
     </div>
   </div>,
 
@@ -193,7 +196,7 @@ const SCENES: ReactNode[] = [
         ["ledger key", <span key="k">{SPIKE_RECORD.ledgerKey}</span>],
         ["value", <span key="v" className="break-all">{SPIKE_LEDGER_VALUE}</span>],
         ["memo", <HashChip key="m" value={SPIKE_RECORD.memoHash} />],
-        ["tx", <HashChip key="t" value={SPIKE_RECORD.txHash} href={publicEnv.explorerTxUrl(SPIKE_RECORD.txHash)} />],
+        ["tx", <HashChip key="t" value={SPIKE_RECORD.txHash} href={evidenceExplorer.tx(SPIKE_RECORD.txHash)} />],
       ].map(([k, v], i) => (
         <div key={i} className="grid grid-cols-[92px_1fr] items-center border-b border-dashed border-line py-2.5 last:border-0">
           <dt className="text-muted">{k}</dt>
@@ -206,7 +209,7 @@ const SCENES: ReactNode[] = [
         <b className="text-[30px] font-semibold tracking-[-0.04em] text-pass">+{SPIKE_RELEASE.amount} USDC</b>{" "}
         <span className="text-sm text-text-2">released to the contributor</span>
       </p>
-      <HashChip value={SPIKE_RELEASE.txHash} href={publicEnv.explorerTxUrl(SPIKE_RELEASE.txHash)} />
+      <HashChip value={SPIKE_RELEASE.txHash} href={evidenceExplorer.tx(SPIKE_RELEASE.txHash)} />
     </div>
   </div>,
 ];

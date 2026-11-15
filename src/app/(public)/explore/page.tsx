@@ -7,12 +7,13 @@ import { Pill, type PillTone } from "@/components/ui/pill";
 import { xOutcomeSchema } from "@/domain/x-connect";
 import { formatDateShort, formatUsdc } from "@/lib/format";
 import { listPublicCampaigns } from "@/services/submission";
+import { publicEnv } from "@/config/public-env";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Open bounties",
-  description: "Escrow-funded bounties on Stellar testnet. Do the task, get reviewed by a person, get paid in USDC.",
+  description: `Escrow-funded bounties on ${publicEnv.networkName}. Do the task, get reviewed by a person, get paid in USDC.`,
 };
 
 const STAGE_PILL: Record<Stage, { tone: PillTone; label: string }> = {
@@ -24,8 +25,8 @@ const STAGE_PILL: Record<Stage, { tone: PillTone; label: string }> = {
 
 const HOW = [
   { title: "Do the task", body: "Read the brief and post on X. No wallet needed to look around." },
-  { title: "Submit the link", body: "Connect a Stellar testnet wallet and paste your post's link." },
-  { title: "Get reviewed and paid", body: "A person scores it; a pass is paid from escrow in testnet USDC." },
+  { title: "Submit the link", body: publicEnv.isMainnet ? "Connect a Stellar wallet and paste your post's link." : "Connect a Stellar testnet wallet and paste your post's link." },
+  { title: "Get reviewed and paid", body: publicEnv.isMainnet ? "A person scores it; a pass is paid from escrow in USDC." : "A person scores it; a pass is paid from escrow in testnet USDC." },
 ] as const;
 
 /** Public campaign directory: no wallet needed to browse; one is asked for only on submit. */
@@ -40,7 +41,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
       <Eyebrow>Campaigns</Eyebrow>
       <h1 className="mt-4 text-[clamp(36px,4.6vw,60px)] font-semibold leading-[0.98] tracking-[-0.05em]">Open bounties</h1>
       <p className="mt-4 max-w-[560px] text-[17px] leading-[1.55] text-text-2">
-        Every campaign here is funded into escrow on Stellar testnet before it opens. Pick one, do the task, and connect a wallet
+        Every campaign here is funded into escrow on {publicEnv.networkName} before it opens. Pick one, do the task, and connect a wallet
         only when you submit.
       </p>
       {notice ? (

@@ -26,7 +26,7 @@ export function RouteError({ error, retry }: { error: Error & { digest?: string 
     <div className="mx-auto max-w-[560px] pb-24 pt-10">
       <Card className="p-8 text-center">
         <p className="text-lg font-semibold tracking-[-0.02em]">This page didn&apos;t load.</p>
-        <p className="mt-2 text-sm text-text-2">Usually a slow network or testnet hiccup. Try again in a moment.</p>
+        <p className="mt-2 text-sm text-text-2">Usually a slow network or a Stellar hiccup. Try again in a moment.</p>
         {error.digest ? <p className="mt-2 font-mono text-[12px] text-muted">ref {error.digest}</p> : null}
         <div className="mt-6 flex justify-center gap-3">
           <Button onClick={() => retry()}>Try again</Button>

@@ -2,6 +2,8 @@ import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { z } from "zod";
+import { NETWORKS } from "../src/config/network";
+import { publicEnv } from "../src/config/public-env";
 import * as schema from "../src/db/schema";
 import { databaseTarget } from "../src/domain/role-grant-args";
 import { TrustlessWorkAdapter } from "../src/escrow/trustless-work/adapter";
@@ -23,7 +25,8 @@ import { recordSweep, RemainderError, returnRemainder } from "../src/services/re
  * operator can record the hash afterwards. FUNDER_SECRET is optional and only
  * has a use for an escrow that same key funded outside the app (the Week 1
  * spike): the close milestone is then disputed here. The platform keys are
- * not read: they sign nothing in this script.
+ * not read: they sign nothing in this script. The network is the one named
+ * by NEXT_PUBLIC_STELLAR_NETWORK (testnet when unset).
  *
  * Exit codes: 0 done · 1 refused or failed with nothing returned · 2 bad
  * arguments or environment · 3 the escrow is empty and the campaign has no
@@ -33,9 +36,9 @@ const seed = z.string().refine((v) => StrKey.isValidEd25519SecretSeed(v), "must 
 /** `.env` templates leave unset values as empty strings; treat those as unset. */
 const optional = <T extends z.ZodTypeAny>(inner: T) => z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), inner.optional());
 const envSchema = z.object({
-  TW_BASE_URL: z.string().url().default("https://dev.api.trustlesswork.com"),
+  TW_BASE_URL: z.string().url().default(NETWORKS[publicEnv.network].twBaseUrl),
   TW_API_KEY: z.string().min(16),
-  USDC_ISSUER: z.string().default("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
+  USDC_ISSUER: z.string().default(publicEnv.usdcIssuer),
   DISPUTE_RESOLVER_SECRET: optional(seed),
   FUNDER_SECRET: optional(seed),
   DATABASE_URL: optional(z.url({ protocol: /^postgres(ql)?$/, error: "must be a postgres:// or postgresql:// URL" })),
@@ -76,6 +79,7 @@ async function main(): Promise<void> {
     // uses them, so whoever holds the resolver key does not have to hold those: throwaway keys stand in.
     platformAdmin: Keypair.random(),
     platformOps: Keypair.random(),
+    networkPassphrase: publicEnv.networkPassphrase,
   });
 
   // Only --no-record runs without a database; an unset DATABASE_URL never means that by itself.

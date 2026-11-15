@@ -1,3 +1,5 @@
+import { publicEnv } from "@/config/public-env";
+
 /** 1200×630 share card body, rendered by `next/og` (inline styles only). */
 export function OgCard({ eyebrow, title, footer }: { eyebrow: string; title: string; footer: string }) {
   return (
@@ -18,7 +20,7 @@ export function OgCard({ eyebrow, title, footer }: { eyebrow: string; title: str
         <div style={{ width: 22, height: 22, borderRadius: 11, background: "#fdda24" }} />
         Proofwork
         <div style={{ marginLeft: "auto", fontSize: 22, color: "#fdda24", border: "2px solid #fdda2455", borderRadius: 999, padding: "6px 18px" }}>
-          TESTNET
+          {publicEnv.isMainnet ? "MAINNET" : "TESTNET"}
         </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>

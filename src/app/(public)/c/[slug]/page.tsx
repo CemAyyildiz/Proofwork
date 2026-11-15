@@ -52,7 +52,7 @@ function rise(i: number): { className: string; style: React.CSSProperties } {
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const c = await campaignFor((await params).slug);
   if (!c) return { title: "Campaign not found" };
-  const description = `${formatUsdc(c.rewardAmount)} (testnet) per approved post, reviewed by a person, paid from escrow on Stellar.`;
+  const description = `${formatUsdc(c.rewardAmount)}${publicEnv.isMainnet ? "" : " (testnet)"} per approved post, reviewed by a person, paid from escrow on Stellar.`;
   return {
     title: c.title,
     description,
@@ -106,7 +106,9 @@ export default async function ContributorCampaignPage({
           <dl style={rise(2).style} className={cx("mt-7 flex flex-wrap gap-x-7 gap-y-4", rise(2).className)}>
             <Meta label="Reward">
               <span className="text-accent">{formatUsdc(c.rewardAmount)}</span>
-              <span className="ml-2 align-middle font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted">testnet</span>
+              {publicEnv.isMainnet ? null : (
+                <span className="ml-2 align-middle font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted">testnet</span>
+              )}
             </Meta>
             {stage === "open" ? (
               <Meta label="Closes in">
@@ -125,7 +127,8 @@ export default async function ContributorCampaignPage({
           </dl>
           {stage === "open" ? (
             <p style={rise(2).style} className={cx("mt-3 text-[13px] text-muted", rise(2).className)}>
-              Per approved submission, net of the 0.3% protocol fee. Testnet USDC, not real money. Closes{" "}
+              Per approved submission, net of the 0.3% protocol fee.{" "}
+              {publicEnv.isMainnet ? "Paid in USDC on Stellar mainnet." : "Testnet USDC, not real money."} Closes{" "}
               {formatDateShort(c.deadlineAt)}.
             </p>
           ) : null}
@@ -266,8 +269,8 @@ function SubmissionPanel({
       <>
         <h2 className="text-lg font-semibold tracking-[-0.02em]">Submit your post</h2>
         <p className="mt-3 text-sm leading-normal text-text-2">
-          Connect your Stellar wallet to submit. The reward is paid to that wallet in USDC. If the wallet is new, this page
-          activates it on testnet and adds USDC before you submit.
+          Connect your Stellar wallet to submit. The reward is paid to that wallet in USDC. If the wallet is new, this page{" "}
+          {publicEnv.isMainnet ? "shows how to open it and adds the USDC trustline" : "activates it on testnet and adds USDC"} before you submit.
         </p>
         <WalletButton pubkey={null} className="mt-4" />
         {xNote ? (
@@ -284,7 +287,7 @@ function SubmissionPanel({
               </a>{" "}
               and create a wallet.
             </li>
-            <li>In Freighter settings, switch the network to Testnet.</li>
+            <li>{publicEnv.isMainnet ? "Keep Freighter on Main Net, the network it starts on." : "In Freighter settings, switch the network to Testnet."}</li>
             <li>Come back to this tab and press Connect wallet.</li>
           </ol>
         </div>

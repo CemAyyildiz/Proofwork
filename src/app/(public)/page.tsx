@@ -13,6 +13,7 @@ import { LogoMark } from "@/components/ui/logo";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
 import { currentUser } from "@/lib/current-user";
 import { truncateMiddle } from "@/lib/format";
+import { publicEnv } from "@/config/public-env";
 
 export const dynamic = "force-dynamic";
 
@@ -133,7 +134,7 @@ export default async function Home() {
           <div className="relative z-10 min-w-0">
             <p className="inline-flex animate-reveal flex-wrap items-center gap-2.5 rounded-full border border-line-strong bg-white/2 py-[7px] pl-2.5 pr-3.5 text-[13px] text-text-2">
               <span aria-hidden="true" className="h-2 w-2 animate-ping rounded-full bg-pass text-pass" />
-              <b className="font-medium text-text">Live on Stellar testnet</b> · Stellar Instawards grantee
+              <b className="font-medium text-text">Live on {publicEnv.networkName}</b> · Stellar Instawards grantee
             </p>
             <h1 className="mt-[30px] text-[clamp(56px,7.4vw,124px)] font-semibold leading-[0.9] tracking-[-0.055em]">
               <MaskLine words={["Bounties", "you"]} start={0} />
@@ -341,7 +342,7 @@ export default async function Home() {
       {/* End CTA */}
       <section aria-labelledby="end-title" className="relative -mx-[18px] overflow-hidden px-[18px] pt-[20vh] text-center md:-mx-10 md:px-10">
         <Reveal>
-          <Kicker center>Stellar testnet · live now</Kicker>
+          <Kicker center>{publicEnv.networkName} · live now</Kicker>
           <h2 id="end-title" className="mt-[26px] text-[clamp(56px,8vw,140px)] font-semibold leading-[0.92] tracking-[-0.06em]">
             Proof over <span className={serif}>promises.</span>
           </h2>
@@ -364,7 +365,7 @@ export default async function Home() {
       <footer className="-mx-[18px] -mb-10 flex flex-col justify-between gap-3 border-t border-line px-[18px] py-[26px] text-[13px] text-muted md:-mx-10 md:flex-row md:gap-5 md:px-10">
         <span>© 2026 Proofwork · Stellar Instawards grantee</span>
         <span className="max-w-[560px] md:text-right">
-          Independent software, not affiliated with, sponsored or endorsed by the Stellar Development Foundation. Testnet only.
+          Independent software, not affiliated with, sponsored or endorsed by the Stellar Development Foundation.{publicEnv.isMainnet ? "" : " Testnet only."}
         </span>
       </footer>
     </div>

@@ -18,7 +18,7 @@ const horizon = { horizonUrl: publicEnv.horizonUrl, usdcIssuer: publicEnv.usdcIs
  * signs next, from the server's read of the wallet when the page was
  * rendered. Every missing item is listed at once. Check again asks the
  * server for a fresh read. The two wallet steps run in the browser, as on the
- * contributor page: Friendbot activates the account and the funder's own
+ * contributor page: on testnet Friendbot activates the account, and the funder's own
  * wallet signs the trustline. Proofwork sends nothing and signs nothing. The
  * server reads the wallet again before it builds a transaction.
  */
@@ -60,6 +60,8 @@ export function FundingReadinessPanel({
   const activate = () =>
     run("activate", async () => {
       try {
+        // The button is only rendered where Friendbot exists (testnet).
+        if (publicEnv.friendbotUrl === null) return;
         await fundWithFriendbot(address, { friendbotUrl: publicEnv.friendbotUrl });
       } catch {
         throw new Error("Friendbot didn't answer. Try again in a moment.");
@@ -102,7 +104,7 @@ export function FundingReadinessPanel({
         </p>
       ) : readiness.status === "unchecked" ? (
         <p className="mt-2 text-[13.5px] leading-normal text-text-2">
-          Stellar testnet didn&apos;t answer, so this wallet hasn&apos;t been checked.{" "}
+          {publicEnv.networkName} didn&apos;t answer, so this wallet hasn&apos;t been checked.{" "}
           {fundSent ? "Try again in a moment." : "Deploy and fund stay off until it has. Try again in a moment."}
         </p>
       ) : (
@@ -111,8 +113,8 @@ export function FundingReadinessPanel({
           <ul className="mt-3 grid gap-3">
             {readiness.missing.map((m) => (
               <li key={m.item} className="text-[13.5px] leading-normal text-text">
-                {describeMissing(m)}
-                {m.item === "account" ? (
+                {describeMissing(m, publicEnv.network)}
+                {publicEnv.isMainnet && m.item !== "trustline" ? null : m.item === "account" ? (
                   <div className="mt-2">
                     <Button size="sm" busy={busy === "activate"} busyLabel="Activating on testnet…" disabled={locked} onClick={() => void activate()}>
                       Activate testnet account

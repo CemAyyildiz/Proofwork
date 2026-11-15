@@ -23,7 +23,8 @@ const horizon = { horizonUrl: publicEnv.horizonUrl, usdcIssuer: publicEnv.usdcIs
 
 /**
  * Gets a connected wallet ready to be paid, then shows the submit form.
- * Everything runs in the browser against Horizon testnet and Friendbot; the
+ * Everything runs in the browser against Horizon (and Friendbot on testnet;
+ * on mainnet the contributor sends the first XLM to the wallet); the
  * contributor's wallet signs the trustline and Proofwork never pays or signs
  * for it. The form also stays locked until the X gate is open (see
  * `onboardingView`). The server re-checks the trustline and the X account on
@@ -84,6 +85,8 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
   const activate = () =>
     run("fund", async () => {
       try {
+        // The button is only rendered where Friendbot exists (testnet).
+        if (publicEnv.friendbotUrl === null) return;
         await fundWithFriendbot(address, { friendbotUrl: publicEnv.friendbotUrl });
       } catch {
         throw new Error("Friendbot didn't answer. Try again in a moment.");
@@ -117,10 +120,10 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
       ) : (
         <div className="mt-4 rounded-[14px] border border-line-strong bg-sunken p-4" aria-live="polite">
           {view.step === "checking" ? (
-            <p className="text-[13.5px] text-muted">Checking your wallet on Stellar testnet…</p>
+            <p className="text-[13.5px] text-muted">Checking your wallet on {publicEnv.networkName}…</p>
           ) : view.step === "unreachable" ? (
             <>
-              <p className="text-[13.5px] text-fail">Can&apos;t check your wallet on Stellar testnet right now.</p>
+              <p className="text-[13.5px] text-fail">Can&apos;t check your wallet on {publicEnv.networkName} right now.</p>
               <Button variant="secondary" size="sm" className="mt-3" onClick={() => void recheck()}>
                 Retry
               </Button>
@@ -132,17 +135,34 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
               </p>
               <ol className="mt-3.5 grid gap-3">
                 <Node state={view.activate} n={1}>
-                  Activate testnet account
-                  <Sub>Friendbot sends free testnet XLM so the account exists.</Sub>
-                  {view.activate === "current" ? (
-                    <Button size="sm" className="mt-2.5" busy={busy === "fund"} busyLabel="Activating on testnet…" disabled={busy !== null} onClick={() => void activate()}>
+                  {publicEnv.isMainnet ? (
+                    <>
+                      Send XLM to this wallet
+                      <Sub>
+                        A Stellar account opens once it holds XLM. Send at least 2 XLM to this wallet&apos;s address from an exchange or
+                        another wallet: 1 XLM opens the account, 0.5 XLM is held by the USDC trustline, the rest pays network fees.
+                      </Sub>
+                      {view.activate === "current" ? (
+                        <Button variant="secondary" size="sm" className="mt-2.5" disabled={busy !== null} onClick={() => void recheck()}>
+                          Sent it? Check again
+                        </Button>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
                       Activate testnet account
-                    </Button>
-                  ) : null}
+                      <Sub>Friendbot sends free testnet XLM so the account exists.</Sub>
+                      {view.activate === "current" ? (
+                        <Button size="sm" className="mt-2.5" busy={busy === "fund"} busyLabel="Activating on testnet…" disabled={busy !== null} onClick={() => void activate()}>
+                          Activate testnet account
+                        </Button>
+                      ) : null}
+                    </>
+                  )}
                 </Node>
                 <Node state={view.trustline} n={2}>
                   Add USDC trustline
-                  <Sub>Lets this wallet hold USDC. Your wallet signs it; the network fee is paid in testnet XLM.</Sub>
+                  <Sub>Lets this wallet hold USDC. Your wallet signs it; the network fee is paid in XLM.</Sub>
                   {view.trustline === "current" ? (
                     <div className="mt-2.5 flex flex-wrap items-center gap-3">
                       <Button

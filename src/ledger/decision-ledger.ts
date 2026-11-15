@@ -3,7 +3,6 @@ import {
   Horizon,
   Keypair,
   Memo,
-  Networks,
   Operation,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
@@ -34,10 +33,12 @@ export interface DecisionLedger {
 export class HorizonDecisionLedger implements DecisionLedger {
   private readonly server: Horizon.Server;
   private readonly signer: Keypair;
+  private readonly passphrase: string;
 
-  constructor(opts: { horizonUrl: string; ledgerSecret: string }) {
+  constructor(opts: { horizonUrl: string; ledgerSecret: string; networkPassphrase: string }) {
     this.server = new Horizon.Server(opts.horizonUrl);
     this.signer = Keypair.fromSecret(opts.ledgerSecret);
+    this.passphrase = opts.networkPassphrase;
   }
 
   get publicKey(): string {
@@ -56,7 +57,7 @@ export class HorizonDecisionLedger implements DecisionLedger {
       throw new AppError("LEDGER", "decision ledger account not found on network", { account: this.publicKey }, { cause });
     }
 
-    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: Networks.TESTNET })
+    const tx = new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: this.passphrase })
       .addOperation(Operation.manageData({ name: key, value }))
       .addMemo(Memo.hash(hash))
       .setTimeout(60)

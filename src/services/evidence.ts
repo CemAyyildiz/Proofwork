@@ -225,7 +225,7 @@ export function renderCampaignEvidence(e: CampaignEvidence, opts: { siteUrl: str
   const command = `pnpm evidence:dump ${c.slug}${opts.fileName && opts.fileName !== DEFAULT_EVIDENCE_FILE ? ` ${opts.fileName}` : ""}`;
   out.push(`${EVIDENCE_HEADING}${cell(c.title)}`, "");
   out.push(
-    `Generated ${iso(opts.generatedAt)} by \`${command}\`. Network: Stellar testnet. This page lists what the app recorded; it makes no chain read. Each hash links to stellar.expert, where the transaction can be checked on chain.`,
+    `Generated ${iso(opts.generatedAt)} by \`${command}\`. Network: ${publicEnv.networkName}. This page lists what the app recorded; it makes no chain read. Each hash links to stellar.expert, where the transaction can be checked on chain.`,
     "",
   );
   out.push("| | |", "|---|---|");

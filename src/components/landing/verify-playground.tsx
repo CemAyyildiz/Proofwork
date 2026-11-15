@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
-import { publicEnv } from "@/config/public-env";
+import { explorerFor } from "@/config/network";
 import { truncateMiddle } from "@/lib/format";
 import { sha256Hex } from "@/components/hash-check";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,9 @@ import { cx } from "@/components/ui/cx";
 import { useReducedMotion } from "@/components/use-reduced-motion";
 import { SPIKE_RECORD } from "./evidence";
 import { useInView } from "./reveal";
+
+/** The figures on this page come from a recorded testnet run, so its links stay on testnet on any deployment. */
+const evidenceExplorer = explorerFor("testnet");
 
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -100,7 +103,7 @@ export function VerifyPlayground() {
           Recompute SHA-256
         </Button>
         <a
-          href={publicEnv.explorerTxUrl(SPIKE_RECORD.txHash)}
+          href={evidenceExplorer.tx(SPIKE_RECORD.txHash)}
           target="_blank"
           rel="noreferrer"
           className="rounded-sm border-b border-line-strong pb-0.5 text-sm text-text-2 hover:text-text"

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Logo } from "@/components/ui/logo";
-import { TestnetBadge } from "@/components/ui/testnet-badge";
+import { NetworkBadge } from "@/components/ui/network-badge";
 import { WalletButton } from "@/components/wallet-button";
 import { WorkspaceMenu, WorkspaceNav } from "@/components/workspace-nav";
 import { db } from "@/db/client";
@@ -26,7 +26,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
         </Link>
         <WorkspaceNav campaigns={campaigns} reviewer={reviewer} admin={admin} variant="side" />
         <div className="mt-auto grid justify-items-start gap-2.5">
-          <TestnetBadge />
+          <NetworkBadge />
           <WalletButton pubkey={pubkey} menuPlacement="up" className="flex-wrap" />
         </div>
       </aside>
@@ -44,7 +44,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
             </Link>
             <div className="flex shrink-0 items-center gap-3">
               <span className="hidden sm:contents">
-                <TestnetBadge />
+                <NetworkBadge />
               </span>
               <WalletButton pubkey={pubkey} />
               <WorkspaceMenu campaigns={campaigns} reviewer={reviewer} admin={admin} />

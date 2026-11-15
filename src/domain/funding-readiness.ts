@@ -1,3 +1,4 @@
+import type { StellarNetwork } from "@/config/network";
 import { fromStroops, toStroops } from "@/escrow/amount";
 import type { FunderAccount } from "@/wallet/onboarding";
 
@@ -25,7 +26,7 @@ export const TX_FEE_FLOOR_XLM = "0.5";
 /** One base reserve: what a new trustline locks up in the account that opens it. */
 export const TRUSTLINE_RESERVE_XLM = "0.5";
 
-/** Circle's testnet faucet; it lists Stellar Testnet. Checked 2026-10-13. */
+/** Circle's testnet faucet; it lists Stellar Testnet. Checked 2026-10-13. Testnet only: there is no faucet for real USDC. */
 export const USDC_FAUCET_URL = "https://faucet.circle.com";
 
 /** The escrow transaction the funder signs next. Deploy is followed by fund, so it needs the fees of both. */
@@ -70,8 +71,12 @@ export function assessFunding(account: FunderAccount, budget: string, step: Fund
   return missing.length === 0 ? { status: "ready", usdc, xlm } : { status: "not-ready", missing };
 }
 
-/** One sentence per missing item: what is wrong and what to do about it. */
-export function describeMissing(m: MissingItem): string {
+/**
+ * One sentence per missing item: what is wrong and what to do about it. On
+ * mainnet there is no Friendbot and no faucet: the owner sends XLM and USDC.
+ */
+export function describeMissing(m: MissingItem, network: StellarNetwork = "testnet"): string {
+  if (network === "mainnet") return describeMissingOnMainnet(m);
   switch (m.item) {
     case "account":
       return "The account does not exist on Stellar testnet yet. Activate it: Friendbot creates it with testnet XLM.";
@@ -83,5 +88,20 @@ export function describeMissing(m: MissingItem): string {
       return `The wallet has ${m.have} XLM free for network fees and needs ${m.need} XLM${
         m.forTrustline ? `, ${TRUSTLINE_RESERVE_XLM} XLM of it for the reserve the USDC trustline will hold` : ""
       }. Send testnet XLM to it; reserves and open offers are not counted as free.`;
+  }
+}
+
+function describeMissingOnMainnet(m: MissingItem): string {
+  switch (m.item) {
+    case "account":
+      return "The account does not exist on Stellar mainnet yet. Send XLM to this address from an exchange or another wallet: an account opens once it holds 1 XLM.";
+    case "trustline":
+      return "The account has no USDC trustline. Add the USDC trustline so the wallet can hold the budget.";
+    case "usdc":
+      return `The wallet has ${m.have} USDC to spend and the budget is ${m.need} USDC. Send USDC on the Stellar network to this address; USDC sent on another network will not arrive.`;
+    case "xlm":
+      return `The wallet has ${m.have} XLM free for network fees and needs ${m.need} XLM${
+        m.forTrustline ? `, ${TRUSTLINE_RESERVE_XLM} XLM of it for the reserve the USDC trustline will hold` : ""
+      }. Send XLM to it; reserves and open offers are not counted as free.`;
   }
 }

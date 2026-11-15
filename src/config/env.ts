@@ -2,6 +2,8 @@ import "server-only";
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { z } from "zod";
 import { assertPositiveAmount, fromStroops, toStroops } from "@/escrow/amount";
+import { NETWORKS } from "./network";
+import { publicEnv } from "./public-env";
 
 /**
  * Server environment. Parsed once, on first access (see `env` below), so
@@ -84,11 +86,11 @@ const schema = z.object({
 
   DATABASE_URL: z.string().url(),
 
-  STELLAR_NETWORK: z.literal("testnet"),
-  HORIZON_URL: z.string().url().default("https://horizon-testnet.stellar.org"),
-  USDC_ISSUER: publicKey.default("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
-
-  TW_BASE_URL: z.string().url().default("https://dev.api.trustlesswork.com"),
+  STELLAR_NETWORK: z.enum(["testnet", "mainnet"]),
+  /** These three default to the facts of STELLAR_NETWORK (`network.ts`), see `load`. */
+  HORIZON_URL: optional(z.string().url()),
+  USDC_ISSUER: optional(publicKey),
+  TW_BASE_URL: optional(z.string().url()),
   TW_API_KEY: z.string().min(16),
 
   PLATFORM_ADMIN_SECRET: secretSeed,
@@ -124,7 +126,8 @@ const schema = z.object({
   X_BEARER_TOKEN: optional(z.string().regex(/^[\x21-\x7e]+$/, "must be the token alone, with no spaces or line breaks")),
 });
 
-export type Env = z.infer<typeof schema>;
+type Parsed = z.infer<typeof schema>;
+export type Env = Omit<Parsed, "HORIZON_URL" | "USDC_ISSUER" | "TW_BASE_URL"> & { HORIZON_URL: string; USDC_ISSUER: string; TW_BASE_URL: string };
 
 type Source = Record<string, string | undefined>;
 
@@ -149,7 +152,25 @@ function load(): Env {
     const issues = parsed.error.issues.map((i) => `  ${i.path.join(".")}: ${i.message}`).join("\n");
     throw new Error(`Invalid environment:\n${issues}`);
   }
-  const env = parsed.data;
+  const facts = NETWORKS[parsed.data.STELLAR_NETWORK];
+  const env: Env = {
+    ...parsed.data,
+    HORIZON_URL: parsed.data.HORIZON_URL ?? facts.horizonUrl,
+    USDC_ISSUER: parsed.data.USDC_ISSUER ?? facts.usdcIssuer,
+    TW_BASE_URL: parsed.data.TW_BASE_URL ?? facts.twBaseUrl,
+  };
+  // The browser bundle signs and links for the network it was built with; the server must sign for the same one.
+  if (env.STELLAR_NETWORK !== publicEnv.network) {
+    throw new Error(
+      `Invalid environment: STELLAR_NETWORK is ${env.STELLAR_NETWORK} but the app was built for ${publicEnv.network}; set NEXT_PUBLIC_STELLAR_NETWORK to the same value and rebuild`,
+    );
+  }
+  // Real money: no override may point a mainnet deployment at a testnet host or at another USDC.
+  if (env.STELLAR_NETWORK === "mainnet") {
+    if (env.USDC_ISSUER !== facts.usdcIssuer) throw new Error("Invalid environment: USDC_ISSUER must be Circle's mainnet issuer on mainnet");
+    if (env.HORIZON_URL === NETWORKS.testnet.horizonUrl) throw new Error("Invalid environment: HORIZON_URL is the testnet Horizon on mainnet");
+    if (env.TW_BASE_URL === NETWORKS.testnet.twBaseUrl) throw new Error("Invalid environment: TW_BASE_URL is the Trustless Work testnet host on mainnet");
+  }
   const seeds = [env.PLATFORM_ADMIN_SECRET, env.PLATFORM_OPS_SECRET, env.DECISION_LEDGER_SECRET];
   if (new Set(seeds).size !== seeds.length) {
     throw new Error("Invalid environment: server signing keys must be distinct");
@@ -185,11 +206,12 @@ export const env: Env = new Proxy({} as Env, {
 
 /**
  * Accounts anyone can get a wallet from, so sharing one says nothing about who
- * is behind it: Friendbot always, plus the configured faucets. Configuration
+ * is behind it: Friendbot on testnet, plus the configured accounts (faucets,
+ * and on mainnet the exchange wallets contributors withdraw from). Configuration
  * only; never built from user input.
  */
 export function publicFundingSources(): ReadonlySet<string> {
-  return new Set([FRIENDBOT_ACCOUNT, ...(env.PUBLIC_FUNDING_SOURCES ?? [])]);
+  return new Set([...(env.STELLAR_NETWORK === "testnet" ? [FRIENDBOT_ACCOUNT] : []), ...(env.PUBLIC_FUNDING_SOURCES ?? [])]);
 }
 
 export interface FunderLimits {

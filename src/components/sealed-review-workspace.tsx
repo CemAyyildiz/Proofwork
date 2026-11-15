@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Pill } from "@/components/ui/pill";
+import { publicEnv } from "@/config/public-env";
 import { evaluate, SIGNALS, type ReasonCode, type Signals } from "@/domain/rubric";
 import { assessmentOutcome, assessmentsAgree, sealedAssessmentJson, type SealedAssessment } from "@/domain/sealed-review";
 import { signAuthEntry, signTransaction } from "@/wallet/kit";
@@ -62,7 +63,7 @@ function bytes(hex: string): Uint8Array {
 
 function client(address: string): SubRosaClient {
   return new SubRosaClient({
-    network: "testnet",
+    network: publicEnv.network,
     publicKey: address,
     signTransaction: async (xdr) => ({ signedTxXdr: await signTransaction(address, xdr), signerAddress: address }),
     signAuthEntry: async (entry) => ({ signedAuthEntry: await signAuthEntry(address, entry), signerAddress: address }),
@@ -233,7 +234,7 @@ export function SealedReviewWorkspace({ view, address }: { view: View; address: 
           <div><dt className="text-muted">Commit deadline</dt><dd className="mt-1">{new Date(view.round.commitDeadline).toLocaleString()}</dd></div>
           <div><dt className="text-muted">Reveal deadline</dt><dd className="mt-1">{new Date(view.round.revealDeadline).toLocaleString()}</dd></div>
         </dl>
-        {view.manager && view.round.status === "draft" ? <Button className="mt-5" busy={busy === "create"} busyLabel="Creating on testnet…" onClick={() => void run("create", createRound)}>Create ReceiptOnly round</Button> : null}
+        {view.manager && view.round.status === "draft" ? <Button className="mt-5" busy={busy === "create"} busyLabel="Creating on Stellar…" onClick={() => void run("create", createRound)}>Create ReceiptOnly round</Button> : null}
       </Card>
 
       <Card className="p-5 md:p-6">
@@ -276,7 +277,7 @@ export function SealedReviewWorkspace({ view, address }: { view: View; address: 
           <label className="mt-4 block text-sm">Note to contributor
             <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={3} className="mt-1.5 w-full rounded-md border border-line-strong bg-sunken px-3 py-2" />
           </label>
-          <Button className="mt-4" busy={busy === "commit"} busyLabel="Sealing on testnet…" onClick={() => void run("commit", commit)}>Seal {outcome}</Button>
+          <Button className="mt-4" busy={busy === "commit"} busyLabel="Sealing on Stellar…" onClick={() => void run("commit", commit)}>Seal {outcome}</Button>
         </Card>
       ) : null}
 

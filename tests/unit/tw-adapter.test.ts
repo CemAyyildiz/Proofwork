@@ -26,6 +26,7 @@ function adapter(handler: Handler): TrustlessWorkAdapter {
     usdcIssuer: issuer,
     platformAdmin: admin,
     platformOps: ops,
+    networkPassphrase: Networks.TESTNET,
   });
 }
 

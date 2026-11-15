@@ -1,5 +1,6 @@
 import "server-only";
-import { Networks, TransactionBuilder, type Keypair } from "@stellar/stellar-sdk";
+import { TransactionBuilder, type Keypair } from "@stellar/stellar-sdk";
+import { publicEnv } from "@/config/public-env";
 import type { Db } from "@/db/client";
 import type { Campaign } from "@/db/schema";
 import { toStroops } from "@/escrow/amount";
@@ -55,7 +56,7 @@ export type RemainderResult =
 type Say = (line: string) => void;
 
 function sign(kp: Keypair, unsignedXdr: string): string {
-  const tx = TransactionBuilder.fromXDR(unsignedXdr, Networks.TESTNET);
+  const tx = TransactionBuilder.fromXDR(unsignedXdr, publicEnv.networkPassphrase);
   tx.sign(kp);
   return tx.toXDR();
 }

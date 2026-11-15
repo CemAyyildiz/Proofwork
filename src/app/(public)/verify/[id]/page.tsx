@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Decision record",
-  description: "A review decision on Proofwork, checkable against its hash on Stellar testnet.",
+  description: `A review decision on Proofwork, checkable against its hash on ${publicEnv.networkName}.`,
 };
 
 /** Staggered rise-in on load; CSS only, final state under reduced motion. */
@@ -48,7 +48,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
       </h1>
       <p style={rise(2)} className="mt-[18px] max-w-[640px] animate-reveal text-[17px] leading-[1.55] text-text-2">
         {d.txHash
-          ? "This decision was written to Stellar testnet when it was made. Your browser rebuilds the proof below from scratch."
+          ? `This decision was written to ${publicEnv.networkName} when it was made. Your browser rebuilds the proof below from scratch.`
           : "This decision is recorded but not yet committed to Stellar. Your browser can still check the record against its hash."}
       </p>
 

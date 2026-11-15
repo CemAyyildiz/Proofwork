@@ -15,6 +15,7 @@ import { log } from "@/lib/logger";
 import { readFunderAccount, type FunderAccount } from "@/wallet/onboarding";
 import { campaignOwnedBy, findOp, prepareOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
 import { countSubmissionsByCampaign } from "./submission-counts";
+import { publicEnv } from "@/config/public-env";
 
 const CLOSE_MILESTONE_AMOUNT = "0.0000001";
 const MAX_REWARDS = 49n;
@@ -227,7 +228,7 @@ async function assertReady(pubkey: string, budget: string, step: FundingStep, ac
   if (readiness.status === "unchecked") throw new AppError("LEDGER", "couldn't check your wallet on Stellar, try again");
   if (readiness.status === "not-ready") {
     const what = step === "deploy" ? "deploy the escrow" : "fund the budget";
-    throw new AppError("CONFLICT", `your wallet is not ready to ${what}. ${readiness.missing.map(describeMissing).join(" ")}`, { missing: readiness.missing });
+    throw new AppError("CONFLICT", `your wallet is not ready to ${what}. ${readiness.missing.map((m) => describeMissing(m, publicEnv.network)).join(" ")}`, { missing: readiness.missing });
   }
 }
 

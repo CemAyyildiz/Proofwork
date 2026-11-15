@@ -16,6 +16,7 @@ import {
 } from "@sub-rosa/sdk";
 import { z } from "zod";
 import { sealedReviewAdminPubkey } from "@/config/env";
+import { publicEnv } from "@/config/public-env";
 import { campaigns, decisions, payouts, sealedReviewAssignments, sealedReviews, submissions, type Campaign, type SealedReview } from "@/db/schema";
 import { type Db, db } from "@/db/client";
 import { pubkeySchema } from "@/domain/wallet-auth";
@@ -94,7 +95,7 @@ export function liveRoundPlanner(): RoundPlanner {
 }
 
 export function liveReceiptGateway(): ReceiptGateway {
-  const client = new SubRosaClient({ network: "testnet" });
+  const client = new SubRosaClient({ network: publicEnv.network });
   return { contractId: client.contractId, exportReceipt: (roundId) => client.exportReceiptV2(BigInt(roundId)) };
 }
 

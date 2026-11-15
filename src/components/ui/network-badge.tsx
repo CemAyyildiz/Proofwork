@@ -1,6 +1,8 @@
+import { publicEnv } from "@/config/public-env";
 import { cx } from "./cx";
 
-export function TestnetBadge({ className }: { className?: string }) {
+/** Names the network this deployment runs on, so nobody mistakes testnet USDC for money or the reverse. */
+export function NetworkBadge({ className }: { className?: string }) {
   return (
     <span
       className={cx(
@@ -9,7 +11,7 @@ export function TestnetBadge({ className }: { className?: string }) {
       )}
     >
       <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent" />
-      Testnet
+      {publicEnv.isMainnet ? "Mainnet" : "Testnet"}
     </span>
   );
 }

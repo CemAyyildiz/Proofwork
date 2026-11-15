@@ -96,7 +96,7 @@ async function main(): Promise<void> {
   process.stdout.write(`  funder USDC before: ${await usdcBalance(funder.publicKey())}\n`);
 
   const client = new TrustlessWorkClient(env.TW_BASE_URL, env.TW_API_KEY);
-  const escrow = new TrustlessWorkAdapter({ client, usdcIssuer: env.USDC_ISSUER, platformAdmin: admin, platformOps: ops });
+  const escrow = new TrustlessWorkAdapter({ client, usdcIssuer: env.USDC_ISSUER, platformAdmin: admin, platformOps: ops, networkPassphrase: Networks.TESTNET });
   const roles = {
     funder: funder.publicKey(),
     platformAdmin: admin.publicKey(),
@@ -152,7 +152,7 @@ async function main(): Promise<void> {
   process.stdout.write(`  funder USDC after: ${await usdcBalance(funder.publicKey())}\n`);
 
   // 6. decision ledger commit
-  const ledger = new HorizonDecisionLedger({ horizonUrl: env.HORIZON_URL, ledgerSecret: env.DECISION_LEDGER_SECRET });
+  const ledger = new HorizonDecisionLedger({ horizonUrl: env.HORIZON_URL, ledgerSecret: env.DECISION_LEDGER_SECRET, networkPassphrase: Networks.TESTNET });
   const decision: DecisionRecord = {
     v: 1,
     submission: "spike001",

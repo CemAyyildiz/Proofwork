@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { HeaderAction } from "@/components/header-action";
 import { Logo } from "@/components/ui/logo";
-import { TestnetBadge } from "@/components/ui/testnet-badge";
+import { NetworkBadge } from "@/components/ui/network-badge";
 import { WorkspaceNav } from "@/components/workspace-nav";
 import { db } from "@/db/client";
 import { currentUser } from "@/lib/current-user";
@@ -33,7 +33,7 @@ export default async function PublicLayout({ children }: { children: React.React
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <span className="hidden sm:contents">
-              <TestnetBadge />
+              <NetworkBadge />
             </span>
             <HeaderAction pubkey={user?.pubkey ?? null} />
           </div>

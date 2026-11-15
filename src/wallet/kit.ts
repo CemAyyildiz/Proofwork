@@ -6,7 +6,7 @@ import { publicEnv } from "@/config/public-env";
 
 /**
  * Browser-only wallet layer. The kit is a static singleton; we initialise it
- * once, testnet only, Freighter first (it is what contributors will have).
+ * once, on the network the app was built for, Freighter first (it is what contributors will have).
  * Secret keys never exist in this process.
  *
  * The kit is loaded on the first wallet action, never with the page: on
@@ -52,7 +52,7 @@ function kit(): Promise<typeof Kit> {
     ]);
     StellarWalletsKit.init({
       modules: [new FreighterModule()],
-      network: Networks.TESTNET,
+      network: publicEnv.isMainnet ? Networks.PUBLIC : Networks.TESTNET,
       theme: THEME,
       authModal: { showInstallLabel: true, hideUnsupportedWallets: false },
     });

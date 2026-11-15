@@ -1,6 +1,7 @@
 import "server-only";
 import { Keypair } from "@stellar/stellar-sdk";
 import { env } from "@/config/env";
+import { NETWORKS } from "@/config/network";
 import { HorizonDecisionLedger } from "@/ledger/decision-ledger";
 import type { EscrowPort } from "./port";
 import { TrustlessWorkAdapter } from "./trustless-work/adapter";
@@ -22,13 +23,15 @@ let wiring: Wiring | undefined;
 function wire(): Wiring {
   const platformAdmin = Keypair.fromSecret(env.PLATFORM_ADMIN_SECRET);
   const platformOps = Keypair.fromSecret(env.PLATFORM_OPS_SECRET);
-  const ledger = new HorizonDecisionLedger({ horizonUrl: env.HORIZON_URL, ledgerSecret: env.DECISION_LEDGER_SECRET });
+  const networkPassphrase = NETWORKS[env.STELLAR_NETWORK].passphrase;
+  const ledger = new HorizonDecisionLedger({ horizonUrl: env.HORIZON_URL, ledgerSecret: env.DECISION_LEDGER_SECRET, networkPassphrase });
   return {
     escrow: new TrustlessWorkAdapter({
       client: new TrustlessWorkClient(env.TW_BASE_URL, env.TW_API_KEY),
       usdcIssuer: env.USDC_ISSUER,
       platformAdmin,
       platformOps,
+      networkPassphrase,
     }),
     ledger,
     platformKeys: { admin: platformAdmin.publicKey(), ops: platformOps.publicKey(), ledger: ledger.publicKey },
