@@ -227,6 +227,15 @@ export class TrustlessWorkClient {
     return row;
   }
 
+  /**
+   * One cheap authenticated read, for `pnpm preflight`: lists at most one
+   * escrow of `signer`. Throws when the host refuses the API key.
+   */
+  async checkKey(signer: string): Promise<void> {
+    const q = new URLSearchParams([["signer", signer], ["pageSize", "1"]]);
+    await this.get(`/helper/get-escrows-by-signer?${q.toString()}`, z.unknown());
+  }
+
   // ---- transport ---------------------------------------------------------
 
   private post<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<T> {
