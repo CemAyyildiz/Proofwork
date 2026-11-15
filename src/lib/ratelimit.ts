@@ -28,11 +28,19 @@ function makeLimiter(requests: number, windowSeconds: number): Limiter {
   };
 }
 
-const cache: Partial<Record<"auth" | "submit" | "appeal" | "x" | "access" | "accessIp" | "admin" | "campaign" | "escrowPrepare" | "review", Limiter>> = {};
+const cache: Partial<Record<"auth" | "authIp" | "payout" | "submit" | "appeal" | "x" | "access" | "accessIp" | "admin" | "campaign" | "escrowPrepare" | "review", Limiter>> = {};
 /** Limiters are created on first use so importing this module never touches the environment. */
 export const limiters = {
   get auth(): Limiter {
     return (cache.auth ??= makeLimiter(10, 600));
+  },
+  /** Login attempts from one address, whatever the wallet: a fresh public key per request must not get past the limit. */
+  get authIp(): Limiter {
+    return (cache.authIp ??= makeLimiter(60, 600));
+  },
+  /** Approve, release and close, per session wallet: each call reads or writes the escrow. A full campaign is 49 payouts, two calls each. */
+  get payout(): Limiter {
+    return (cache.payout ??= makeLimiter(300, 600));
   },
   get submit(): Limiter {
     return (cache.submit ??= makeLimiter(5, 600));

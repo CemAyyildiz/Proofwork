@@ -8,5 +8,6 @@ export const runtime = "nodejs";
 
 export const POST = jsonRoute(z.object({ pubkey: pubkeySchema }), async ({ pubkey }, req) => {
   await enforce(limiters.auth, `challenge:${clientIp(req)}:${pubkey}`);
+  await enforce(limiters.authIp, `challenge:ip:${clientIp(req)}`);
   return issueChallenge(pubkey);
 });

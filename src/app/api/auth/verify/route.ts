@@ -15,6 +15,7 @@ const schema = z.object({
 
 export const POST = jsonRoute(schema, async (input, req) => {
   await enforce(limiters.auth, `verify:${clientIp(req)}:${input.pubkey}`);
+  await enforce(limiters.authIp, `verify:ip:${clientIp(req)}`);
   const { pubkey } = await consumeChallenge(input);
   await setSessionCookie(pubkey);
   return { pubkey, roles: [...(await rolesFor(pubkey, null))] };

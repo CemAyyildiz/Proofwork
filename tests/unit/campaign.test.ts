@@ -1130,6 +1130,14 @@ describe("caps and readiness through the routes and pages", () => {
     expect((await escrowCall(id, { action: "abandon" })).status).toBe(409);
   });
 
+  it("approve, release and close are limited per wallet: the 301st call in ten minutes answers 429", async () => {
+    const { id } = await created("50");
+    const statuses: number[] = [];
+    for (let i = 0; i < 301; i++) statuses.push((await payoutsCall(id, { action: "prepare", kind: "close" })).status);
+    expect(new Set(statuses.slice(0, 300))).not.toContain(429);
+    expect(statuses[300]).toBe(429);
+  });
+
   /** One rubric-passed submission `sub_1` on the campaign. */
   async function passedSubmission(campaignId: string): Promise<void> {
     await conn.insert(submissions).values({ id: "sub_1", shortId: "s1", campaignId, contributorPubkey: Keypair.random().publicKey(), workUrl: "https://x.com/a/status/1", status: "decided" });

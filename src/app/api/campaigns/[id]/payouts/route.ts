@@ -3,6 +3,7 @@ import { getEscrow } from "@/escrow";
 import { requireUser } from "@/lib/current-user";
 import { AppError } from "@/lib/errors";
 import { jsonRoute } from "@/lib/http";
+import { enforce, limiters } from "@/lib/ratelimit";
 import { canManageCampaign } from "@/services/access";
 import { getCampaignById } from "@/services/campaign";
 import { approveForPayout, confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp } from "@/services/payout";
@@ -32,6 +33,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   return jsonRoute(schema, async (input) => {
     const user = await requireUser(id);
+    await enforce(limiters.payout, `payout:${user.pubkey}`);
     const c = await getCampaignById(id);
     if (!c) throw AppError.notFound("campaign");
     const rewardAction = input.action === "approve" || (input.action === "prepare" && input.kind === "release") || (input.action === "submit" && input.kind === "release");
