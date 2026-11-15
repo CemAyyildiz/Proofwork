@@ -39,7 +39,7 @@ Built during the Stellar Instawards sprint, Stellar Türkiye chapter. **Testnet 
 |---|---|---|
 | 1 · Sep 2026 | Escrow and submission, review layer with on-chain decisions, one campaign run end to end by Proofwork | Delivered |
 | 2 · Oct 1 – Nov 1, 2026 | Campaigns run by other teams: funder access approved in the app, X account verification, multi-account warnings, rubric v2, team interviews, a pilot campaign | Built and live since 2026-10-21; pilot campaign with SubRosa on testnet being scheduled |
-| 3 | Campaigns on mainnet, run by Stellar teams | Planned |
+| 3 · Nov 2026 | Campaigns on mainnet, run by Stellar teams | In progress: the app now builds for testnet or mainnet from one setting ([Mainnet](#mainnet)); the live site moves once the Trustless Work mainnet key is issued |
 
 **Month 2 at a glance**
 
@@ -105,6 +105,7 @@ With `SEALED_DUAL_REVIEW_ENABLED=true`, a campaign funder or operator can assign
 - **The server prepares, the wallet signs.** The server builds every wallet-signed operation (deploy, fund, release, close). It accepts the signed envelope only if it hashes to exactly what was prepared, so the Trustless Work API key can never submit an arbitrary transaction.
 - **Money state comes from the chain.** Every escrow write moves from intent to submitted to confirmed under an idempotency key. It is confirmed only after the escrow is read back and shows the effect. Nothing is shown as paid because of a database write alone.
 - **Remainder return.** Trustless Work has no time-based auto-return. At the deadline the funder closes the campaign, which disputes the close milestone. The dispute resolver then signs `withdraw-remaining-funds`, with the escrow's funder as the only destination. The 0.3% protocol fee is taken here too.
+- **One decision per submission.** A decision is claimed in the database before it is committed, so two reviewers deciding at once produce one transaction. A commit whose database write was lost is finished from its own stored record, not made again from new input.
 - **Decision record.** Each decision is one classic Stellar transaction. The canonical JSON is stored with the decision and shown on `/verify/<id>`, and its SHA-256 is written on-chain as the memo hash.
 
 | Field | Content |
@@ -320,7 +321,7 @@ Website traffic, last 30 days to 2026-10-29 (Vercel Web Analytics): 77 visitors,
 
 ## Known limits
 
-- **Testnet only.** Testnet USDC has no value, and the server keys are sprint keys.
+- **The live site is still on testnet.** Testnet USDC has no value, and the server keys are sprint keys. Mainnet runs as its own deployment with its own keys and database ([Mainnet](#mainnet)).
 - **One release transaction per payout.** Trustless Work v1 builds one transaction per milestone, so N payouts need N funder signatures. v2 batch approve-and-release is on the roadmap.
 - **The close is manual.** The remainder returns only after the funder closes and the resolver signs. There is no timer. The 0.3% protocol fee also applies to the remainder.
 - **Small review sample.** One reviewer, and campaigns in the tens of submissions, so the review results are a first signal, not a fraud benchmark.
@@ -348,7 +349,7 @@ Requirements: Node.js 22, pnpm, Postgres, and a Trustless Work testnet API key.
 ```bash
 pnpm install
 cp .env.example .env          # fill in; every variable is described in the file
-pnpm keys:gen                 # testnet server keys → paste into .env
+pnpm keys:gen                 # testnet server keys → paste into .env (--mainnet: server keys only)
 pnpm accounts:prepare         # create the accounts on testnet, open USDC trustlines
 pnpm db:migrate
 pnpm dev
@@ -387,15 +388,33 @@ pnpm check                    # typecheck + lint + unit tests
 | Domain | [proofwork.online](https://proofwork.online) (`www` redirects to the apex) |
 | Database | Neon Postgres, with separate `main` and `preview` branches |
 | Rate limiting | Upstash Redis, one database per environment |
-| Chain | Stellar testnet (Horizon, Soroban RPC), Trustless Work `dev.api.trustlesswork.com` |
+| Chain | Stellar testnet (Horizon, Soroban RPC), Trustless Work `dev.api.trustlesswork.com`. A mainnet build uses `horizon.stellar.org` and `api.trustlesswork.com` |
 | X | `x.com` (authorize redirect) and `api.x.com` (token, account and post lookup), fixed in code |
 | CI | Typecheck, lint, unit tests, `pnpm audit`, repo hygiene and `next build` on every push and pull request |
 
-- **Environment.** Values are set only in the Vercel dashboard, per scope, and none has the `NEXT_PUBLIC_` prefix. `src/config/env.ts` validates them on first use. Preview and production use separate keys, session secrets, databases and Upstash instances. `FUNDER_SECRET` and `DISPUTE_RESOLVER_SECRET` are never set on Vercel: they stay on the machine of whoever holds them.
+- **Environment.** Values are set only in the Vercel dashboard, per scope. The only one with the `NEXT_PUBLIC_` prefix is `NEXT_PUBLIC_STELLAR_NETWORK`, the network name, which the browser needs to sign for the right network. `src/config/env.ts` validates them on first use. Preview and production use separate keys, session secrets, databases and Upstash instances. `FUNDER_SECRET` and `DISPUTE_RESOLVER_SECRET` are never set on Vercel: they stay on the machine of whoever holds them.
 - **X credentials** (`X_CLIENT_ID`, `X_CLIENT_SECRET`, `X_REDIRECT_URI`, `X_BEARER_TOKEN`) are set all together or not at all. Without them the app runs but takes no submissions.
 - **Funder caps.** `FUNDER_MAX_OPEN_CAMPAIGNS` (default 2) and `FUNDER_MAX_OPEN_BUDGET` (default 100 USDC).
 - **Migrations** are run by hand, never in the build: preview branch first, then production, before the deploy that needs them. They are written to stay backward compatible, so a Vercel Instant Rollback is always safe. Neon point-in-time restore is the recovery path for the database.
 - **On-chain state is never rolled back.** An escrow operation that was in flight is reconciled against the chain the next time it is prepared or submitted.
+
+### Mainnet
+
+One setting picks the network: `STELLAR_NETWORK` on the server and `NEXT_PUBLIC_STELLAR_NETWORK` in the build, which must agree or the server refuses to start. From it follow the network passphrase, Horizon, the USDC issuer (Circle's `GA5Z…KZVN` on mainnet), the Trustless Work host, the explorer links, the CSP and the wording on every page. A mainnet deployment refuses a testnet Horizon or Trustless Work host and any USDC issuer but Circle's.
+
+What a mainnet deployment needs, none of it shared with testnet:
+
+| What | How |
+|---|---|
+| Database | A new, empty Neon database. Testnet campaigns and their contract IDs mean nothing on mainnet |
+| Trustless Work key | A mainnet API key, requested from their dApp. A testnet key is refused by `api.trustlesswork.com` |
+| Server keys | `pnpm keys:gen --mainnet` prints the platform admin, platform ops and decision ledger keys and a session secret. Each account needs a few XLM to exist and pay network fees; none of them ever holds USDC |
+| Dispute resolver | Created in a wallet, never in an env file. Only its public key is configured (`DEFAULT_DISPUTE_RESOLVER_PUBKEY`); it signs the remainder return in the app |
+| Funder caps | `FUNDER_MAX_OPEN_CAMPAIGNS` and `FUNDER_MAX_OPEN_BUDGET`, set for real money. `/custody` shows the values in force |
+| Public funding sources | `PUBLIC_FUNDING_SOURCES`: exchange withdrawal wallets, so contributors who withdrew from the same exchange are not flagged as linked |
+| X callback | The mainnet host's `/api/x/callback`, registered on the X app |
+
+On mainnet there is no Friendbot and no faucet. A new wallet is shown how much XLM to send to itself, and the USDC trustline is still added in the app. `/custody` tells a team where its budget sits, which key can move it, and what it costs.
 
 ---
 
