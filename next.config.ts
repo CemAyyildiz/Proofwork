@@ -1,11 +1,16 @@
 import type { NextConfig } from "next";
+import { NETWORKS, parseNetwork } from "./src/config/network";
 
-const TESTNET_HOSTS = [
-  "https://horizon-testnet.stellar.org",
-  "https://soroban-testnet.stellar.org",
-  "https://dev.api.trustlesswork.com",
-  "https://friendbot.stellar.org",
-];
+/**
+ * Hosts the browser talks to, for the network this build is for: Horizon for
+ * wallet reads and trustlines, the Soroban RPC for sealed reviews. Friendbot
+ * exists on testnet only.
+ */
+const facts = NETWORKS[parseNetwork(process.env.NEXT_PUBLIC_STELLAR_NETWORK)];
+const STELLAR_HOSTS =
+  facts.network === "mainnet"
+    ? [facts.horizonUrl, "https://mainnet.sorobanrpc.com"]
+    : [facts.horizonUrl, "https://soroban-testnet.stellar.org", "https://dev.api.trustlesswork.com", "https://friendbot.stellar.org"];
 
 const csp = [
   "default-src 'self'",
@@ -16,7 +21,7 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self'",
-  `connect-src 'self' ${TESTNET_HOSTS.join(" ")} wss://*.walletconnect.com https://*.walletconnect.com`,
+  `connect-src 'self' ${STELLAR_HOSTS.join(" ")} wss://*.walletconnect.com https://*.walletconnect.com`,
   "frame-src 'self' https://*.walletconnect.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
