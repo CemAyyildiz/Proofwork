@@ -163,6 +163,27 @@ export const decisions = pgTable(
   (t) => [index("decision_submission_idx").on(t.submissionId)],
 );
 
+/**
+ * A decision that is on its way to the chain. Written before the ledger
+ * commit and removed in the same transaction that stores the decision, so one
+ * submission has at most one decision in flight, and a commit whose database
+ * write was lost is finished from this row instead of being made again from
+ * new input.
+ */
+export const decisionIntents = pgTable("decision_intent", {
+  submissionId: text("submission_id")
+    .primaryKey()
+    .references(() => submissions.id),
+  reviewerPubkey: text("reviewer_pubkey").notNull(),
+  /** The exact record that is committed; the decision row is built from it. */
+  canonicalJson: text("canonical_json").notNull(),
+  /** What is stored beside the record once it is on chain. */
+  input: jsonb("input")
+    .$type<{ note: string; appealOf: string | null; secondsTotal: number; secondsPerSignal: Record<string, number>; sharedFundingCount: number | null }>()
+    .notNull(),
+  createdAt: createdAt(),
+});
+
 export const payouts = pgTable(
   "payout",
   {

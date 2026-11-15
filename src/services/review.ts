@@ -1,14 +1,14 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNotNull, isNull, notExists, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, notExists, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Db } from "@/db/client";
-import { campaigns, decisions, payouts, reviewTimes, roleGrants, sealedReviews, submissions, type Decision, type Submission } from "@/db/schema";
+import { campaigns, decisionIntents, decisions, payouts, reviewTimes, roleGrants, sealedReviews, submissions, type Decision, type Submission } from "@/db/schema";
 import { publicFundingSources } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import { evaluate, reasonCodeSchema, RUBRIC_VERSION, SIGNALS, signalsSchema, validateReason, type SignalId } from "@/domain/rubric";
 import type { DecisionLedger } from "@/ledger/decision-ledger";
-import { rubricVersionOf, type DecisionRecord } from "@/ledger/canonical";
-import { AppError } from "@/lib/errors";
+import { canonicalJson, rubricVersionOf, type DecisionRecord } from "@/ledger/canonical";
+import { AppError, isUniqueViolation } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { canManageCampaign } from "./access";
@@ -132,12 +132,22 @@ export interface DecideAuthority {
   sealedReviewId?: string;
 }
 
+/** A decision in flight younger than this belongs to a request that is still running. */
+export const DECISION_IN_FLIGHT_MS = 2 * 60_000;
+
 /**
- * Records a decision and commits it on-chain in the same call. The chain
- * write comes first: if it fails, nothing is stored, the error is surfaced
- * (502) and the reviewer can record again. The decision row, its review time
- * and the submission's new status are written only once the on-chain
- * reference exists (AD-9).
+ * Records a decision and commits it on-chain in the same call. The record is
+ * first written as an intent, which only one request per submission can
+ * hold, then committed. If the chain write fails, the intent is removed,
+ * nothing else is stored, the error is surfaced (502) and the reviewer can
+ * record again. The decision row, its review time and the submission's new
+ * status are written together, and only once the on-chain reference exists
+ * (AD-9).
+ *
+ * An intent older than DECISION_IN_FLIGHT_MS is a commit whose database write
+ * never finished. Its transaction may be on chain, so the next call finishes
+ * that same record (a second commit of it writes the same key, value and
+ * memo) and returns it; the caller's own input is not recorded.
  *
  * The shared-funding count is the one the card rendered with, posted with the
  * decision and stored beside the review time as given: it is not recomputed
@@ -199,7 +209,7 @@ export async function decide(
   if (isAppeal && !prior) throw AppError.conflict("appealed submission has no prior decision");
   if (!isAppeal && prior) throw AppError.conflict("submission already decided");
 
-  const record: DecisionRecord = {
+  const fresh: DecisionRecord = {
     v: 2,
     rubric: RUBRIC_VERSION,
     submission: row.s.shortId,
@@ -211,38 +221,99 @@ export async function decide(
     appealOf: isAppeal ? (prior as Decision).decisionHash : null,
     decidedAt: new Date().toISOString(),
   };
-
-  const committed = await ledger.commit(record);
-
-  const id = newId("dec");
-  const [decision] = await conn
-    .insert(decisions)
-    .values({
-      id,
+  const intent = await claimDecision(
+    {
       submissionId: row.s.id,
       reviewerPubkey: actor.pubkey,
-      outcome,
-      reasonCode: input.reasonCode,
-      signals: input.signals,
-      note: input.note,
-      appealOf: isAppeal ? (prior as Decision).id : null,
-      canonicalJson: committed.canonicalJson,
-      decisionHash: committed.decisionHash,
-      ledgerKey: committed.ledgerKey,
-      txHash: committed.txHash,
-      decidedAt: new Date(record.decidedAt),
-    })
-    .returning();
-  await conn
-    .insert(reviewTimes)
-    .values({ decisionId: id, secondsTotal: input.secondsTotal, secondsPerSignal: input.secondsPerSignal, blind: true, sharedFundingCount: input.sharedFundingCount });
-  await conn
-    .update(submissions)
-    .set({ status: outcome === "PASS" ? "decided" : "rejected" })
-    .where(eq(submissions.id, row.s.id));
+      canonicalJson: canonicalJson(fresh),
+      input: {
+        note: input.note,
+        appealOf: isAppeal ? (prior as Decision).id : null,
+        secondsTotal: input.secondsTotal,
+        secondsPerSignal: input.secondsPerSignal,
+        sharedFundingCount: input.sharedFundingCount,
+      },
+    },
+    conn,
+  );
+  // The intent's record, not `fresh`: for a resumed intent they differ, and the stored one is what may be on chain.
+  const record = JSON.parse(intent.canonicalJson) as DecisionRecord;
 
-  log.info("decision recorded", { decisionId: id, submission: row.s.shortId, outcome, txHash: committed.txHash, appeal: isAppeal });
+  let committed;
+  try {
+    committed = await ledger.commit(record);
+  } catch (e) {
+    // Nothing reached the chain as far as the ledger can tell: free the submission for another attempt.
+    await conn
+      .delete(decisionIntents)
+      .where(and(eq(decisionIntents.submissionId, row.s.id), eq(decisionIntents.canonicalJson, intent.canonicalJson)))
+      .catch((cause: unknown) => log.error("decision intent not removed after a failed commit", { submission: row.s.shortId, err: String(cause) }));
+    throw e;
+  }
+
+  const id = newId("dec");
+  const decision = await conn.transaction(async (tx) => {
+    const [stored] = await tx
+      .insert(decisions)
+      .values({
+        id,
+        submissionId: row.s.id,
+        reviewerPubkey: record.reviewer,
+        outcome: record.outcome,
+        reasonCode: record.reason,
+        signals: record.signals,
+        note: intent.input.note,
+        appealOf: intent.input.appealOf,
+        canonicalJson: committed.canonicalJson,
+        decisionHash: committed.decisionHash,
+        ledgerKey: committed.ledgerKey,
+        txHash: committed.txHash,
+        decidedAt: new Date(record.decidedAt),
+      })
+      .returning();
+    await tx.insert(reviewTimes).values({
+      decisionId: id,
+      secondsTotal: intent.input.secondsTotal,
+      secondsPerSignal: intent.input.secondsPerSignal,
+      blind: true,
+      sharedFundingCount: intent.input.sharedFundingCount,
+    });
+    await tx
+      .update(submissions)
+      .set({ status: record.outcome === "PASS" ? "decided" : "rejected" })
+      .where(eq(submissions.id, row.s.id));
+    await tx.delete(decisionIntents).where(eq(decisionIntents.submissionId, row.s.id));
+    return stored;
+  });
+
+  log.info("decision recorded", { decisionId: id, submission: row.s.shortId, outcome: record.outcome, txHash: committed.txHash, appeal: isAppeal });
   return decision as Decision;
+}
+
+type DecisionIntent = typeof decisionIntents.$inferSelect;
+
+/**
+ * Takes the one in-flight slot of a submission. A slot held by a request that
+ * is still running is refused; a slot left behind by one that never finished
+ * is handed over as it was written, with a new timestamp so only one caller
+ * resumes it.
+ */
+async function claimDecision(values: Omit<DecisionIntent, "createdAt">, conn: Db): Promise<DecisionIntent> {
+  try {
+    const [row] = await conn.insert(decisionIntents).values(values).returning();
+    return row as DecisionIntent;
+  } catch (e) {
+    if (!isUniqueViolation(e)) throw e;
+  }
+  const staleBefore = new Date(Date.now() - DECISION_IN_FLIGHT_MS);
+  const [resumed] = await conn
+    .update(decisionIntents)
+    .set({ createdAt: new Date() })
+    .where(and(eq(decisionIntents.submissionId, values.submissionId), lt(decisionIntents.createdAt, staleBefore)))
+    .returning();
+  if (!resumed) throw AppError.conflict("a decision for this submission is being recorded; try again in a moment");
+  log.warn("resuming a decision whose commit never finished", { submissionId: values.submissionId, reviewer: resumed.reviewerPubkey });
+  return resumed;
 }
 
 /** Contributor asks for the one re-review the SOW allows. */
