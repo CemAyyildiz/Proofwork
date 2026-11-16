@@ -307,3 +307,18 @@ html:has(.v3) ::selection {
   background-color: var(--brand);
   color: var(--foreground);
 }
+
+/* /lab drafts: no grain overlay, and a payout ticker that scrolls one copy of its content. */
+html:has(.lab) body::after {
+  display: none;
+}
+
+@keyframes lab-marquee {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.lab-marquee {
+  animation: lab-marquee 40s linear infinite;
+}
