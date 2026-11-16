@@ -25,6 +25,7 @@ import { getEscrow } from "@/escrow";
 import { currentUser } from "@/lib/current-user";
 import { formatDateShort, formatUsdc, truncateMiddle } from "@/lib/format";
 import { log } from "@/lib/logger";
+import { campaignFacts } from "@/services/public-directory";
 import { mySubmission, type MySubmission, type PublicCampaign } from "@/services/submission";
 import { xAccountFor } from "@/services/x-account";
 
@@ -86,94 +87,101 @@ export default async function ContributorCampaignPage({
   const xOutcome = xOutcomeSchema.safeParse((await searchParams).x);
   const notice = submitting ? xNotice(xOutcome.success ? xOutcome.data : null, { signedIn: user !== null, connected: xConnected }) : null;
 
-  return (
-    <div className="mx-auto max-w-[1180px] pb-24 pt-4 md:pt-6">
-      <div className="grid items-end gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:gap-12">
-        <div>
-          <div style={rise(0).style} className={cx("flex flex-wrap items-center gap-2.5", rise(0).className)}>
-            <Pill tone={pill.tone}>{pill.label}</Pill>
-            <Eyebrow as="span">Bounty campaign</Eyebrow>
-          </div>
-          <h1
-            style={rise(1).style}
-            className={cx(
-              "mt-5 text-[clamp(40px,5.4vw,76px)] font-semibold leading-[0.96] tracking-[-0.05em] [overflow-wrap:anywhere]",
-              rise(1).className,
-            )}
-          >
-            {c.title}
-          </h1>
-          <dl style={rise(2).style} className={cx("mt-7 flex flex-wrap gap-x-7 gap-y-4", rise(2).className)}>
-            <Meta label="Reward">
-              <span className="text-accent">{formatUsdc(c.rewardAmount)}</span>
-              {publicEnv.isMainnet ? null : (
-                <span className="ml-2 align-middle font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted">testnet</span>
-              )}
-            </Meta>
-            {stage === "open" ? (
-              <Meta label="Closes in">
-                <Countdown deadlineAt={c.deadlineAt.toISOString()} fallback={formatDateShort(c.deadlineAt)} />
-              </Meta>
-            ) : stage === "unfunded" ? (
-              <Meta label="Opens when funded">
-                <span className="text-text-2">closes {formatDateShort(c.deadlineAt)}</span>
-              </Meta>
-            ) : stage === "ended" ? (
-              <Meta label="Ended">{formatDateShort(c.deadlineAt)}</Meta>
-            ) : (
-              <Meta label="Closed">{formatDateShort(c.closedAt ?? c.deadlineAt)}</Meta>
-            )}
-            <Meta label="Reviewed by">a person</Meta>
-          </dl>
-          {stage === "open" ? (
-            <p style={rise(2).style} className={cx("mt-3 text-[13px] text-muted", rise(2).className)}>
-              Per approved submission, net of the 0.3% protocol fee.{" "}
-              {publicEnv.isMainnet ? "Paid in USDC on Stellar mainnet." : "Testnet USDC, not real money."} Closes{" "}
-              {formatDateShort(c.deadlineAt)}.
-            </p>
-          ) : null}
-        </div>
-        <div style={rise(3).style} className={rise(3).className}>
-          {c.escrowContractId ? (
-            <Suspense fallback={<EscrowCard contractId={c.escrowContractId} balance={null} loading budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />}>
-              <LiveEscrowCard slug={slug} contractId={c.escrowContractId} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
-            </Suspense>
-          ) : (
-            <EscrowCard contractId={null} balance={null} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
-          )}
-        </div>
-      </div>
+  const facts = await campaignFacts(c.id);
 
-      <div className="mt-12 grid items-start gap-10 lg:mt-[72px] lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-12">
-        <aside id="submit" className="scroll-mt-24 lg:sticky lg:top-24 lg:col-start-2 lg:row-start-1" aria-label="Your submission">
-          <Card style={rise(4).style} className={cx("p-6", rise(4).className)}>
-            <SubmissionPanel c={c} stage={stage} signedIn={user !== null} pubkey={user?.pubkey ?? null} mine={mine} xConnected={xConnected} xAvailable={xAvailable} xNote={notice} />
+  return (
+    <div className="mx-auto max-w-[1180px] pb-24 pt-2 md:pt-4">
+      <Link href="/explore" className="inline-flex min-h-9 items-center gap-1.5 rounded-sm font-mono text-[12px] text-muted hover:text-text">
+        <span aria-hidden="true">←</span> All bounties
+      </Link>
+      <header style={rise(0).style} className={cx("mt-3 border-b border-line pb-7", rise(0).className)}>
+        <h1 className="max-w-[900px] text-[clamp(30px,3.6vw,46px)] font-semibold leading-[1.04] tracking-[-0.045em] [overflow-wrap:anywhere]">{c.title}</h1>
+        <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px] text-muted">
+          <Pill tone={pill.tone}>{pill.label}</Pill>
+          {facts.team ? (
+            <span>
+              by <span className="font-medium text-text-2">{facts.team}</span>
+            </span>
+          ) : null}
+          <span className="font-mono">
+            {facts.submissions} {facts.submissions === 1 ? "submission" : "submissions"}
+          </span>
+          {facts.paid > 0 ? <span className="font-mono text-pass">{facts.paid} paid</span> : null}
+          <span>Reviewed by a person</span>
+        </p>
+      </header>
+
+      <div className="mt-8 grid items-start gap-x-12 gap-y-10 lg:grid-cols-[400px_minmax(0,1fr)]">
+        <aside id="submit" className="scroll-mt-24 grid gap-4 lg:sticky lg:top-24" aria-label="Reward and your submission">
+          <Card style={rise(1).style} className={cx("overflow-hidden", rise(1).className)}>
+            <div className="border-b border-line p-6">
+              <Eyebrow className="text-[11px]">Reward</Eyebrow>
+              <p className="mt-2 flex items-baseline gap-2.5">
+                <span className="font-mono text-[34px] font-medium leading-none tracking-[-0.04em] text-accent">{formatUsdc(c.rewardAmount)}</span>
+                {publicEnv.isMainnet ? null : (
+                  <span className="font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-muted">testnet</span>
+                )}
+              </p>
+              <p className="mt-2 text-[12.5px] leading-normal text-muted">
+                Per approved submission, net of the 0.3% protocol fee.{" "}
+                {publicEnv.isMainnet ? "Paid in USDC on Stellar mainnet." : "Testnet USDC, not real money."}
+              </p>
+              <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5">
+                {stage === "open" ? (
+                  <Meta label="Closes in">
+                    <Countdown deadlineAt={c.deadlineAt.toISOString()} fallback={formatDateShort(c.deadlineAt)} />
+                  </Meta>
+                ) : stage === "unfunded" ? (
+                  <Meta label="Opens when funded">
+                    <span className="text-text-2">closes {formatDateShort(c.deadlineAt)}</span>
+                  </Meta>
+                ) : stage === "ended" ? (
+                  <Meta label="Ended">{formatDateShort(c.deadlineAt)}</Meta>
+                ) : (
+                  <Meta label="Closed">{formatDateShort(c.closedAt ?? c.deadlineAt)}</Meta>
+                )}
+                <Meta label="Budget">{formatUsdc(c.budget)}</Meta>
+              </dl>
+            </div>
+            <div className="p-6">
+              <SubmissionPanel c={c} stage={stage} signedIn={user !== null} pubkey={user?.pubkey ?? null} mine={mine} xConnected={xConnected} xAvailable={xAvailable} xNote={notice} />
+            </div>
           </Card>
+          <div style={rise(2).style} className={rise(2).className}>
+            {c.escrowContractId ? (
+              <Suspense fallback={<EscrowCard contractId={c.escrowContractId} balance={null} loading budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />}>
+                <LiveEscrowCard slug={slug} contractId={c.escrowContractId} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
+              </Suspense>
+            ) : (
+              <EscrowCard contractId={null} balance={null} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
+            )}
+          </div>
         </aside>
 
-        <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+        <div style={rise(2).style} className={cx("min-w-0", rise(2).className)}>
           <section>
             <Eyebrow>The task</Eyebrow>
-            <h2 className="mt-3 text-[28px] font-semibold tracking-[-0.04em]">What to do</h2>
-            <p className="mt-4 max-w-[620px] whitespace-pre-wrap text-lg leading-[1.65] text-text-2 [overflow-wrap:anywhere]">{c.brief}</p>
+            <p className="mt-4 max-w-[680px] whitespace-pre-wrap text-[17px] leading-[1.7] text-text-2 [overflow-wrap:anywhere]">{c.brief}</p>
           </section>
-          <section className="mt-14">
+          <section className="mt-12 border-t border-line pt-10">
             <Eyebrow>How you&apos;re reviewed</Eyebrow>
-            <h2 className="mt-3 text-[28px] font-semibold tracking-[-0.04em]">Six yes/no signals</h2>
-            <ol className="mt-5 grid gap-2.5 sm:grid-cols-2">
+            <h2 className="mt-3 text-[22px] font-semibold tracking-[-0.03em]">
+              Six yes/no signals.{" "}
+              <span className="text-muted">
+                {PASS_THRESHOLD} of {SIGNALS.length} passes.
+              </span>
+            </h2>
+            <ol className="mt-5 max-w-[680px] border-t border-line">
               {SIGNALS.map((s, i) => (
-                <li key={s.id} className="rounded-lg border border-dashed border-line-strong px-[18px] py-4 text-[15px]">
-                  <span className="block font-mono text-[11px] font-medium tracking-[0.1em] text-muted">{String(i + 1).padStart(2, "0")}</span>
+                <li key={s.id} className="grid grid-cols-[34px_1fr] items-baseline border-b border-line py-3.5 text-[15px]">
+                  <span className="font-mono text-[11px] font-medium tracking-[0.1em] text-muted">{String(i + 1).padStart(2, "0")}</span>
                   {s.label}
                 </li>
               ))}
             </ol>
-            <p className="mt-3.5 text-sm text-muted">
-              <b className="font-medium text-text-2">
-                {PASS_THRESHOLD} of {SIGNALS.length} passes.
-              </b>{" "}
-              A person makes the call, the decision and its reason are written to Stellar, and you can request one re-review if
-              you disagree. The funder gives final approval.
+            <p className="mt-4 max-w-[680px] text-sm leading-normal text-muted">
+              A person makes the call, the decision and its reason are written to Stellar, and you can request one re-review if you
+              disagree. The funder gives final approval.
             </p>
           </section>
         </div>
@@ -216,8 +224,8 @@ async function LiveEscrowCard({
 function Meta({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
-      <dt className="text-[13px] text-muted">{label}</dt>
-      <dd className="mt-1.5 text-[26px] font-semibold tracking-[-0.03em]">{children}</dd>
+      <dt className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted">{label}</dt>
+      <dd className="mt-1.5 font-mono text-[15px] font-medium tracking-[-0.01em]">{children}</dd>
     </div>
   );
 }

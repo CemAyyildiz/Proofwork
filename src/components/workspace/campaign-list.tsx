@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Card } from "@/components/ui/card";
 import type { Campaign } from "@/db/schema";
 import { campaignStage, nextStep, type CampaignStage, type SubmissionCounts } from "@/domain/campaign-status";
 import { formatUsdc } from "@/lib/format";
@@ -39,13 +38,13 @@ export function CampaignList({ items, now }: { items: readonly CampaignListItem[
   return (
     <div className="space-y-8">
       {groupByStage(items, now).map((g) => (
-        <section key={g.stage} className="space-y-3" aria-label={stageLabel(g.stage)}>
-          <h2 className="text-[15px] font-semibold tracking-[-0.01em]">
-            {stageLabel(g.stage)} <span className="ml-1 font-mono text-[12px] font-medium text-muted">{g.items.length}</span>
+        <section key={g.stage} aria-label={stageLabel(g.stage)}>
+          <h2 className="flex items-center gap-2.5 pb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted">
+            {stageLabel(g.stage)} <span className="rounded-full border border-line-strong px-2 py-px text-[10.5px] tracking-normal">{g.items.length}</span>
           </h2>
-          <ul className="grid grid-cols-[minmax(0,1fr)] gap-3">
+          <ul className="border-t border-line">
             {g.items.map((item) => (
-              <li key={item.campaign.id}>
+              <li key={item.campaign.id} className="border-b border-line">
                 <CampaignRow item={item} stage={g.stage} now={now} />
               </li>
             ))}
@@ -70,25 +69,31 @@ function CampaignRow({ item, stage, now }: { item: CampaignListItem; stage: Camp
   ].filter((s): s is string => s !== null);
 
   return (
-    <Link href={`/campaigns/${c.slug}`} className="group block rounded-xl">
-      <Card className="grid grid-cols-[minmax(0,1fr)] gap-4 p-5 transition-colors duration-200 group-hover:border-line-strong md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] md:items-center">
-        <div className="min-w-0">
-          <StagePill stage={stage} />
-          <h3 className="mt-3 text-lg font-semibold leading-snug tracking-[-0.02em] [overflow-wrap:anywhere]">{c.title}</h3>
-          <p className="mt-1 font-mono text-[12px] text-muted">{dateLine(c, stage, now)}</p>
+    <Link
+      href={`/campaigns/${c.slug}`}
+      className="group -mx-3 grid grid-cols-[minmax(0,1fr)] items-center gap-x-8 gap-y-3 rounded-lg px-3 py-4 transition-colors duration-150 hover:bg-white/3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.9fr)]"
+    >
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          {/* The stage is read before the title; it is shown after it. */}
+          <span className="order-2">
+            <StagePill stage={stage} />
+          </span>
+          <h3 className="order-1 text-[16px] font-semibold leading-snug tracking-[-0.02em] [overflow-wrap:anywhere]">{c.title}</h3>
         </div>
-        <div className="min-w-0 space-y-2">
-          <p className="text-[13px] text-text-2">
-            <span className="font-medium text-text">{formatUsdc(c.budget)}</span> budget ·{" "}
-            <span className="font-medium text-text">{formatUsdc(c.rewardAmount)}</span> per pass
-          </p>
-          {c.fundedAt ? <p className="text-[12px] text-muted">{tally.join(" · ")}</p> : null}
-          <p className="text-[13px] text-text-2">
-            <span className="text-muted">Next:</span> <span className="font-semibold text-text">{title}</span>
-            {step.owner ? <span className="text-muted"> · {OWNER_LABEL[step.owner]}</span> : null}
-          </p>
-        </div>
-      </Card>
+        <p className="mt-1.5 font-mono text-[12px] text-muted">{dateLine(c, stage, now)}</p>
+      </div>
+      <div className="min-w-0">
+        <p className="font-mono text-[12.5px] text-text-2">
+          <span className="font-medium text-text">{formatUsdc(c.budget)}</span> budget ·{" "}
+          <span className="font-medium text-text">{formatUsdc(c.rewardAmount)}</span> per pass
+        </p>
+        {c.fundedAt ? <p className="mt-1.5 text-[12px] leading-snug text-muted">{tally.join(" · ")}</p> : null}
+      </div>
+      <p className="min-w-0 text-[13px] text-text-2 md:text-right">
+        <span className="text-muted">Next:</span> <span className="font-semibold text-text group-hover:text-accent">{title}</span>
+        {step.owner ? <span className="text-muted"> · {OWNER_LABEL[step.owner]}</span> : null}
+      </p>
     </Link>
   );
 }

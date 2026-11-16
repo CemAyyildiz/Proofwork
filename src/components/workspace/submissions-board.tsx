@@ -275,7 +275,7 @@ function Row({ r, selectable, selected, onToggle, disabled }: { r: BoardRow; sel
 
   return (
     <tr className={cx("grid grid-cols-[44px_minmax(0,1fr)] border-b border-line align-top last:border-b-0 md:table-row", selected && "bg-white/3")}>
-      <td className="row-span-4 px-3 py-3.5">
+      <td className="row-span-4 px-3 py-2.5">
         {selectable ? (
           <input
             type="checkbox"
@@ -287,35 +287,33 @@ function Row({ r, selectable, selected, onToggle, disabled }: { r: BoardRow; sel
           />
         ) : null}
       </td>
-      <td className="px-3 pt-3.5 md:py-3.5">
+      <td className="px-3 pt-2.5 md:py-2.5">
         <a href={r.workUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-mono text-[13px] font-medium text-text hover:underline">
           {r.shortId} <span aria-hidden="true" className="text-muted">↗</span>
           <span className="sr-only">(opens the post on X)</span>
         </a>
-        <p className="mt-1 text-[12px] text-muted">{r.submitted}</p>
+        <p className="mt-0.5 text-[12px] text-muted">{r.submitted}</p>
       </td>
-      <td className="px-3 pt-2 md:py-3.5">
+      <td className="px-3 pt-2 md:py-2.5">
         <HashChip value={r.contributor} head={4} tail={4} href={publicEnv.explorerAccountUrl(r.contributor)} />
       </td>
-      <td className="px-3 pt-2 md:max-w-[360px] md:py-3.5">
-        <div className="flex flex-wrap items-center gap-2">
+      <td className="px-3 pt-2 md:max-w-[380px] md:py-2.5">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <Pill tone={review.tone}>{review.label}</Pill>
           {reason ? <span className="font-mono text-[12px] text-text-2">{reason}</span> : null}
+          {r.decisionId ? (
+            <Link href={`/verify/${r.decisionId}`} className="inline-flex min-h-[26px] items-center text-[12px] font-medium text-text-2 hover:text-text hover:underline">
+              Verify decision →
+            </Link>
+          ) : null}
         </div>
-        {r.note && r.status !== "pending" ? <p className="mt-1.5 line-clamp-2 text-[12.5px] leading-snug text-muted [overflow-wrap:anywhere]">{r.note}</p> : null}
-        {r.decisionId ? (
-          <Link href={`/verify/${r.decisionId}`} className="mt-1 inline-flex min-h-8 items-center text-[12px] font-medium text-text-2 hover:text-text hover:underline">
-            Verify decision →
-          </Link>
-        ) : null}
+        {r.note && r.status !== "pending" ? <p className="mt-1 line-clamp-1 text-[12.5px] leading-snug text-muted [overflow-wrap:anywhere]">{r.note}</p> : null}
       </td>
-      <td className="px-3 pb-3.5 pt-2 md:py-3.5">
-        {payout ? <Pill tone={payout.tone}>{payout.label}</Pill> : <span className="text-[12px] text-faint">—</span>}
-        {r.releaseTxHash ? (
-          <div className="mt-2">
-            <HashChip value={r.releaseTxHash} href={publicEnv.explorerTxUrl(r.releaseTxHash)} />
-          </div>
-        ) : null}
+      <td className="px-3 pb-2.5 pt-2 md:py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          {payout ? <Pill tone={payout.tone}>{payout.label}</Pill> : <span className="text-[12px] text-faint">—</span>}
+          {r.releaseTxHash ? <HashChip value={r.releaseTxHash} head={6} tail={4} href={publicEnv.explorerTxUrl(r.releaseTxHash)} /> : null}
+        </div>
       </td>
     </tr>
   );

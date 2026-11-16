@@ -12,7 +12,9 @@ import { cx } from "@/components/ui/cx";
 import { LogoMark } from "@/components/ui/logo";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
 import { currentUser } from "@/lib/current-user";
-import { truncateMiddle } from "@/lib/format";
+import { formatUsdc, truncateMiddle } from "@/lib/format";
+import { log } from "@/lib/logger";
+import { publicTotals } from "@/services/public-directory";
 import { publicEnv } from "@/config/public-env";
 
 export const dynamic = "force-dynamic";
@@ -96,8 +98,23 @@ const FACTS: ReadonlyArray<{ value: number; label: string; accent?: boolean }> =
   { value: 0, label: "funds held by Proofwork", accent: true },
 ];
 
+/** One live figure of the strip under the hero: read from the database on each request, never typed in. */
+function LiveStat({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="border-line px-1 py-5 md:border-r md:px-6 md:first:pl-1">
+      <dt className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-muted">{label}</dt>
+      <dd className={cx("mt-2 font-mono text-[22px] font-medium tracking-[-0.03em]", accent ? "text-accent" : "text-text")}>{value}</dd>
+    </div>
+  );
+}
+
 export default async function Home() {
   const user = await currentUser();
+  // The landing page must render without the database: the strip is left out when the totals cannot be read.
+  const totals = await publicTotals().catch((e: unknown) => {
+    log.warn("landing totals not read", { err: e instanceof Error ? e.message : String(e) });
+    return null;
+  });
   const cta = user?.roles.has("funder") ? (
     <Magnetic>
       <Link href="/campaigns" className={buttonClasses("primary")}>
@@ -204,6 +221,20 @@ export default async function Home() {
             ))}
           </div>
         </div>
+
+        {totals && totals.payouts > 0 ? (
+          <dl aria-label="Proofwork so far" className="grid grid-cols-2 border-b border-line md:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
+            <LiveStat label="Paid to contributors" value={formatUsdc(totals.paidAmount)} accent />
+            <LiveStat label="Payouts released" value={String(totals.payouts)} />
+            <LiveStat label="Decisions on-chain" value={String(totals.decisions)} />
+            <LiveStat label="Campaigns funded" value={String(totals.campaigns)} />
+            <div className="col-span-2 flex items-center px-1 py-5 md:col-span-1 md:justify-end md:pl-8">
+              <Link href="/explore" className="rounded-sm font-mono text-[12.5px] text-text-2 hover:text-accent">
+                See open bounties <span aria-hidden="true">→</span>
+              </Link>
+            </div>
+          </dl>
+        ) : null}
       </header>
 
       {/* Statement */}
