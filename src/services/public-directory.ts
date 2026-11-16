@@ -90,3 +90,34 @@ export async function campaignFacts(campaignId: string, conn: Db = db): Promise<
     .limit(1);
   return { team: team?.team ?? null, submissions: counts?.total ?? 0, paid: counts?.paid ?? 0 };
 }
+
+export interface CampaignPayout {
+  shortId: string;
+  amount: string;
+  releaseTxHash: string;
+  releasedAt: Date;
+  decisionId: string | null;
+}
+
+/** Released payouts of one campaign, newest first, each with the decision that passed it. */
+export async function campaignPayouts(campaignId: string, conn: Db = db): Promise<CampaignPayout[]> {
+  const rows = await conn
+    .select({ submissionId: submissions.id, shortId: submissions.shortId, amount: payouts.amount, releaseTxHash: payouts.releaseTxHash, releasedAt: payouts.releasedAt })
+    .from(payouts)
+    .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
+    .where(and(eq(submissions.campaignId, campaignId), eq(payouts.status, "released"), isNotNull(payouts.releaseTxHash), isNotNull(payouts.releasedAt)))
+    .orderBy(desc(payouts.releasedAt));
+  if (rows.length === 0) return [];
+  const passed = await conn
+    .select({ id: decisions.id, submissionId: decisions.submissionId })
+    .from(decisions)
+    .where(and(inArray(decisions.submissionId, rows.map((r) => r.submissionId)), eq(decisions.outcome, "PASS")))
+    .orderBy(desc(decisions.decidedAt));
+  const decisionOf = new Map<string, string>();
+  for (const d of passed) if (!decisionOf.has(d.submissionId)) decisionOf.set(d.submissionId, d.id);
+  return rows.flatMap((r) =>
+    r.releaseTxHash && r.releasedAt
+      ? [{ shortId: r.shortId, amount: r.amount, releaseTxHash: r.releaseTxHash, releasedAt: r.releasedAt, decisionId: decisionOf.get(r.submissionId) ?? null }]
+      : [],
+  );
+}
