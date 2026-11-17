@@ -86,9 +86,9 @@ export function FundingReadinessPanel({
   const locked = busy !== null || checking;
 
   return (
-    <div className="max-w-[640px] rounded-[14px] border border-line-strong bg-sunken p-4" aria-live="polite">
+    <div className="max-w-[680px] rounded-[22px] bg-white/[0.03] p-5" aria-live="polite">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-[14px] font-semibold">Wallet readiness</h3>
+        <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/55">Wallet readiness</h3>
         {readiness.status === "ready" ? (
           <Pill tone="pass">Ready</Pill>
         ) : readiness.status === "not-ready" ? (
@@ -99,29 +99,32 @@ export function FundingReadinessPanel({
       </div>
 
       {readiness.status === "ready" ? (
-        <p className="mt-2 text-[13.5px] leading-normal text-text-2">
+        <p className="mt-3 text-[14px] leading-relaxed text-white/70">
           This wallet can {what}: {readiness.usdc} USDC to spend and {readiness.xlm} XLM free for network fees.
         </p>
       ) : readiness.status === "unchecked" ? (
-        <p className="mt-2 text-[13.5px] leading-normal text-text-2">
+        <p className="mt-3 text-[14px] leading-relaxed text-white/70">
           {publicEnv.networkName} didn&apos;t answer, so this wallet hasn&apos;t been checked.{" "}
           {fundSent ? "Try again in a moment." : "Deploy and fund stay off until it has. Try again in a moment."}
         </p>
       ) : (
         <>
-          <p className="mt-2 text-[13.5px] leading-normal text-text-2">This wallet can&apos;t {what} yet. What is missing:</p>
-          <ul className="mt-3 grid gap-3">
-            {readiness.missing.map((m) => (
-              <li key={m.item} className="text-[13.5px] leading-normal text-text">
+          <p className="mt-3 text-[14px] leading-relaxed text-white/70">This wallet can&apos;t {what} yet. What is missing:</p>
+          <ol className="mt-4 grid gap-3">
+            {readiness.missing.map((m, i) => (
+              <li key={m.item} className="relative rounded-[16px] border border-white/[0.07] bg-[#0b0b0b] py-3.5 pl-12 pr-4 text-[13.5px] leading-relaxed text-text">
+                <span aria-hidden="true" className="absolute left-4 top-3.5 grid size-5 place-items-center rounded-full border border-fail-line font-mono text-[10px] text-fail">
+                  {i + 1}
+                </span>
                 {describeMissing(m, publicEnv.network)}
                 {publicEnv.isMainnet && m.item !== "trustline" ? null : m.item === "account" ? (
-                  <div className="mt-2">
+                  <div className="mt-2.5">
                     <Button size="sm" busy={busy === "activate"} busyLabel="Activating on testnet…" disabled={locked} onClick={() => void activate()}>
                       Activate testnet account
                     </Button>
                   </div>
                 ) : m.item === "trustline" ? (
-                  <div className="mt-2">
+                  <div className="mt-2.5">
                     <Button
                       size="sm"
                       busy={busy === "trustline"}
@@ -134,32 +137,32 @@ export function FundingReadinessPanel({
                   </div>
                 ) : m.item === "usdc" ? (
                   <div className="mt-1">
-                    <a className="font-medium text-accent hover:underline" href={USDC_FAUCET_URL} target="_blank" rel="noreferrer">
+                    <a className="font-semibold text-accent underline-offset-4 hover:underline" href={USDC_FAUCET_URL} target="_blank" rel="noreferrer">
                       Open Circle&apos;s faucet ↗
                     </a>
                   </div>
                 ) : null}
               </li>
             ))}
-          </ul>
+          </ol>
         </>
       )}
 
       {fundSent && readiness.status !== "ready" ? (
-        <p className="mt-3 text-[12.5px] leading-normal text-text-2">
+        <p className="mt-3 text-[12.5px] leading-relaxed text-white/60">
           A fund transaction was already sent for this campaign, so the Fund budget button stays on. Pressing it reads the escrow
           first: if the budget is there, the campaign is marked funded and nothing new is built or signed. That is also why this
           wallet may read as short of USDC.
         </p>
       ) : null}
-      {cancelled ? <p className="mt-3 text-[12.5px] text-muted">Signature cancelled in your wallet. Nothing was sent.</p> : null}
+      {cancelled ? <p className="mt-3 text-[12.5px] text-white/50">Signature cancelled in your wallet. Nothing was sent.</p> : null}
       {error ? (
         <p role="alert" className="mt-3 text-[12.5px] text-fail">
           {error}
         </p>
       ) : null}
 
-      <Button variant="secondary" size="sm" className="mt-3" busy={checking} busyLabel="Checking…" disabled={busy !== null} onClick={recheck}>
+      <Button variant="secondary" size="sm" className="mt-4" busy={checking} busyLabel="Checking…" disabled={busy !== null} onClick={recheck}>
         {readiness.status === "unchecked" ? "Retry" : "Check again"}
       </Button>
     </div>

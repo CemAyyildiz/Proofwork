@@ -1,26 +1,47 @@
-import { Pill, type PillTone } from "@/components/ui/pill";
+import { cx } from "@/components/ui/cx";
 import type { Campaign } from "@/db/schema";
 import { deadlinePassed, type CampaignStage, type CloseBlocker, type NextStep, type StepOwner } from "@/domain/campaign-status";
 import { formatDateShort, formatRelative, formatUsdc } from "@/lib/format";
 
-const STAGE: Record<CampaignStage, { tone: PillTone; label: string }> = {
-  draft: { tone: "wait", label: "Draft" },
-  awaiting_funding: { tone: "wait", label: "Awaiting funding" },
-  open: { tone: "pass", label: "Open" },
-  reviewing_and_paying: { tone: "chain", label: "Reviewing and paying" },
-  ready_to_close: { tone: "chain", label: "Ready to close" },
-  closed_awaiting_return: { tone: "wait", label: "Closed, awaiting return" },
-  settled: { tone: "pass", label: "Settled" },
-  abandoned: { tone: "wait", label: "Abandoned" },
+type StageTone = "live" | "money" | "done" | "idle";
+
+const STAGE: Record<CampaignStage, { tone: StageTone; label: string }> = {
+  draft: { tone: "idle", label: "Draft" },
+  awaiting_funding: { tone: "idle", label: "Awaiting funding" },
+  open: { tone: "live", label: "Open" },
+  reviewing_and_paying: { tone: "money", label: "Reviewing and paying" },
+  ready_to_close: { tone: "money", label: "Ready to close" },
+  closed_awaiting_return: { tone: "idle", label: "Closed, awaiting return" },
+  settled: { tone: "done", label: "Settled" },
+  abandoned: { tone: "idle", label: "Abandoned" },
+};
+
+const TONE: Record<StageTone, string> = {
+  live: "bg-accent text-accent-ink",
+  money: "border border-accent/60 text-accent",
+  done: "border border-pass-line text-pass",
+  idle: "bg-white/[0.08] text-white/70",
 };
 
 export function stageLabel(stage: CampaignStage): string {
   return STAGE[stage].label;
 }
 
-export function StagePill({ stage }: { stage: CampaignStage }) {
+/** The stage as a word in a pill, dot first: status is never carried by colour alone. */
+export function StagePill({ stage, className }: { stage: CampaignStage; className?: string }) {
   const s = STAGE[stage];
-  return <Pill tone={s.tone}>{s.label}</Pill>;
+  return (
+    <span
+      className={cx(
+        "inline-flex h-[26px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 font-mono text-[11px] font-semibold uppercase tracking-[0.12em]",
+        TONE[s.tone],
+        className,
+      )}
+    >
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+      {s.label}
+    </span>
+  );
 }
 
 export const OWNER_LABEL: Record<StepOwner, string> = {

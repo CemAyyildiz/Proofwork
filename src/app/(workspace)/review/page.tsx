@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ReviewQueue } from "@/components/review-queue";
 import { SignedOut } from "@/components/signed-out";
 import { buttonClasses } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { ax, Label } from "@/components/workspace/kit";
 import { PageHeader } from "@/components/workspace/page-header";
 import { requestNow } from "@/lib/clock";
 import { currentUser } from "@/lib/current-user";
@@ -30,10 +30,15 @@ export default async function ReviewPage() {
       />
 
       {sealedDualReviewEnabled() ? (
-        <Card className="flex flex-wrap items-center justify-between gap-3 p-5">
-          <div><p className="text-sm font-semibold">Experimental sealed dual review</p><p className="mt-1 text-[13px] text-muted">Two independent rubric assessments, hidden until a shared timed reveal.</p></div>
-          <Link href="/review/sealed" className={buttonClasses("secondary", "sm")}>Open sealed reviews</Link>
-        </Card>
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-[24px] border border-white/[0.07] bg-[#0d0d0d] px-5 py-4">
+          <div>
+            <p className="text-[15px] font-semibold">Experimental sealed dual review</p>
+            <p className="mt-1 text-[13px] text-white/50">Two independent rubric assessments, hidden until a shared timed reveal.</p>
+          </div>
+          <Link href="/review/sealed" className={buttonClasses("secondary", "sm")}>
+            Open sealed reviews
+          </Link>
+        </div>
       ) : null}
 
       {reviewer ? (
@@ -51,31 +56,38 @@ export default async function ReviewPage() {
           }))}
         />
       ) : (
-        <Card className="max-w-[560px] p-6">
-          <p className="text-lg font-semibold tracking-[-0.02em]">Your wallet has no reviewer role.</p>
-          <p className="mt-2 text-sm leading-normal text-text-2">
+        <div className="max-w-[620px] rounded-[30px] border border-white/[0.07] bg-[#0d0d0d] p-7 md:p-9">
+          <p className="font-display text-[clamp(2rem,3.6vw,2.75rem)] leading-[0.92]" style={{ fontVariationSettings: ax(85, 840) }}>
+            Your wallet has no reviewer role.
+          </p>
+          <p className="mt-3 text-[15px] leading-relaxed text-white/60">
             Ask the operator to grant one.{logs.length > 0 ? " You can still download the review logs of the campaigns below." : null}
           </p>
-          <Link href="/explore" className="mt-4 inline-flex min-h-11 items-center gap-1 text-sm font-medium text-accent hover:underline md:min-h-0">
+          <Link href="/explore" className={`${buttonClasses("secondary", "sm")} mt-6`}>
             Browse open campaigns <span aria-hidden="true">→</span>
           </Link>
-        </Card>
+        </div>
       )}
 
       {logs.length > 0 ? (
-        <section aria-labelledby="review-logs" className="space-y-3">
+        <section aria-labelledby="review-logs" className="space-y-5">
           <div>
-            <h2 id="review-logs" className="text-base font-semibold tracking-[-0.01em]">
+            <h2 id="review-logs" className="font-display text-[clamp(1.75rem,3vw,2.4rem)] leading-none" style={{ fontVariationSettings: ax(85, 830) }}>
               Review logs
             </h2>
-            <p className="mt-1 text-[13px] text-muted">Every decision per campaign, re-reviews included, with its on-chain reference.</p>
+            <p className="mt-2 text-[14px] text-white/50">Every decision per campaign, re-reviews included, with its on-chain reference.</p>
           </div>
-          <ul className="divide-y divide-line rounded-xl border border-line bg-surface">
+          <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-[24px] border border-white/[0.07] bg-[#0d0d0d]">
             {logs.map((c) => (
-              <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{c.title}</p>
-                  <p className="text-[12.5px] text-muted">{`${c.decisions} ${c.decisions === 1 ? "decision" : "decisions"}`}</p>
+              <li key={c.id} className="flex flex-wrap items-center justify-between gap-4 px-5 py-4">
+                <div className="flex min-w-0 items-center gap-5">
+                  <span aria-hidden="true" className="w-12 shrink-0 text-right font-display text-[34px] leading-none text-white/80" style={{ fontVariationSettings: ax(62, 900) }}>
+                    {c.decisions}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[15px] font-semibold">{c.title}</p>
+                    <Label className="mt-1 tracking-[0.14em]">{`${c.decisions} ${c.decisions === 1 ? "decision" : "decisions"}`}</Label>
+                  </div>
                 </div>
                 <a href={`/api/campaigns/${encodeURIComponent(c.id)}/review-log`} className={buttonClasses("secondary", "sm")}>
                   Download review log

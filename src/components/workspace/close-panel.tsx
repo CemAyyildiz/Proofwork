@@ -91,11 +91,13 @@ export function ClosePanel({
   }
 
   return (
-    <div className="rounded-xl border border-line bg-surface p-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="max-w-[560px]">
-          <h3 className="text-[15px] font-semibold tracking-[-0.01em]">Close campaign</h3>
-          <p className="mt-1.5 text-sm leading-normal text-text-2">
+    <div className="rounded-[28px] border border-white/[0.07] bg-[#0d0d0d] p-6 md:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-5">
+        <div className="max-w-[600px]">
+          <h3 className="font-display text-[clamp(1.6rem,2.6vw,2.1rem)] leading-none" style={{ fontVariationSettings: `"wdth" 85, "wght" 830` }}>
+            Close campaign
+          </h3>
+          <p className="mt-3 text-sm leading-relaxed text-white/60">
             {ended ? "Submissions are shut. " : "Closing now stops new submissions before the deadline. "}
             Closing records the end on Stellar; the dispute resolver then returns what is left in escrow to the funder&apos;s wallet.
           </p>
@@ -108,18 +110,18 @@ export function ClosePanel({
       </div>
 
       {blocked ? (
-        <div className="mt-4 rounded-lg border border-line bg-sunken p-3.5">
-          <p className="text-[13px] font-medium text-text">Close is off until these clear</p>
-          <ul className="mt-2 space-y-1.5 text-[13px] text-text-2">
+        <div className="mt-5 rounded-[20px] bg-white/[0.03] p-4">
+          <p className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/50">Close is off until these clear</p>
+          <ul className="mt-3 space-y-2 text-[13.5px] text-white/75">
             {reasons.map((r) => (
               <li key={r} className="flex gap-2">
-                <span aria-hidden="true" className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-muted" />
+                <span aria-hidden="true" className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
                 {r}
               </li>
             ))}
           </ul>
           {reviewer && blockers.some((b) => b.kind === "review") ? (
-            <Link href="/review" className="mt-2 inline-flex min-h-9 items-center text-[13px] font-medium text-text hover:underline">
+            <Link href="/review" className="mt-3 inline-flex min-h-9 items-center rounded-full border border-white/15 px-4 text-[13px] font-semibold text-text transition-colors hover:border-white/40">
               Open the review queue →
             </Link>
           ) : null}
@@ -127,15 +129,15 @@ export function ClosePanel({
       ) : null}
 
       {confirming && !blocked ? (
-        <div className="mt-4 rounded-lg border border-fail-line bg-fail-soft p-4">
-          <p className="text-sm font-medium text-text">This cannot be undone.</p>
-          <p className="mt-1.5 text-[13px] leading-normal text-text-2">
+        <div className="mt-5 rounded-[20px] border border-fail-line bg-fail-soft p-5">
+          <p className="text-[15px] font-semibold text-text">This cannot be undone.</p>
+          <p className="mt-1.5 text-[13.5px] leading-relaxed text-white/70">
             The campaign takes no new submissions or payouts after this.
             {unpaidPasses > 0
               ? ` ${unpaidPasses} passed ${unpaidPasses === 1 ? "submission stays" : "submissions stay"} unpaid; approve and release ${unpaidPasses === 1 ? "it" : "them"} first if you mean to pay.`
               : ""}
           </p>
-          <div className="mt-3 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-wrap gap-3">
             <Button variant="danger" size="sm" busy={busy} busyLabel="Waiting for wallet…" onClick={() => void close()}>
               Sign and close
             </Button>
@@ -147,7 +149,7 @@ export function ClosePanel({
       ) : null}
 
       {notice ? (
-        <p role={notice.tone === "fail" ? "alert" : "status"} className={notice.tone === "fail" ? "mt-3 text-sm text-fail" : "mt-3 text-sm text-muted"}>
+        <p role={notice.tone === "fail" ? "alert" : "status"} className={notice.tone === "fail" ? "mt-4 text-sm text-fail" : "mt-4 text-sm text-white/55"}>
           {notice.text}
         </p>
       ) : null}

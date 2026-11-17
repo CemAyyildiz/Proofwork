@@ -4,10 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Eyebrow } from "@/components/ui/eyebrow";
+import { cx } from "@/components/ui/cx";
 import { HashChip } from "@/components/ui/hash-chip";
-import { Pill } from "@/components/ui/pill";
+import { ax } from "@/components/workspace/kit";
 import { publicEnv } from "@/config/public-env";
 import { reasonLabel, type SignalId } from "@/domain/rubric";
 import { ReviewCard } from "./review-card";
@@ -154,9 +153,9 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {notice ? (
-        <p role="status" className="rounded-lg border border-line-strong bg-raised px-4 py-3 text-sm text-text-2">
+        <p role="status" className="rounded-[20px] border border-white/12 bg-white/[0.03] px-5 py-3.5 text-sm text-white/70">
           {notice}
         </p>
       ) : null}
@@ -172,12 +171,18 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
           advanceMs={RECEIPT_MS}
         />
       ) : current ? (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="font-mono text-[12.5px] text-muted" aria-live="polite">
-              <span className="text-text-2">{`${counts.position} of ${counts.total}`}</span>
-              {` · ${counts.waiting} waiting · Blind review · order randomised`}
-            </p>
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="flex items-end gap-4">
+              <p aria-hidden="true" className="font-display text-[clamp(3rem,5vw,4rem)] leading-[0.8] tabular-nums" style={{ fontVariationSettings: ax(62, 900) }}>
+                {counts.position}
+                <span className="text-white/25">/{counts.total}</span>
+              </p>
+              <p className="pb-0.5 font-mono text-[11.5px] uppercase tracking-[0.14em] text-white/45" aria-live="polite">
+                <span className="text-text">{`${counts.position} of ${counts.total}`}</span>
+                {` · ${counts.waiting} waiting · Blind review · order randomised`}
+              </p>
+            </div>
             {ids.length > 1 ? (
               <div className="flex gap-2">
                 <Button variant="secondary" size="sm" disabled={busyId !== null} onClick={() => go(-1)}>
@@ -212,28 +217,38 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
 
 export function EmptyQueue() {
   return (
-    <Card className="p-8 text-center">
-      <p className="text-lg font-semibold tracking-[-0.02em]">Nothing to review.</p>
-      <p className="mt-2 text-sm text-muted">New submissions appear here in random order.</p>
-    </Card>
+    <div className="rounded-[30px] border border-white/[0.07] bg-[#0d0d0d] px-6 py-14 text-center md:py-20">
+      <p className="font-display text-[clamp(2.8rem,6vw,4.75rem)] leading-[0.88]" style={{ fontVariationSettings: ax(84, 850) }}>
+        Nothing to review.
+      </p>
+      <p className="mt-4 text-[15px] text-white/50">New submissions appear here in random order.</p>
+    </div>
   );
 }
 
 /**
- * The recorded decision. With a next item it moves on after `advanceMs`,
- * paused while the pointer is over it or focus is on one of its links; after
- * the last item it stays until "Done". "On-chain" is said only with a
- * transaction hash to show.
+ * The recorded decision, stamped. With a next item it moves on after
+ * `advanceMs`, paused while the pointer is over it or focus is on one of its
+ * links; after the last item it stays until "Done". "On-chain" is said only
+ * with a transaction hash to show.
  */
 export function ReceiptCard({ receipt, hasNext, onNext, advanceMs }: { receipt: Receipt; hasNext: boolean; onNext: () => void; advanceMs: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [hovered, setHovered] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
+  const [landed, setLanded] = useState(false);
   const advance = useEffectEvent(onNext);
+  const pass = receipt.outcome === "PASS";
 
   // Focus lands on the receipt, not on <body>, when it replaces the card.
   useEffect(() => {
     ref.current?.focus();
+  }, []);
+
+  // The stamp comes down once, a frame after the receipt appears.
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setLanded(true));
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   useEffect(() => {
@@ -254,37 +269,54 @@ export function ReceiptCard({ receipt, hasNext, onNext, advanceMs }: { receipt: 
         if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) setFocusInside(false);
       }}
     >
-      <Card className="p-6 md:p-8" role="status">
-        <Eyebrow>{receipt.txHash ? "Recorded on-chain" : "Recorded"}</Eyebrow>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <span className="font-mono text-[15px] font-medium">{receipt.shortId}</span>
-          <span aria-hidden="true" className="text-muted">
-            →
+      <div role="status" className="relative overflow-hidden rounded-[30px] bg-paper p-6 text-paper-ink md:p-10">
+        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-black/55">{receipt.txHash ? "Recorded on-chain" : "Recorded"}</p>
+        <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-6">
+          <span
+            className={cx(
+              "inline-block rounded-2xl border-[5px] px-6 py-1 font-display text-[clamp(4rem,9vw,6.5rem)] leading-[1.05] transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+              pass ? "border-black bg-accent text-black" : "border-[#b42318] text-[#b42318]",
+              landed ? "-rotate-[8deg] scale-100 opacity-100" : "-rotate-[14deg] scale-[2.4] opacity-0",
+            )}
+            style={{ fontVariationSettings: ax(70, 900) }}
+          >
+            {receipt.outcome}
           </span>
-          <Pill tone={receipt.outcome === "PASS" ? "pass" : "fail"}>{receipt.outcome}</Pill>
-          <span className="font-mono text-[12.5px] text-text-2">{reasonLabel(receipt.reasonCode)}</span>
+          <div className="min-w-0">
+            <p className="font-mono text-[15px] font-semibold">{receipt.shortId}</p>
+            <p className="mt-1 font-mono text-[12.5px] text-black/60">{reasonLabel(receipt.reasonCode)}</p>
+          </div>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="mt-8 flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-black/15 pt-6">
           {receipt.txHash ? (
-            <HashChip value={receipt.txHash} href={publicEnv.explorerTxUrl(receipt.txHash)} />
+            <span className="inline-flex rounded-full bg-black [&>span]:border-0 [&>span]:bg-transparent [&>span]:text-white">
+              <HashChip value={receipt.txHash} href={publicEnv.explorerTxUrl(receipt.txHash)} />
+            </span>
           ) : (
             <a
               href={`/api/campaigns/${encodeURIComponent(receipt.campaignId)}/review-log`}
-              className="inline-flex min-h-11 items-center text-sm font-medium text-text-2 hover:text-text hover:underline md:min-h-0"
+              className="inline-flex min-h-11 items-center text-sm font-semibold text-black/70 underline decoration-black/30 underline-offset-4 hover:text-black md:min-h-0"
             >
               No transaction hash yet. See the review log
             </a>
           )}
-          <Link href={`/verify/${receipt.decisionId}`} className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-accent hover:underline md:min-h-0">
+          <Link href={`/verify/${receipt.decisionId}`} className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-black underline decoration-black/30 underline-offset-4 hover:decoration-black md:min-h-0">
             Verify decision <span aria-hidden="true">→</span>
           </Link>
-        </div>
-        <div className="mt-6">
-          <Button variant="secondary" size="sm" onClick={onNext}>
+          <button
+            type="button"
+            onClick={onNext}
+            className="ml-auto inline-flex h-11 items-center gap-2 rounded-full bg-black px-6 text-sm font-semibold text-white transition-transform active:scale-95"
+          >
             {hasNext ? "Next submission" : "Done"}
-          </Button>
+            {hasNext && !hovered && !focusInside ? (
+              <span aria-hidden="true" className="block h-1 w-8 overflow-hidden rounded-full bg-white/20">
+                <span className="block h-full origin-left animate-grow bg-accent" style={{ animationDuration: `${advanceMs}ms`, animationTimingFunction: "linear" }} />
+              </span>
+            ) : null}
+          </button>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

@@ -15,7 +15,7 @@ export default async function SealedReviewDetailPage({ params }: { params: Promi
   if (!user) return <SignedOut />;
   const view = await sealedReviewView((await params).id, user);
   return (
-    <div className="space-y-8 pb-24">
+    <div className="space-y-10 pb-24">
       <PageHeader eyebrow={`Sub Rosa · ${publicEnv.network}`} title="Sealed dual review" description="ReceiptOnly mode. Zero escrow. Reviewer wallets sign their own Soroban transactions." />
       <SealedReviewWorkspace view={view} address={user.pubkey} />
     </div>

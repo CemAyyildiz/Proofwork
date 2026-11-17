@@ -153,7 +153,7 @@ export function RemainderReturn({ campaignId, resolver }: { campaignId: string; 
     return (
       <div role="status" className="space-y-2.5">
         <Pill tone="pass">Settled</Pill>
-        <p className="text-sm text-text-2">{formatUsdc(done.amount)} returned to the funder, less the Trustless Work protocol fee.</p>
+        <p className="text-sm text-white/65">{formatUsdc(done.amount)} returned to the funder, less the Trustless Work protocol fee.</p>
         <HashChip value={done.txHash} href={publicEnv.explorerTxUrl(done.txHash)} />
       </div>
     );
@@ -162,21 +162,23 @@ export function RemainderReturn({ campaignId, resolver }: { campaignId: string; 
   return (
     <div className="space-y-3">
       {prepared && (phase === "confirm" || phase === "signing") ? (
-        <div className="rounded-lg border border-line-strong bg-sunken p-4">
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm">
-            <span className="font-semibold text-text">{formatUsdc(prepared.amount)}</span>
-            <span aria-hidden="true" className="text-muted">
+        <div className="rounded-[22px] bg-white/[0.04] p-5">
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
+            <span className="font-display text-[44px] leading-none text-accent" style={{ fontVariationSettings: `"wdth" 62, "wght" 900` }}>
+              {formatUsdc(prepared.amount)}
+            </span>
+            <span aria-hidden="true" className="text-white/40">
               →
             </span>
             <span className="sr-only">to</span>
             <HashChip value={prepared.funder} head={4} tail={4} href={publicEnv.explorerAccountUrl(prepared.funder)} />
-            <span className="text-text-2">(the funder)</span>
+            <span className="text-white/55">(the funder)</span>
           </p>
-          <p className="mt-2 text-[13px] leading-normal text-text-2">
+          <p className="mt-3 text-[13px] leading-relaxed text-white/60">
             The whole escrow balance, read from Stellar just now, goes to the wallet that funded the campaign, less the Trustless
             Work protocol fee. Your wallet shows the transaction before you sign.
           </p>
-          <div className="mt-3 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-wrap gap-3">
             <Button size="sm" busy={phase === "signing"} busyLabel="Waiting for wallet…" onClick={() => void signAndReturn(prepared)}>
               Sign and return
             </Button>
@@ -200,7 +202,7 @@ export function RemainderReturn({ campaignId, resolver }: { campaignId: string; 
         </Button>
       )}
       {notice ? (
-        <p role={notice.tone === "fail" ? "alert" : "status"} className={notice.tone === "fail" ? "text-sm text-fail" : "text-sm text-muted"}>
+        <p role={notice.tone === "fail" ? "alert" : "status"} className={notice.tone === "fail" ? "text-sm text-fail" : "text-sm text-white/50"}>
           {notice.text}
         </p>
       ) : null}

@@ -4,8 +4,10 @@ import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 
+/** Set on paper: black ink, white wells. */
 const field =
-  "mt-2 w-full rounded-[14px] border border-line-strong bg-sunken px-3.5 py-3 text-sm text-text placeholder:text-faint focus-visible:border-accent";
+  "mt-2 w-full rounded-[16px] border border-black/15 bg-white px-4 py-3 text-[15px] text-paper-ink placeholder:text-black/35 focus-visible:border-black focus-visible:outline-black";
+const label = "block font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-black/55";
 
 /**
  * Asks the operator for funder access: a team name and a note, nothing else.
@@ -43,12 +45,12 @@ export function AccessRequestForm() {
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-5">
-      <label htmlFor={teamId} className="block text-[13px] font-medium text-text-2">
+    <form onSubmit={onSubmit} className="text-paper-ink">
+      <label htmlFor={teamId} className={label}>
         Team or project name
       </label>
       <input id={teamId} name="team" required minLength={2} maxLength={80} autoComplete="off" className={field} />
-      <label htmlFor={noteId} className="mt-4 block text-[13px] font-medium text-text-2">
+      <label htmlFor={noteId} className={`${label} mt-5`}>
         What do you plan to run?
       </label>
       <textarea
@@ -60,13 +62,13 @@ export function AccessRequestForm() {
         className={field}
         placeholder="The campaign you have in mind, roughly how many contributors and what budget."
       />
-      <p className="mt-2 text-[12.5px] text-muted">No email or other contact details. The operator answers on this page.</p>
+      <p className="mt-2 text-[12.5px] text-black/50">No email or other contact details. The operator answers on this page.</p>
       {error ? (
-        <p role="alert" className="mt-2 text-[13px] text-fail">
+        <p role="alert" className="mt-2 text-[13px] font-medium text-[#b42318]">
           {error}
         </p>
       ) : null}
-      <Button type="submit" busy={busy} busyLabel="Sending…" className="mt-3.5">
+      <Button type="submit" busy={busy} busyLabel="Sending…" className="mt-5">
         Request funder access
       </Button>
     </form>

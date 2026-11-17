@@ -48,43 +48,45 @@ export function lifecycleNodes(c: Campaign, stage: CampaignStage, ops: readonly 
 export function Lifecycle({ nodes }: { nodes: LifecycleNode[] }) {
   const current = nodes.findIndex((n) => !n.done);
   return (
-    <ol
-      className={cx(
-        "grid grid-cols-[minmax(0,1fr)] gap-x-2 gap-y-4 rounded-xl border border-line bg-surface p-5 sm:grid-cols-3",
-        nodes.length > 3 ? "lg:grid-cols-6" : "lg:grid-cols-3",
-      )}
-      aria-label="Campaign lifecycle"
-    >
-      {nodes.map((n, i) => {
-        const state = n.done ? "done" : i === current ? "current" : "upcoming";
-        return (
-          <li key={n.label} className="flex min-w-0 gap-3 lg:flex-col lg:gap-2.5">
-            <div className="flex items-center gap-2 lg:w-full">
+    <div className="rounded-[28px] border border-white/[0.07] bg-[#0d0d0d] p-5 md:p-7">
+      <ol
+        className={cx("relative grid grid-cols-[minmax(0,1fr)] gap-x-3 gap-y-5", nodes.length > 3 ? "lg:grid-cols-6" : "lg:grid-cols-3")}
+        aria-label="Campaign lifecycle"
+      >
+        {nodes.map((n, i) => {
+          const state = n.done ? "done" : i === current ? "current" : "upcoming";
+          return (
+            <li key={n.label} className="relative flex min-w-0 gap-3.5 lg:flex-col lg:items-start lg:gap-3">
+              {/* The rail to the next node, from lg up: yellow once this node is done. */}
+              {i < nodes.length - 1 ? (
+                <span aria-hidden="true" className="absolute -right-3 left-9 top-[13px] hidden h-[2px] bg-white/10 lg:block">
+                  {n.done ? <span className="block h-full origin-left animate-grow bg-accent" style={{ animationDelay: `${i * 140}ms` }} /> : null}
+                </span>
+              ) : null}
               <span
                 aria-hidden="true"
                 className={cx(
-                  "grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[11px] font-semibold",
-                  state === "done" && "border-pass-line bg-pass-soft text-pass",
-                  state === "current" && "border-accent bg-accent-soft text-accent shadow-[0_0_0_4px_var(--color-accent-soft)]",
-                  state === "upcoming" && "border-line-strong text-muted",
+                  "grid size-7 shrink-0 place-items-center rounded-full font-mono text-[11px] font-semibold",
+                  state === "done" && "bg-accent text-accent-ink",
+                  state === "current" && "bg-canvas text-text shadow-[inset_0_0_0_2px_var(--color-accent)]",
+                  state === "upcoming" && "bg-[#0d0d0d] text-white/35 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)]",
                 )}
               >
                 {state === "done" ? "✓" : i + 1}
               </span>
-              {i < nodes.length - 1 ? <span aria-hidden="true" className={cx("hidden h-px flex-1 lg:block", n.done ? "bg-pass-line" : "bg-line-strong")} /> : null}
-            </div>
-            <div className="min-w-0">
-              <p className={cx("text-[13.5px] font-semibold tracking-[-0.01em]", state === "upcoming" ? "text-muted" : "text-text")}>
-                {n.label}
-                <span className="sr-only">{state === "done" ? " (done)" : state === "current" ? " (current step)" : " (not yet)"}</span>
-              </p>
-              {n.detail ? <p className="mt-0.5 font-mono text-[11.5px] text-muted">{n.detail}</p> : null}
-              {n.txHash ? <HashChip className="mt-1.5" value={n.txHash} head={4} tail={4} href={publicEnv.explorerTxUrl(n.txHash)} /> : null}
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+              <div className="min-w-0">
+                <p className={cx("text-[14px] font-semibold leading-snug", state === "upcoming" ? "text-white/40" : "text-text")}>
+                  {n.label}
+                  <span className="sr-only">{state === "done" ? " (done)" : state === "current" ? " (current step)" : " (not yet)"}</span>
+                </p>
+                {n.detail ? <p className="mt-1 font-mono text-[11px] leading-snug text-white/40">{n.detail}</p> : null}
+                {n.txHash ? <HashChip className="mt-2" value={n.txHash} head={4} tail={4} href={publicEnv.explorerTxUrl(n.txHash)} /> : null}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
@@ -103,20 +105,20 @@ const OP_LABEL: Record<EscrowOp["kind"], string> = {
 const OP_STATUS: Record<EscrowOp["status"], { label: string; className: string }> = {
   intent: { label: "Prepared", className: "text-muted" },
   submitted: { label: "Sent", className: "text-text-2" },
-  confirmed: { label: "Confirmed", className: "text-pass" },
+  confirmed: { label: "Confirmed", className: "text-accent" },
   failed: { label: "Failed", className: "text-fail" },
 };
 
 /** Every escrow transaction this campaign prepared, newest first. */
 export function ActivityLog({ ops }: { ops: readonly EscrowOp[] }) {
-  if (ops.length === 0) return <p className="text-sm text-muted">No on-chain activity yet.</p>;
+  if (ops.length === 0) return <p className="rounded-[22px] border border-dashed border-white/10 px-5 py-6 text-sm text-white/45">No on-chain activity yet.</p>;
   const rows = [...ops].reverse();
   return (
-    <ul className="divide-y divide-line overflow-hidden rounded-lg border border-line">
+    <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-[22px] border border-white/[0.07] bg-[#0d0d0d]">
       {rows.map((o) => {
         const s = OP_STATUS[o.status];
         return (
-          <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-sm">
+          <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 text-sm">
             <span className="min-w-0 font-medium sm:min-w-[180px]">{OP_LABEL[o.kind]}</span>
             <span className={cx("font-mono text-[12px]", s.className)}>{s.label}</span>
             <span className="font-mono text-[12px] text-muted">{formatTimestamp(o.updatedAt)}</span>

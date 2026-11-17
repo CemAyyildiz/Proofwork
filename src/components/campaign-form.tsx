@@ -4,12 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
+import { ax, figure } from "@/components/workspace/kit";
 import { fromStroops, toStroops } from "@/escrow/amount";
 import { formatUsdc } from "@/lib/format";
 
 const field =
-  "mt-2 w-full rounded-[14px] border border-line-strong bg-sunken px-3.5 py-3 text-sm text-text placeholder:text-faint focus-visible:border-accent";
-const labelText = "text-[13px] font-medium text-text-2";
+  "mt-2 w-full rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3.5 text-[15px] text-text outline-none transition-colors duration-200 placeholder:text-white/25 hover:border-white/20 focus-visible:border-accent focus-visible:outline-none";
+const labelText = "font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/50";
 
 /** The per-funder caps and what this wallet has open, as the server read them for this page. */
 export interface FunderLimitsView {
@@ -18,6 +19,21 @@ export interface FunderLimitsView {
   /** USDC decimal strings. */
   maxOpenBudget: string;
   openBudget: string;
+}
+
+/** What the preview card shows while the form is filled in. Read from the inputs; the form still submits its own fields. */
+interface Draft {
+  title: string;
+  reward: string;
+  budget: string;
+}
+
+const DAYS = [3, 7, 14, 30] as const;
+
+/** A positive decimal the preview can draw with, or null. Validation proper is the server's. */
+function amount(s: string): number | null {
+  const n = Number(s.trim());
+  return s.trim() !== "" && Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export function CampaignForm({
@@ -43,6 +59,7 @@ export function CampaignForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(7);
+  const [draft, setDraft] = useState<Draft>({ title: "", reward: "", budget: "" });
   // `now` comes from the server render so this stays a pure function of props and state.
   const closesAt = new Date(now + days * 86_400_000).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
 
@@ -74,99 +91,228 @@ export function CampaignForm({
     }
   }
 
+  function onInput(e: React.FormEvent<HTMLFormElement>) {
+    const f = new FormData(e.currentTarget);
+    const text = (k: string) => {
+      const v = f.get(k);
+      return typeof v === "string" ? v : "";
+    };
+    setDraft({ title: text("title"), reward: text("rewardAmount"), budget: text("budget") });
+  }
+
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      <section aria-label="Your limits" className="max-w-[560px] rounded-[14px] border border-line-strong bg-sunken p-4 text-sm">
-        <h2 className="font-semibold">Your limits</h2>
-        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-text-2">
-          <dt>Open campaigns</dt>
-          <dd>
+    <div className="grid items-start gap-8 xl:grid-cols-[minmax(0,1fr)_400px]">
+      <form onSubmit={onSubmit} onInput={onInput} className="min-w-0 space-y-6 rounded-[30px] border border-white/[0.07] bg-[#0d0d0d] p-5 sm:p-8">
+        <Limits limits={limits} budgetLeft={budgetLeft} blocked={blocked} />
+
+        <label className="block">
+          <span className={labelText}>Title</span>
+          <input
+            name="title"
+            required
+            minLength={3}
+            maxLength={100}
+            placeholder="What contributors will see first"
+            className={cx(field, "font-display text-[clamp(1.4rem,2.4vw,1.9rem)] leading-tight placeholder:font-sans placeholder:text-[17px]")}
+            style={{ fontVariationSettings: ax(88, 780) }}
+          />
+        </label>
+        <label className="block">
+          <span className={labelText}>Brief</span>
+          <textarea
+            name="brief"
+            required
+            minLength={20}
+            maxLength={4000}
+            rows={6}
+            className={cx(field, "leading-relaxed")}
+            placeholder="What should contributors do? What must the post include? Be specific: the rubric's 'follows the brief' signal is scored against this text."
+          />
+        </label>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <AmountField name="rewardAmount" label="Reward per approved submission (USDC)" placeholder="5" />
+          <AmountField name="budget" label="Total budget (USDC)" placeholder="100" />
+        </div>
+        <fieldset>
+          <legend className={labelText}>Runs for</legend>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {DAYS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                aria-pressed={days === d}
+                onClick={() => setDays(d)}
+                className={cx(
+                  "inline-flex h-11 items-center rounded-full border px-4 text-[14px] font-semibold transition-colors duration-150 sm:px-5",
+                  days === d ? "border-paper bg-paper text-paper-ink" : "border-white/12 text-white/65 hover:border-white/30 hover:text-text",
+                )}
+              >
+                {d} days
+              </button>
+            ))}
+          </div>
+          <p className="mt-2.5 text-[13px] leading-relaxed text-white/50">
+            Closes {closesAt} UTC. After that you close the campaign here, and the dispute resolver returns what is left of the budget, less
+            the 0.3% protocol fee.
+          </p>
+        </fieldset>
+        {sealedReviewAvailable ? (
+          <label className="flex cursor-pointer gap-3.5 rounded-[20px] border border-white/10 bg-white/[0.02] p-4 text-sm transition-colors has-[:checked]:border-accent/50">
+            <input name="founderSealedReview" type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" />
+            <span>
+              <span className="block font-semibold">Founder-sealed review</span>
+              <span className="mt-1 block text-[13px] leading-relaxed text-white/50">
+                Reviews are fixed to your wallet and Proofwork&apos;s configured founder wallet. Only the founder can record the final decision and sign reward release.
+              </span>
+            </span>
+          </label>
+        ) : null}
+        <label className="block">
+          <span className={labelText}>Dispute resolver public key</span>
+          <input name="disputeResolverPubkey" required defaultValue={defaultDisputeResolver} pattern="G[A-Z2-7]{55}" className={cx(field, "font-mono text-[13px]")} />
+          <span className="mt-2 block text-[13px] leading-relaxed text-white/50">
+            Proofwork&apos;s resolver key, kept in a wallet and never on the server. After you close the campaign, it signs the return of what is left in
+            the escrow, and that transaction can only pay your wallet.{" "}
+            <a href="/custody" target="_blank" rel="noreferrer" className="text-white/75 underline decoration-white/30 underline-offset-4 hover:text-text">
+              Custody and fees ↗
+            </a>
+          </span>
+        </label>
+        {error ? (
+          <p role="alert" className="rounded-2xl border border-fail-line bg-fail-soft px-4 py-3 text-sm text-fail">
+            {error}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-4 border-t border-white/[0.07] pt-6">
+          <Button type="submit" disabled={blocked !== null} busy={busy} busyLabel="Saving…">
+            Save campaign
+          </Button>
+          <p className="text-[13px] text-white/45">Saving signs nothing. Deploy and fund come next, on the campaign page.</p>
+        </div>
+      </form>
+
+      <div className="xl:sticky xl:top-10">
+        <Preview draft={draft} days={days} closesAt={closesAt} />
+      </div>
+    </div>
+  );
+}
+
+function AmountField({ name, label, placeholder }: { name: string; label: string; placeholder: string }) {
+  return (
+    <label className="flex h-full flex-col justify-between">
+      <span className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/50">{label}</span>
+      <span className="relative mt-2 block">
+        <input
+          name={name}
+          required
+          inputMode="decimal"
+          placeholder={placeholder}
+          className="w-full rounded-[18px] border border-white/10 bg-white/[0.03] py-2.5 pl-4 pr-20 font-display text-[44px] leading-none text-text outline-none transition-colors duration-200 placeholder:text-white/15 hover:border-white/20 focus-visible:border-accent focus-visible:outline-none"
+          style={{ fontVariationSettings: ax(65, 900) }}
+        />
+        <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 font-mono text-[12px] text-white/40">
+          USDC
+        </span>
+      </span>
+    </label>
+  );
+}
+
+/** The per-funder caps, drawn as slots for campaigns and a bar for budget, with the same words the server uses. */
+function Limits({ limits, budgetLeft, blocked }: { limits: FunderLimitsView; budgetLeft: bigint; blocked: string | null }) {
+  const max = toStroops(limits.maxOpenBudget);
+  const usedPct = max > 0n ? Math.min(100, Number((toStroops(limits.openBudget) * 1000n) / max) / 10) : 100;
+  return (
+    <section aria-label="Your limits" className="rounded-[22px] bg-white/[0.03] p-4 sm:p-5">
+      <h2 className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/50">Your limits</h2>
+      <dl className="mt-3 grid gap-4 text-[13.5px] sm:grid-cols-2">
+        <div>
+          <dt className="text-white/50">Open campaigns</dt>
+          <dd className="mt-1 font-semibold">
             {limits.openCampaigns} of {limits.maxOpenCampaigns} in use
           </dd>
-          <dt>Open budget</dt>
-          <dd>
+          <div aria-hidden="true" className="mt-2 flex gap-1">
+            {Array.from({ length: Math.min(limits.maxOpenCampaigns, 20) }, (_, i) => (
+              <span key={i} className={cx("h-2 flex-1 rounded-full", i < limits.openCampaigns ? "bg-paper" : "bg-white/10")} />
+            ))}
+          </div>
+        </div>
+        <div>
+          <dt className="text-white/50">Open budget</dt>
+          <dd className="mt-1 font-semibold">
             {formatUsdc(limits.openBudget)} of {formatUsdc(limits.maxOpenBudget)} in use
             {budgetLeft > 0n ? `, ${formatUsdc(fromStroops(budgetLeft))} left` : ""}
           </dd>
-        </dl>
-        <p className="mt-2 text-xs text-muted">
-          A campaign starts to count when its escrow is deployed and stops when it is closed. A new campaign can&apos;t be
-          created while a limit is reached, or with a budget larger than what is left.
-        </p>
-        {blocked ? (
-          <p role="alert" className="mt-2 text-fail">
-            {blocked}
-          </p>
-        ) : null}
-      </section>
-      <label className="block text-sm">
-        <span className={labelText}>Title</span>
-        <input name="title" required minLength={3} maxLength={100} className={field} />
-      </label>
-      <label className="block text-sm">
-        <span className={labelText}>Brief</span>
-        <textarea name="brief" required minLength={20} maxLength={4000} rows={6} className={field}
-          placeholder="What should contributors do? What must the post include? Be specific: the rubric's 'follows the brief' signal is scored against this text." />
-      </label>
-      <div className="grid grid-cols-2 gap-4">
-        <label className="block text-sm">
-          <span className={labelText}>Reward per approved submission (USDC)</span>
-          <input name="rewardAmount" required inputMode="decimal" placeholder="5" className={field} />
-        </label>
-        <label className="block text-sm">
-          <span className={labelText}>Total budget (USDC)</span>
-          <input name="budget" required inputMode="decimal" placeholder="100" className={field} />
-        </label>
-      </div>
-      <fieldset className="text-sm">
-        <legend className={labelText}>Runs for</legend>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {[3, 7, 14, 30].map((d) => (
-            <button
-              key={d}
-              type="button"
-              aria-pressed={days === d}
-              onClick={() => setDays(d)}
-              className={cx(
-                "inline-flex h-11 items-center rounded-[10px] border px-3.5 text-[13.5px] font-medium transition-colors duration-150 md:h-9",
-                days === d ? "border-accent-line bg-accent-soft text-text" : "border-line-strong text-text-2 hover:bg-raised hover:text-text",
-              )}
-            >
-              {d} days
-            </button>
-          ))}
+          <div aria-hidden="true" className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+            <span className="block h-full origin-left animate-grow rounded-full bg-paper" style={{ width: `${usedPct}%` }} />
+          </div>
         </div>
-        <p className="mt-2 text-xs text-muted">
-          Closes {closesAt} UTC. After that you close the campaign here, and the dispute resolver returns what is left of the budget, less
-          the 0.3% protocol fee.
+      </dl>
+      <p className="mt-3 text-[12.5px] leading-relaxed text-white/45">
+        A campaign starts to count when its escrow is deployed and stops when it is closed. A new campaign can&apos;t be
+        created while a limit is reached, or with a budget larger than what is left.
+      </p>
+      {blocked ? (
+        <p role="alert" className="mt-3 text-sm font-medium text-fail">
+          {blocked}
         </p>
-      </fieldset>
-      {sealedReviewAvailable ? (
-        <label className="flex gap-3 rounded-[14px] border border-line-strong bg-sunken p-4 text-sm">
-          <input name="founderSealedReview" type="checkbox" className="mt-0.5" />
-          <span>
-            <span className="block font-medium">Founder-sealed review</span>
-            <span className="mt-1 block text-xs text-muted">
-              Reviews are fixed to your wallet and Proofwork&apos;s configured founder wallet. Only the founder can record the final decision and sign reward release.
-            </span>
-          </span>
-        </label>
       ) : null}
-      <label className="block text-sm">
-        <span className={labelText}>Dispute resolver public key</span>
-        <input name="disputeResolverPubkey" required defaultValue={defaultDisputeResolver} pattern="G[A-Z2-7]{55}" className={field} />
-        <span className="mt-1.5 block text-xs text-muted">
-          Proofwork&apos;s resolver key, kept in a wallet and never on the server. After you close the campaign, it signs the return of what is left in
-          the escrow, and that transaction can only pay your wallet.{" "}
-          <a href="/custody" target="_blank" rel="noreferrer" className="underline hover:text-text">
-            Custody and fees ↗
-          </a>
+    </section>
+  );
+}
+
+/** The bounty card contributors will see, drawn from what is typed so far: reward huge, one slot per reward the budget pays. */
+function Preview({ draft, days, closesAt }: { draft: Draft; days: number; closesAt: string }) {
+  const reward = amount(draft.reward);
+  const budget = amount(draft.budget);
+  const slots = reward && budget ? Math.floor(budget / reward + 1e-9) : 0;
+  const spare = reward && budget && slots > 0 ? budget - slots * reward : 0;
+  const shown = Math.min(slots, 40);
+  return (
+    <section aria-label="Preview" className="space-y-3">
+      <p className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.16em] text-white/45">
+        <span>Preview · bounty card</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="size-1.5 animate-ping rounded-full bg-accent text-accent" />
+          live
         </span>
-      </label>
-      {error ? <p className="text-sm text-fail">{error}</p> : null}
-      <Button type="submit" disabled={blocked !== null} busy={busy} busyLabel="Saving…">
-        Save campaign
-      </Button>
-    </form>
+      </p>
+      <div className="flex min-h-[480px] flex-col rounded-[30px] bg-paper p-7 text-paper-ink shadow-[0_40px_100px_-40px_rgba(0,0,0,0.8)]">
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="font-semibold">Your team</span>
+          <span className="rounded-full bg-black px-2.5 py-1 font-mono text-[11px] text-accent">{`${days}d left`}</span>
+        </div>
+        <p
+          className={cx("mt-6 line-clamp-3 font-display text-[clamp(1.8rem,2.6vw,2.3rem)] leading-[0.95] [overflow-wrap:anywhere]", !draft.title && "text-black/25")}
+          style={{ fontVariationSettings: ax(85, 800) }}
+        >
+          {draft.title || "Your campaign title"}
+        </p>
+        <div className="mt-auto pt-8">
+          <p
+            className={cx("font-display text-[clamp(5rem,9vw,7rem)] leading-[0.8] transition-colors [overflow-wrap:anywhere]", !reward && "text-black/15")}
+            style={{ fontVariationSettings: ax(62, 900) }}
+          >
+            {reward ? figure(reward) : "0"}
+          </p>
+          <p className="mt-2 text-sm font-semibold">USDC for every approved post</p>
+          <div className="mt-5 flex min-h-6 gap-[3px]" aria-hidden="true">
+            {shown > 0
+              ? Array.from({ length: shown }, (_, i) => <span key={`${slots}-${i}`} className="h-6 min-w-0 flex-1 animate-pop rounded-[3px] bg-black/12" style={{ animationDelay: `${i * 12}ms` }} />)
+              : <span className="h-6 flex-1 rounded-[3px] border border-dashed border-black/20" />}
+          </div>
+          <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-black/60">
+            <span>{slots > 0 ? `0 of ${slots} paid${slots > shown ? ` (first ${shown} shown)` : ""}` : "Set a reward and a budget"}</span>
+            <span>{`Closes ${closesAt} UTC`}</span>
+          </div>
+          {spare > 1e-7 ? <p className="mt-2 text-xs text-black/55">{`${figure(Number(spare.toFixed(7)))} USDC of the budget is less than one reward; it comes back with the remainder.`}</p> : null}
+          <span aria-hidden="true" className="mt-5 flex items-center justify-between rounded-full bg-black px-5 py-3.5 text-sm font-semibold text-white">
+            Do this bounty <span>→</span>
+          </span>
+        </div>
+      </div>
+      <p className="text-[12.5px] leading-relaxed text-white/45">Rewards are paid net of the 0.3% protocol fee. Contributors see this once the budget is in escrow.</p>
+    </section>
   );
 }

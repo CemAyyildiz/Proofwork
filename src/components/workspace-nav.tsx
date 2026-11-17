@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { cx } from "@/components/ui/cx";
+import { publicEnv } from "@/config/public-env";
 
 interface NavItem {
   href: string;
@@ -14,8 +15,8 @@ interface NavItem {
 }
 
 const iconProps = {
-  width: 17,
-  height: 17,
+  width: 16,
+  height: 16,
   viewBox: "0 0 24 24",
   fill: "none",
   stroke: "currentColor",
@@ -124,14 +125,14 @@ export function WorkspaceNav({ variant, ...props }: WorkspaceNavProps) {
     return (
       <nav aria-label="Main" className="flex min-w-0 items-center gap-1 overflow-x-auto">
         {items.map((item) => (
-          <NavLink key={item.href} item={item} active={item.match(pathname)} compact />
+          <TopLink key={item.href} item={item} active={item.match(pathname)} />
         ))}
       </nav>
     );
   }
 
   return (
-    <nav aria-label="Main" className="flex flex-col gap-0.5">
+    <nav aria-label="Main" className="flex flex-col gap-1">
       <Groups workspace={workspace} pub={pub} pathname={pathname} />
     </nav>
   );
@@ -139,7 +140,7 @@ export function WorkspaceNav({ variant, ...props }: WorkspaceNavProps) {
 
 /**
  * The workspace nav below lg: a Menu button in the top bar that opens the
- * sidebar's groups in a panel under the bar, so no item is cut off on a phone.
+ * sidebar's groups in a sheet under the bar, so no item is cut off on a phone.
  * Escape, a click or tap outside, focus moving out of it, or a link inside it
  * closes it, and so does a change of page (pathname).
  */
@@ -187,9 +188,12 @@ export function WorkspaceMenu(props: ItemProps) {
         aria-controls={panelId}
         aria-label="Menu"
         onClick={() => setOpenOn(open ? null : pathname)}
-        className="inline-flex h-11 items-center gap-2 rounded-[10px] border border-line-strong px-3 text-sm font-medium text-text-2 transition-colors duration-200 hover:bg-white/3 hover:text-text"
+        className={cx(
+          "inline-flex h-11 items-center gap-2 rounded-full border px-4 text-sm font-semibold transition-colors duration-200",
+          open ? "border-accent bg-accent text-accent-ink" : "border-white/15 text-text hover:bg-white/5",
+        )}
       >
-        <svg {...iconProps}>{open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}</svg>
+        <svg {...iconProps}>{open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 8h16M4 16h16" />}</svg>
         <span className="hidden min-[400px]:inline">Menu</span>
       </button>
       <div
@@ -198,9 +202,13 @@ export function WorkspaceMenu(props: ItemProps) {
         onClick={(e) => {
           if (e.target instanceof Element && e.target.closest("a")) setOpenOn(null);
         }}
-        className="absolute inset-x-0 top-full flex max-h-[calc(100dvh-4rem)] flex-col gap-0.5 overflow-y-auto border-b border-line bg-canvas px-[18px] pb-4 md:px-10"
+        className="absolute inset-x-0 top-full h-[calc(100dvh-4rem)] overflow-y-auto border-t border-white/10 bg-canvas px-5 pb-10 pt-4 md:px-10"
       >
         <Groups workspace={workspace} pub={pub} pathname={pathname} tall />
+        <p className="mt-10 flex items-center gap-2 px-3 font-mono text-[11px] uppercase tracking-[0.16em] text-white/40">
+          <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
+          {publicEnv.isMainnet ? "Stellar mainnet · real USDC" : "Stellar testnet · USDC here is not real money"}
+        </p>
       </div>
     </nav>
   );
@@ -212,16 +220,16 @@ function Groups({ workspace, pub, pathname, tall = false }: { workspace: NavItem
       {workspace.length > 0 ? (
         <>
           <GroupHeading>Workspace</GroupHeading>
-          {workspace.map((item) => (
-            <NavLink key={item.href} item={item} active={item.match(pathname)} tall={tall} />
+          {workspace.map((item, i) => (
+            <SideLink key={item.href} item={item} index={i} active={item.match(pathname)} tall={tall} />
           ))}
         </>
       ) : null}
       {pub.length > 0 ? (
         <>
           <GroupHeading>Public</GroupHeading>
-          {pub.map((item) => (
-            <NavLink key={item.href} item={item} active={item.match(pathname)} tall={tall} />
+          {pub.map((item, i) => (
+            <SideLink key={item.href} item={item} index={workspace.length + i} active={item.match(pathname)} tall={tall} />
           ))}
         </>
       ) : null}
@@ -230,25 +238,56 @@ function Groups({ workspace, pub, pathname, tall = false }: { workspace: NavItem
 }
 
 function GroupHeading({ children }: { children: string }) {
+  return <p className="px-3 pb-1.5 pt-5 font-mono text-[10.5px] font-medium uppercase tracking-[0.2em] text-white/35 first:pt-1">{children}</p>;
+}
+
+/** Sidebar item: the current page carries the yellow marker. In the phone sheet the items are set in the display face. */
+function SideLink({ item, index, active, tall }: { item: NavItem; index: number; active: boolean; tall: boolean }) {
   return (
-    <p className="px-2.5 pb-2 pt-3.5 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-muted">{children}</p>
+    <Link
+      href={item.href}
+      aria-current={active ? "page" : undefined}
+      style={tall ? { fontVariationSettings: active ? `"wdth" 80, "wght" 850` : `"wdth" 80, "wght" 500` } : undefined}
+      className={cx(
+        "group/nav relative flex items-center rounded-full transition-colors duration-200",
+        tall ? "min-h-14 gap-4 px-3 font-display text-[34px] leading-none" : "gap-3 py-2.5 pl-4 pr-3 text-[14.5px] font-medium",
+        active ? "text-text" : "text-white/50 hover:text-text",
+        !tall && (active ? "bg-white/[0.06]" : "hover:bg-white/[0.03]"),
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cx(
+          "absolute left-1 top-1/2 w-[3px] -translate-y-1/2 rounded-full bg-accent transition-[height,opacity] duration-300 ease-expo",
+          tall ? "left-0 h-0" : active ? "h-5 opacity-100" : "h-0 opacity-0",
+        )}
+      />
+      {tall ? (
+        <span aria-hidden="true" className={cx("w-6 font-mono text-[11px]", active ? "text-accent" : "text-white/30")}>
+          {String(index + 1).padStart(2, "0")}
+        </span>
+      ) : (
+        <span aria-hidden="true" className={cx("transition-colors", active ? "text-accent" : "text-white/35 group-hover/nav:text-white/70")}>
+          {item.icon}
+        </span>
+      )}
+      {item.label}
+    </Link>
   );
 }
 
-function NavLink({ item, active, compact = false, tall = false }: { item: NavItem; active: boolean; compact?: boolean; tall?: boolean }) {
+/** Public top bar item: compact, the current page underlined in yellow. */
+function TopLink({ item, active }: { item: NavItem; active: boolean }) {
   return (
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={cx(
-        "flex items-center rounded-[10px] text-sm font-medium transition-colors duration-200",
-        compact ? "h-11 md:h-9 shrink-0 gap-2 px-3" : tall ? "min-h-11 gap-[11px] px-2.5" : "gap-[11px] px-2.5 py-[9px]",
-        active
-          ? "bg-white/5 text-text shadow-[inset_0_0_0_1px_var(--color-line)]"
-          : "text-muted hover:bg-white/3 hover:text-text",
+        "relative flex h-11 shrink-0 items-center gap-2 rounded-full px-3 text-sm font-medium transition-colors duration-200 md:h-9",
+        active ? "bg-white/[0.06] text-text" : "text-white/55 hover:bg-white/[0.04] hover:text-text",
       )}
     >
-      <span className={cx("opacity-85", compact && "hidden sm:inline")}>{item.icon}</span>
+      <span className={cx("hidden sm:inline", active ? "text-accent" : "opacity-70")}>{item.icon}</span>
       {item.label}
     </Link>
   );

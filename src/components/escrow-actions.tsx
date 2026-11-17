@@ -81,12 +81,16 @@ export function EscrowActions({
             2 · Fund budget
           </Button>
         ) : null}
-        {stage === "funded" ? <span className="text-sm text-pass">Funded. Contributors can submit.</span> : null}
-        {error ? <span className="text-sm text-fail">{error}</span> : null}
+        {stage === "funded" ? <span className="text-sm text-accent">Funded. Contributors can submit.</span> : null}
+        {error ? (
+          <span role="alert" className="text-sm text-fail">
+            {error}
+          </span>
+        ) : null}
       </div>
       {stage === "deployed" && canAbandon ? (
         confirming ? (
-          <div className="max-w-[640px] space-y-3 rounded-lg border border-fail-line p-4 text-sm text-text-2">
+          <div className="max-w-[680px] space-y-4 rounded-[20px] border border-fail-line bg-fail-soft p-5 text-sm leading-relaxed text-white/70">
             <p>
               Nothing is in this escrow: no fund transaction was ever sent for it, and the escrow is read to confirm it is empty
               before anything changes. Abandoning closes the campaign and frees its place under your limits. It cannot be funded
@@ -106,7 +110,7 @@ export function EscrowActions({
             type="button"
             disabled={busy !== null}
             onClick={() => setConfirming(true)}
-            className="inline-flex min-h-11 items-center text-sm text-fail underline hover:no-underline disabled:opacity-35 md:min-h-0"
+            className="inline-flex min-h-11 items-center text-sm text-fail underline decoration-fail/40 underline-offset-4 hover:decoration-fail disabled:opacity-35 md:min-h-0"
           >
             Abandon this campaign instead
           </button>

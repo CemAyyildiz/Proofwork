@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { ax } from "@/components/workspace/kit";
 
 interface Candidate {
   submissionId: string;
@@ -39,23 +39,25 @@ export function SealedReviewCreate({ candidates }: { candidates: Candidate[] }) 
 
   if (candidates.length === 0) return null;
   return (
-    <Card className="p-5 md:p-6">
-      <h2 className="text-base font-semibold">Prepare a sealed dual review</h2>
-      <p className="mt-1 text-sm text-muted">Choose a pending submission. Reviewers are immutable: Proofwork&apos;s configured founder wallet and this campaign&apos;s original creator.</p>
-      <div className="mt-4 grid gap-3">
+    <section className="rounded-[28px] border border-white/[0.07] bg-[#0d0d0d] p-6 md:p-8">
+      <h2 className="font-display text-[clamp(1.5rem,2.4vw,2rem)] leading-none" style={{ fontVariationSettings: ax(85, 830) }}>
+        Prepare a sealed dual review
+      </h2>
+      <p className="mt-3 max-w-[640px] text-[14px] leading-relaxed text-white/55">Choose a pending submission. Reviewers are immutable: Proofwork&apos;s configured founder wallet and this campaign&apos;s original creator.</p>
+      <div className="mt-5 grid gap-3">
         <label>
-          <span className="text-[13px] text-text-2">Submission</span>
-          <select value={submissionId} onChange={(event) => setSubmissionId(event.target.value)} className="mt-1.5 h-11 w-full rounded-md border border-line-strong bg-sunken px-3 text-sm">
+          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/50">Submission</span>
+          <select value={submissionId} onChange={(event) => setSubmissionId(event.target.value)} className="mt-2 h-12 w-full rounded-[16px] border border-white/10 bg-white/[0.03] px-4 text-[15px] text-text">
             {candidates.map((candidate) => (
               <option key={candidate.submissionId} value={candidate.submissionId}>{`${candidate.shortId} · ${candidate.campaignTitle}`}</option>
             ))}
           </select>
         </label>
       </div>
-      {error ? <p role="alert" className="mt-3 text-sm text-fail">{error}</p> : null}
-      <Button className="mt-4" busy={busy} busyLabel="Preparing…" disabled={!submissionId} onClick={() => void prepare()}>
+      {error ? <p role="alert" className="mt-4 rounded-[18px] border border-fail-line bg-fail-soft px-4 py-3 text-sm text-fail">{error}</p> : null}
+      <Button className="mt-5" busy={busy} busyLabel="Preparing…" disabled={!submissionId} onClick={() => void prepare()}>
         Prepare ReceiptOnly round
       </Button>
-    </Card>
+    </section>
   );
 }

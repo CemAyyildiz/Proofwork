@@ -48,7 +48,7 @@ const TABS: Array<{ id: Tab; label: string; count: (c: SubmissionCounts) => numb
 function payoutPill(r: BoardRow): { tone: PillTone; label: string } | null {
   switch (r.payoutStatus) {
     case "released":
-      return { tone: "pass", label: "Paid" };
+      return { tone: "chain", label: "Paid" };
     case "approved":
       return { tone: "chain", label: "Awaiting your signature" };
     case "milestone_added":
@@ -160,7 +160,7 @@ export function SubmissionsBoard({
 
   return (
     <div className="space-y-4">
-      <div role="group" aria-label="Filter submissions" className="flex gap-1 overflow-x-auto border-b border-line pb-px">
+      <div role="group" aria-label="Filter submissions" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
         {TABS.map((t) => {
           const active = t.id === tab;
           return (
@@ -170,33 +170,33 @@ export function SubmissionsBoard({
               aria-pressed={active}
               onClick={() => setTab(t.id)}
               className={cx(
-                "-mb-px inline-flex h-11 shrink-0 items-center gap-2 border-b-2 px-3 text-[13.5px] font-medium transition-colors md:h-10",
-                active ? "border-text text-text" : "border-transparent text-muted hover:text-text",
+                "inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-[13.5px] font-semibold transition-colors duration-200",
+                active ? "bg-paper text-paper-ink" : "border border-white/10 text-white/55 hover:border-white/25 hover:text-text",
               )}
             >
               {t.label}
-              <span className={cx("rounded-full px-1.5 font-mono text-[11px]", active ? "bg-white/10 text-text" : "bg-white/5 text-muted")}>{t.count(counts)}</span>
+              <span className={cx("font-mono text-[11px]", active ? "text-black/55" : "text-white/35")}>{t.count(counts)}</span>
             </button>
           );
         })}
       </div>
 
       {visible.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-line-strong px-4 py-8 text-center text-sm text-muted">
+        <p className="rounded-[22px] border border-dashed border-white/12 px-5 py-10 text-center text-sm text-white/45">
           {rows.length === 0 ? "No submissions yet." : "Nothing in this view."}
         </p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-line">
+        <div className="overflow-hidden rounded-[24px] border border-white/[0.07] bg-[#0d0d0d]">
           <table className="w-full text-left text-sm">
-            <thead className="hidden border-b border-line bg-sunken text-[12px] text-muted md:table-header-group">
-              <tr>
-                <th scope="col" className="w-11 px-3 py-2.5">
+            <thead className="hidden border-b border-white/[0.07] md:table-header-group">
+              <tr className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/40">
+                <th scope="col" className="w-12 py-3 pl-5 pr-2">
                   <span className="sr-only">Select</span>
                 </th>
-                <th scope="col" className="px-3 py-2.5 font-medium">Submission</th>
-                <th scope="col" className="px-3 py-2.5 font-medium">Contributor</th>
-                <th scope="col" className="px-3 py-2.5 font-medium">Review</th>
-                <th scope="col" className="px-3 py-2.5 font-medium">Payout</th>
+                <th scope="col" className="px-3 py-3 font-medium">Submission</th>
+                <th scope="col" className="px-3 py-3 font-medium">Contributor</th>
+                <th scope="col" className="px-3 py-3 font-medium">Review</th>
+                <th scope="col" className="px-3 py-3 pr-5 font-medium">Payout</th>
               </tr>
             </thead>
             <tbody>
@@ -209,32 +209,36 @@ export function SubmissionsBoard({
       )}
 
       {!closed ? (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line-strong bg-raised px-4 py-3">
-            <Button size="sm" disabled={busy !== null || toApprove.length === 0} busy={busy === "approve"} busyLabel="Adding milestones…" onClick={() => void approve()}>
+        <div className="sticky bottom-4 z-10 space-y-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-[26px] border border-white/12 bg-[#151515]/95 p-2 shadow sm:gap-3 sm:rounded-full sm:pr-5-[0_20px_60px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl">
+            <Button size="sm" className="flex-1 sm:flex-none" disabled={busy !== null || toApprove.length === 0} busy={busy === "approve"} busyLabel="Adding milestones…" onClick={() => void approve()}>
               {`Approve ${toApprove.length} for payout`}
             </Button>
-            <Button variant="secondary" size="sm" disabled={busy !== null || toRelease.length === 0} busy={busy === "release"} busyLabel={progress ?? "Preparing…"} onClick={() => void release()}>
+            <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" disabled={busy !== null || toRelease.length === 0} busy={busy === "release"} busyLabel={progress ?? "Preparing…"} onClick={() => void release()}>
               {`Release ${plural(toRelease.length, "payout", "payouts")}`}
             </Button>
-            {busy === null && toApprove.length + toRelease.length > 0 ? <span className="text-[13px] text-muted">{`${toApprove.length + toRelease.length} selected`}</span> : null}
+            {busy === null && toApprove.length + toRelease.length > 0 ? (
+              <span className="w-full pb-1 text-center font-mono text-[12px] text-accent sm:w-auto sm:pb-0">{`${toApprove.length + toRelease.length} selected`}</span>
+            ) : (
+              <span className="hidden font-mono text-[11px] uppercase tracking-[0.14em] text-white/35 sm:inline">Tick rows to act on them</span>
+            )}
           </div>
-          {releasable.length > 0 && toRelease.length === 0 ? <p className="text-sm text-muted">Tick the approved rows to release them.</p> : null}
-          {counts.inReview > 0 ? (
-            <p className="text-sm text-muted">
-              {plural(counts.inReview, "submission", "submissions")} awaiting review. Score them on the{" "}
-              <Link className="text-text underline" href="/review">
-                review page
-              </Link>
-              , then approve the passes here.
-            </p>
-          ) : null}
         </div>
+      ) : null}
+      {!closed && releasable.length > 0 && toRelease.length === 0 ? <p className="text-sm text-white/50">Tick the approved rows to release them.</p> : null}
+      {!closed && counts.inReview > 0 ? (
+        <p className="text-sm text-white/50">
+          {plural(counts.inReview, "submission", "submissions")} awaiting review. Score them on the{" "}
+          <Link className="text-text underline decoration-white/30 underline-offset-4 hover:decoration-white" href="/review">
+            review page
+          </Link>
+          , then approve the passes here.
+        </p>
       ) : null}
 
       {outcome ? <ReleaseOutcomeLine result={outcome.result} total={outcome.total} rows={rows} /> : null}
       {notice ? (
-        <p role={notice.tone === "fail" ? "alert" : "status"} className={cx("text-sm", notice.tone === "fail" ? "text-fail" : "text-pass")}>
+        <p role={notice.tone === "fail" ? "alert" : "status"} className={cx("text-sm", notice.tone === "fail" ? "text-fail" : "text-accent")}>
           {notice.text}
         </p>
       ) : null}
@@ -242,7 +246,7 @@ export function SubmissionsBoard({
   );
 }
 
-const TONE = { ok: "text-pass", muted: "text-muted", fail: "text-fail" } as const;
+const TONE = { ok: "text-accent", muted: "text-white/50", fail: "text-fail" } as const;
 
 /** What a release run did: every payout released with its tx link, then what was not sent and why. */
 function ReleaseOutcomeLine({ result, total, rows }: { result: ReleaseResult; total: number; rows: BoardRow[] }) {
@@ -274,8 +278,13 @@ function Row({ r, selectable, selected, onToggle, disabled }: { r: BoardRow; sel
   const reason = r.reasonCode && r.reasonCode !== "R00_PASS" ? reasonLabel(r.reasonCode) : null;
 
   return (
-    <tr className={cx("grid grid-cols-[44px_minmax(0,1fr)] border-b border-line align-top last:border-b-0 md:table-row", selected && "bg-white/3")}>
-      <td className="row-span-4 px-3 py-2.5">
+    <tr
+      className={cx(
+        "relative grid grid-cols-[48px_minmax(0,1fr)] border-b border-white/[0.06] align-top transition-colors duration-200 last:border-b-0 md:table-row",
+        selected ? "bg-accent/[0.06]" : "hover:bg-white/[0.02]",
+      )}
+    >
+      <td className="row-span-4 py-3.5 pl-5 pr-2">
         {selectable ? (
           <input
             type="checkbox"
@@ -283,35 +292,35 @@ function Row({ r, selectable, selected, onToggle, disabled }: { r: BoardRow; sel
             checked={selected}
             disabled={disabled}
             onChange={() => onToggle(r.submissionId)}
-            className="h-4 w-4 accent-[var(--color-accent)]"
+            className="size-[18px] cursor-pointer accent-[var(--color-accent)]"
           />
         ) : null}
       </td>
-      <td className="px-3 pt-2.5 md:py-2.5">
-        <a href={r.workUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-mono text-[13px] font-medium text-text hover:underline">
-          {r.shortId} <span aria-hidden="true" className="text-muted">↗</span>
+      <td className="px-3 pt-3.5 md:py-3.5">
+        <a href={r.workUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-mono text-[13px] font-semibold text-text hover:text-accent">
+          {r.shortId} <span aria-hidden="true" className="text-white/35">↗</span>
           <span className="sr-only">(opens the post on X)</span>
         </a>
-        <p className="mt-0.5 text-[12px] text-muted">{r.submitted}</p>
+        <p className="mt-0.5 text-[12px] text-white/40">{r.submitted}</p>
       </td>
-      <td className="px-3 pt-2 md:py-2.5">
+      <td className="px-3 pt-2 md:py-3.5">
         <HashChip value={r.contributor} head={4} tail={4} href={publicEnv.explorerAccountUrl(r.contributor)} />
       </td>
-      <td className="px-3 pt-2 md:max-w-[380px] md:py-2.5">
+      <td className="px-3 pt-2 md:max-w-[380px] md:py-3.5">
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <Pill tone={review.tone}>{review.label}</Pill>
-          {reason ? <span className="font-mono text-[12px] text-text-2">{reason}</span> : null}
+          {reason ? <span className="font-mono text-[12px] text-white/60">{reason}</span> : null}
           {r.decisionId ? (
-            <Link href={`/verify/${r.decisionId}`} className="inline-flex min-h-[26px] items-center text-[12px] font-medium text-text-2 hover:text-text hover:underline">
+            <Link href={`/verify/${r.decisionId}`} className="inline-flex min-h-[26px] items-center text-[12px] font-medium text-white/55 hover:text-text hover:underline">
               Verify decision →
             </Link>
           ) : null}
         </div>
-        {r.note && r.status !== "pending" ? <p className="mt-1 line-clamp-1 text-[12.5px] leading-snug text-muted [overflow-wrap:anywhere]">{r.note}</p> : null}
+        {r.note && r.status !== "pending" ? <p className="mt-1 line-clamp-1 text-[12.5px] leading-snug text-white/40 [overflow-wrap:anywhere]">{r.note}</p> : null}
       </td>
-      <td className="px-3 pb-2.5 pt-2 md:py-2.5">
+      <td className="px-3 pb-3.5 pt-2 md:py-3.5 md:pr-5">
         <div className="flex flex-wrap items-center gap-2">
-          {payout ? <Pill tone={payout.tone}>{payout.label}</Pill> : <span className="text-[12px] text-faint">—</span>}
+          {payout ? <Pill tone={payout.tone}>{payout.label}</Pill> : <span className="text-[12px] text-white/25">—</span>}
           {r.releaseTxHash ? <HashChip value={r.releaseTxHash} head={6} tail={4} href={publicEnv.explorerTxUrl(r.releaseTxHash)} /> : null}
         </div>
       </td>

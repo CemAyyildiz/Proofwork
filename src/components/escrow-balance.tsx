@@ -22,9 +22,16 @@ async function liveBalance(slug: string, contractId: string): Promise<string | n
   }
 }
 
+const line = "inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-full px-3.5 py-1.5 text-[13px]";
+
 /** Shown while the balance streams in after the rest of the page. */
 export function EscrowBalanceLoading() {
-  return <p className="text-sm text-muted">Reading balance from Stellar…</p>;
+  return (
+    <p className={`${line} bg-white/[0.05] text-white/55`}>
+      <span aria-hidden="true" className="size-1.5 animate-ping rounded-full bg-white/60 text-white/60" />
+      Reading balance from Stellar…
+    </p>
+  );
 }
 
 /** The funder page's balance line; rendered inside <Suspense> so the page never waits on the chain read. */
@@ -32,17 +39,18 @@ export async function EscrowBalance({ slug, contractId }: { slug: string; contra
   const balance = await liveBalance(slug, contractId);
   if (balance === null) {
     return (
-      <p className="text-sm text-fail">
+      <p className={`${line} border border-fail-line text-fail`}>
         Balance unavailable, check on-chain:{" "}
-        <a className="underline" href={publicEnv.explorerContractUrl(contractId)} target="_blank" rel="noreferrer">
+        <a className="underline underline-offset-4" href={publicEnv.explorerContractUrl(contractId)} target="_blank" rel="noreferrer">
           escrow on stellar.expert
         </a>
       </p>
     );
   }
   return (
-    <p className="text-sm text-text">
-      Balance <strong>{formatUsdc(balance)}</strong> <span className="text-xs text-muted">read from Stellar</span>
+    <p className={`${line} bg-accent/10 text-white/70 [&_strong]:font-semibold [&_strong]:text-accent`}>
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
+      Balance <strong>{formatUsdc(balance)}</strong> <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/45">read from Stellar</span>
     </p>
   );
 }

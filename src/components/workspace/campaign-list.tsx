@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { cx } from "@/components/ui/cx";
 import type { Campaign } from "@/db/schema";
-import { campaignStage, nextStep, type CampaignStage, type SubmissionCounts } from "@/domain/campaign-status";
-import { formatUsdc } from "@/lib/format";
+import { campaignStage, nextStep, type CampaignStage, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
+import { fromStroops, toStroops } from "@/escrow/amount";
 import { dateLine, describeStep, OWNER_LABEL, stageLabel, StagePill } from "./campaign-phase";
+import { ax, figure, Label, SlotLegend, SlotMeter, slotCount, type Slots } from "./kit";
+import { CountUp, Reveal } from "./motion-bits";
 
 export interface CampaignListItem {
   campaign: Campaign;
@@ -21,6 +24,9 @@ const ORDER: readonly CampaignStage[] = [
   "abandoned",
 ];
 
+/** Steps that wait on the funder's own wallet, most urgent first: money already approved, then passes to approve, then the rest. */
+const URGENCY: Partial<Record<NextStep["kind"], number>> = { release: 0, approve: 1, close: 2, fund: 3, deploy: 4 };
+
 /** Campaigns grouped by their stage, in list order; stages without a campaign are left out. */
 export function groupByStage(items: readonly CampaignListItem[], now: Date): Array<{ stage: CampaignStage; items: CampaignListItem[] }> {
   const by = new Map<CampaignStage, CampaignListItem[]>();
@@ -34,19 +40,56 @@ export function groupByStage(items: readonly CampaignListItem[], now: Date): Arr
   });
 }
 
-export function CampaignList({ items, now }: { items: readonly CampaignListItem[]; now: Date }) {
+/** The campaign id whose next step is the funder's most urgent one, or null when nothing waits on the funder. */
+export function mostUrgent(items: readonly CampaignListItem[], now: Date): string | null {
+  let best: { id: string; rank: number } | null = null;
+  for (const g of groupByStage(items, now)) {
+    for (const item of g.items) {
+      const rank = URGENCY[nextStep(g.stage, item.campaign, item.counts, now).kind];
+      if (rank !== undefined && (best === null || rank < best.rank)) best = { id: item.campaign.id, rank };
+    }
+  }
+  return best?.id ?? null;
+}
+
+/** Budget less what was released, never below zero. Decimal strings in, decimal string out. */
+export function leftOf(budget: string, paid: string): string {
+  const left = toStroops(budget) - toStroops(paid);
+  return fromStroops(left > 0n ? left : 0n);
+}
+
+/** The meter's stretches for one campaign, from its submission counts. */
+export function slotParts(c: Pick<Campaign, "budget" | "rewardAmount">, counts: SubmissionCounts): { total: number; parts: Slots[] } {
+  const total = slotCount(c.budget, c.rewardAmount);
+  const taken = counts.paid + counts.awaitingSignature + counts.readyToPay + counts.inReview;
+  return {
+    total,
+    parts: [
+      { key: "paid", n: counts.paid, label: "paid" },
+      { key: "signature", n: counts.awaitingSignature, label: "to release" },
+      { key: "ready", n: counts.readyToPay, label: "to approve" },
+      { key: "review", n: counts.inReview, label: "in review" },
+      { key: "left", n: Math.max(0, total - taken), label: "free" },
+    ],
+  };
+}
+
+export function CampaignList({ items, now, urgent = null }: { items: readonly CampaignListItem[]; now: Date; urgent?: string | null }) {
   return (
-    <div className="space-y-8">
+    <div className="space-y-12">
       {groupByStage(items, now).map((g) => (
         <section key={g.stage} aria-label={stageLabel(g.stage)}>
-          <h2 className="flex items-center gap-2.5 pb-2 font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted">
-            {stageLabel(g.stage)} <span className="rounded-full border border-line-strong px-2 py-px text-[10.5px] tracking-normal">{g.items.length}</span>
+          <h2 className="mb-4 flex items-baseline gap-3">
+            <Label as="span">{stageLabel(g.stage)}</Label>
+            <span className="font-display text-[22px] leading-none text-white/30" style={{ fontVariationSettings: ax(70, 900) }}>
+              {g.items.length}
+            </span>
           </h2>
-          <ul className="border-t border-line">
-            {g.items.map((item) => (
-              <li key={item.campaign.id} className="border-b border-line">
-                <CampaignRow item={item} stage={g.stage} now={now} />
-              </li>
+          <ul className="space-y-4">
+            {g.items.map((item, i) => (
+              <Reveal as="li" key={item.campaign.id} delay={i * 70}>
+                <CampaignRow item={item} stage={g.stage} now={now} urgent={item.campaign.id === urgent} />
+              </Reveal>
             ))}
           </ul>
         </section>
@@ -55,10 +98,11 @@ export function CampaignList({ items, now }: { items: readonly CampaignListItem[
   );
 }
 
-function CampaignRow({ item, stage, now }: { item: CampaignListItem; stage: CampaignStage; now: Date }) {
+function CampaignRow({ item, stage, now, urgent }: { item: CampaignListItem; stage: CampaignStage; now: Date; urgent: boolean }) {
   const { campaign: c, counts } = item;
   const step = nextStep(stage, c, counts, now);
   const { title } = describeStep(step, c);
+  const funded = c.fundedAt !== null;
   const tally = [
     `${counts.total} ${counts.total === 1 ? "submission" : "submissions"}`,
     counts.inReview > 0 ? `${counts.inReview} in review` : null,
@@ -67,33 +111,89 @@ function CampaignRow({ item, stage, now }: { item: CampaignListItem; stage: Camp
     counts.paid > 0 ? `${counts.paid} paid` : null,
     counts.rejected > 0 ? `${counts.rejected} rejected` : null,
   ].filter((s): s is string => s !== null);
+  const toPay = counts.readyToPay + counts.awaitingSignature;
+  const main = !funded
+    ? { value: figure(c.budget), label: "USDC budget, not in escrow yet" }
+    : c.closedAt
+      ? { value: figure(counts.paidAmount), label: "USDC paid out" }
+      : { value: figure(leftOf(c.budget, counts.paidAmount)), label: `USDC left of ${figure(c.budget)}` };
+  const meter = slotParts(c, counts);
 
   return (
     <Link
       href={`/campaigns/${c.slug}`}
-      className="group -mx-3 grid grid-cols-[minmax(0,1fr)] items-center gap-x-8 gap-y-3 rounded-lg px-3 py-4 transition-colors duration-150 hover:bg-white/3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.9fr)]"
+      className={cx(
+        "group relative block overflow-hidden rounded-[28px] border bg-[#0d0d0d] p-5 transition-[border-color,transform,background-color] duration-300 ease-expo hover:-translate-y-0.5 hover:bg-[#111] md:p-7",
+        urgent ? "border-accent/40" : "border-white/[0.07] hover:border-white/20",
+      )}
     >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          {/* The stage is read before the title; it is shown after it. */}
-          <span className="order-2">
-            <StagePill stage={stage} />
-          </span>
-          <h3 className="order-1 text-[16px] font-semibold leading-snug tracking-[-0.02em] [overflow-wrap:anywhere]">{c.title}</h3>
+      <div className="grid gap-x-10 gap-y-6 md:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="min-w-0">
+          <StagePill stage={stage} />
+          <h3
+            className="mt-3 font-display text-[clamp(1.55rem,2.6vw,2.25rem)] leading-[0.98] [overflow-wrap:anywhere]"
+            style={{ fontVariationSettings: ax(88, 780) }}
+          >
+            {c.title}
+          </h3>
+          <p className="mt-2.5 font-mono text-[11.5px] text-white/45">{dateLine(c, stage, now)}</p>
         </div>
-        <p className="mt-1.5 font-mono text-[12px] text-muted">{dateLine(c, stage, now)}</p>
+
+        <dl className="flex items-end gap-8 md:justify-end">
+          <div>
+            <dt className="sr-only">Amount</dt>
+            <dd>
+              <span className="block font-display text-[clamp(3.2rem,6vw,4.75rem)] leading-[0.8]" style={{ fontVariationSettings: ax(62, 900) }}>
+                <CountUp value={main.value} />
+              </span>
+              <span className="mt-2 block text-[12.5px] text-white/50">{main.label}</span>
+            </dd>
+          </div>
+          {funded && !c.closedAt ? (
+            <div>
+              <dt className="sr-only">Ready to pay</dt>
+              <dd>
+                <span
+                  className={cx("block font-display text-[clamp(3.2rem,6vw,4.75rem)] leading-[0.8]", toPay > 0 ? "text-accent" : "text-white/20")}
+                  style={{ fontVariationSettings: ax(62, 900) }}
+                >
+                  <CountUp value={String(toPay)} />
+                </span>
+                <span className="mt-2 block text-[12.5px] text-white/50">ready to pay</span>
+              </dd>
+            </div>
+          ) : null}
+        </dl>
       </div>
-      <div className="min-w-0">
-        <p className="font-mono text-[12.5px] text-text-2">
-          <span className="font-medium text-text">{formatUsdc(c.budget)}</span> budget ·{" "}
-          <span className="font-medium text-text">{formatUsdc(c.rewardAmount)}</span> per pass
+
+      <div className="mt-6">
+        {funded ? (
+          <SlotMeter total={meter.total} parts={meter.parts} size="sm" />
+        ) : (
+          <div aria-hidden="true" className="flex gap-[3px]">
+            {Array.from({ length: Math.min(meter.total, 48) }, (_, i) => (
+              <span key={i} className="h-4 min-w-0 flex-1 rounded-[3px] border border-dashed border-white/15" />
+            ))}
+          </div>
+        )}
+        {funded ? <SlotLegend parts={meter.parts} className="mt-2.5" /> : <p className="mt-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-white/40">{`${meter.total} rewards once funded`}</p>}
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-white/[0.06] pt-4">
+        <p className="min-w-0 text-[13px] text-white/50">{funded ? tally.join(" · ") : null}</p>
+        <p
+          className={cx(
+            "inline-flex min-h-10 items-center gap-1.5 rounded-full px-4 text-[13.5px] transition-colors duration-200",
+            urgent ? "bg-accent font-semibold text-accent-ink" : "border border-white/15 text-white/70 group-hover:border-white/40 group-hover:text-text",
+          )}
+        >
+          <span className={urgent ? "text-accent-ink/60" : "text-white/40"}>Next:</span> <span className="font-semibold">{title}</span>
+          {step.owner ? <span className={urgent ? "text-accent-ink/60" : "text-white/40"}> · {OWNER_LABEL[step.owner]}</span> : null}
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="ml-1 transition-transform duration-200 group-hover:translate-x-0.5">
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
         </p>
-        {c.fundedAt ? <p className="mt-1.5 text-[12px] leading-snug text-muted">{tally.join(" · ")}</p> : null}
       </div>
-      <p className="min-w-0 text-[13px] text-text-2 md:text-right">
-        <span className="text-muted">Next:</span> <span className="font-semibold text-text group-hover:text-accent">{title}</span>
-        {step.owner ? <span className="text-muted"> · {OWNER_LABEL[step.owner]}</span> : null}
-      </p>
     </Link>
   );
 }
