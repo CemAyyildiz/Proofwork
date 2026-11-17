@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Check } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { canHoverFine, useMediaQuery, useReducedMotion } from "@/components/use-reduced-motion";
+import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
 
 export interface StageData {
   network: string;
@@ -24,22 +25,22 @@ export interface StageData {
   }[];
 }
 
-const Y = "#fdda24";
-const PAPER = "#f2f0e9";
-const FONT = "[font-family:var(--font-anybody)]";
+export const Y = "#fdda24";
+export const PAPER = "#f2f0e9";
+export const FONT = "[font-family:var(--font-anybody)]";
 
-const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+export const clamp = (v: number, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 /** Progress of `p` through the window [a, b], clamped to 0..1. */
-const seg = (p: number, a: number, b: number) => clamp((p - a) / (b - a));
-const ease = (t: number) => 1 - (1 - t) ** 3;
-const axes = (wdth: number, wght: number) => `"wdth" ${wdth.toFixed(1)}, "wght" ${wght.toFixed(0)}`;
+export const seg = (p: number, a: number, b: number) => clamp((p - a) / (b - a));
+export const ease = (t: number) => 1 - (1 - t) ** 3;
+export const axes = (wdth: number, wght: number) => `"wdth" ${wdth.toFixed(1)}, "wght" ${wght.toFixed(0)}`;
 
 /**
  * Calls `frame` with how far the page has scrolled through `ref` (0 when its top
  * meets the top of the viewport, 1 when its bottom meets the bottom). The work is
  * batched into one animation frame per scroll, and nothing re-renders.
  */
-function useTrack(ref: RefObject<HTMLElement | null>, frame: (p: number) => void) {
+export function useTrack(ref: RefObject<HTMLElement | null>, frame: (p: number) => void) {
   const cb = useRef(frame);
   useLayoutEffect(() => {
     cb.current = frame;
@@ -69,7 +70,7 @@ function useTrack(ref: RefObject<HTMLElement | null>, frame: (p: number) => void
 }
 
 /** True once the element is on screen; never flips back. */
-function useSeen<T extends Element>(): [RefObject<T | null>, boolean] {
+export function useSeen<T extends Element>(): [RefObject<T | null>, boolean] {
   const ref = useRef<T>(null);
   const [seen, setSeen] = useState(false);
   useEffect(() => {
@@ -98,13 +99,13 @@ function subscribeClock(onChange: () => void) {
   return () => clearInterval(id);
 }
 /** Wall clock that ticks every second, null until the page is hydrated so server and client agree. */
-function useClock(): number | null {
+export function useClock(): number | null {
   return useSyncExternalStore(subscribeClock, () => clockNow || null, () => null);
 }
 
 /* ───────────────────────────── nav ───────────────────────────── */
 
-function Nav() {
+export function Nav() {
   return (
     <nav className="fixed inset-x-0 top-4 z-50 flex justify-center px-4">
       <div className="flex w-full max-w-3xl items-center justify-between gap-4 rounded-full border border-white/10 bg-[#0b0b0b]/90 py-2 pl-5 pr-2 text-white backdrop-blur-xl">
@@ -112,13 +113,13 @@ function Nav() {
           proofwork
         </Link>
         <div className="hidden items-center gap-6 text-sm text-white/60 sm:flex">
-          <a href="#how" className="transition-colors hover:text-white">How it works</a>
-          <a href="#ledger" className="transition-colors hover:text-white">Payouts</a>
-          <a href="#open" className="transition-colors hover:text-white">Bounties</a>
+          <Link href="/lab/e#how" className="transition-colors hover:text-white">How it works</Link>
+          <Link href="/lab/e#ledger" className="transition-colors hover:text-white">Payouts</Link>
+          <Link href="/lab/e#open" className="transition-colors hover:text-white">Bounties</Link>
         </div>
-        <a href="#open" className="rounded-full px-4 py-2 text-sm font-semibold text-black transition-transform hover:scale-[1.03]" style={{ background: Y }}>
+        <Link href="/lab/e#open" className="rounded-full px-4 py-2 text-sm font-semibold text-black transition-transform hover:scale-[1.03]" style={{ background: Y }}>
           Find a bounty
-        </a>
+        </Link>
       </div>
     </nav>
   );
@@ -245,7 +246,7 @@ function Hero({ data }: { data: StageData }) {
           ))}
           <div className="mt-10 flex flex-col items-center gap-6 opacity-0 animate-reveal [animation-delay:700ms]">
             <p className="max-w-md text-balance text-[15px] leading-relaxed text-white/60">
-              Teams post bounties. You post the work on X. A person scores it, and the escrow pays you on Stellar. Every payout below is a real transaction.
+              Teams post bounties. You post the work on X. A person reviews it, and the escrow pays you on Stellar. Every payout below is a real transaction.
             </p>
           </div>
         </div>
@@ -292,10 +293,10 @@ function FlyCard({ kind, payout }: { kind: number; payout: StageData["payouts"][
       <div className="flex items-center justify-between">
         <span className="rounded-full bg-black px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-[#fdda24]">PASS</span>
         <span className={`text-2xl ${FONT}`} style={{ fontVariationSettings: axes(90, 800) }}>
-          8/10
+          6/6
         </span>
       </div>
-      <p className="mt-3 text-xs text-black/60">Scored by a reviewer, recorded on chain.</p>
+      <p className="mt-3 text-xs text-black/60">Reviewed by a person, recorded on chain.</p>
     </div>
   );
 }
@@ -305,16 +306,11 @@ function FlyCard({ kind, payout }: { kind: number; payout: StageData["payouts"][
 const STEPS = [
   { t: "Post it on X.", d: "Pick a bounty, do the work, and post about it from your own account. Paste the link into the bounty." },
   { t: "Machines check the boring part.", d: "A real x.com status, from the account linked to your wallet, posted while the bounty was open." },
-  { t: "A person reads it.", d: "A reviewer from the funding team scores it against the bounty’s rubric and writes down why." },
-  { t: "The decision goes on chain.", d: "The score and the reason are recorded on Stellar before a single cent moves." },
+  { t: "A person reads it.", d: `A reviewer answers six yes/no questions about the post. ${PASS_THRESHOLD} yeses pass it, and the funding team gives the final approval.` },
+  { t: "The decision goes on chain.", d: "The answers and the reason are recorded on Stellar before a single cent moves. Disagree? You can ask for one re-review." },
   { t: "Escrow pays you.", d: "The reward leaves the bounty’s escrow contract for your wallet. The transaction is your receipt." },
 ];
 const CHECKS = ["Real x.com status link", "Account linked to your wallet", "Posted inside the window"];
-const RUBRIC: [string, number][] = [
-  ["Accuracy", 3],
-  ["Depth", 2],
-  ["Reach", 3],
-];
 
 function Story({ data }: { data: StageData }) {
   const reduced = useReducedMotion();
@@ -327,7 +323,7 @@ function Story({ data }: { data: StageData }) {
   const checks = useRef<HTMLDivElement>(null);
   const checkRows = useRef<(HTMLLIElement | null)[]>([]);
   const rubric = useRef<HTMLDivElement>(null);
-  const bars = useRef<(HTMLSpanElement | null)[]>([]);
+  const signals = useRef<(HTMLLIElement | null)[]>([]);
   const score = useRef<HTMLSpanElement>(null);
   const stamp = useRef<HTMLDivElement>(null);
   const amount = useRef<HTMLSpanElement>(null);
@@ -359,11 +355,13 @@ function Story({ data }: { data: StageData }) {
       rubric.current.style.opacity = rb.toFixed(3);
       rubric.current.style.transform = `translate3d(${(1 - ease(seg(p, 0.4, 0.45))) * -60}px, 0, 0)`;
     }
-    bars.current.forEach((bar, i) => {
-      const [, v] = RUBRIC[i] ?? ["", 0];
-      if (bar) bar.style.transform = `scaleX(${(ease(seg(p, 0.44 + i * 0.035, 0.5 + i * 0.035)) * v) / 3})`;
+    let yes = 0;
+    signals.current.forEach((row, i) => {
+      const on = p > 0.44 + i * 0.022;
+      if (on) yes += 1;
+      row?.setAttribute("data-on", on ? "1" : "0");
     });
-    if (score.current) score.current.textContent = String(Math.round(seg(p, 0.44, 0.57) * 8));
+    if (score.current) score.current.textContent = String(yes);
 
     const s = seg(p, 0.62, 0.65);
     if (stamp.current) {
@@ -499,29 +497,30 @@ function Story({ data }: { data: StageData }) {
               </div>
               <div ref={rubric} className="absolute -bottom-8 -left-4 w-64 rounded-2xl bg-[#f2f0e9] p-4 text-black opacity-0 shadow-2xl md:-left-28">
                 <div className="flex items-baseline justify-between">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-black/50">Reviewer score</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-black/50">Reviewer · {PASS_THRESHOLD} to pass</p>
                   <p className={`text-3xl leading-none ${FONT}`} style={{ fontVariationSettings: axes(80, 900) }}>
                     <span ref={score}>0</span>
-                    <span className="text-black/35">/10</span>
+                    <span className="text-black/35">/{SIGNALS.length}</span>
                   </p>
                 </div>
-                <div className="mt-3 space-y-2">
-                  {RUBRIC.map(([label], i) => (
-                    <div key={label} className="grid grid-cols-[4.5rem_1fr] items-center gap-2 text-xs">
-                      <span className="text-black/60">{label}</span>
-                      <span className="h-2 overflow-hidden rounded-full bg-black/10">
-                        <span
-                          ref={(el) => {
-                            bars.current[i] = el;
-                          }}
-                          className="block h-full origin-left rounded-full bg-black"
-                          style={{ transform: "scaleX(0)" }}
-                        />
+                <ul className="mt-3 space-y-1.5">
+                  {SIGNALS.map((sig, i) => (
+                    <li
+                      key={sig.id}
+                      ref={(el) => {
+                        signals.current[i] = el;
+                      }}
+                      data-on="0"
+                      className="group/sig flex items-center justify-between gap-2 text-xs text-black/40 transition-colors duration-300 data-[on=1]:text-black"
+                    >
+                      {sig.label}
+                      <span className="rounded-full px-1.5 py-px font-mono text-[10px] font-semibold opacity-0 transition-all duration-300 group-data-[on=1]/sig:bg-black group-data-[on=1]/sig:text-[#fdda24] group-data-[on=1]/sig:opacity-100">
+                        YES
                       </span>
-                    </div>
+                    </li>
                   ))}
-                </div>
-                <p className="mt-3 text-xs italic text-black/60">“Clear, correct, and the tx links check out.”</p>
+                </ul>
+                <p className="mt-3 text-xs italic text-black/60">“Real walkthrough, links check out.”</p>
               </div>
             </div>
           </div>
@@ -625,7 +624,7 @@ function Ledger({ data }: { data: StageData }) {
 
 /* ───────────────────────────── 4. open bounties: a horizontal run ───────────────────────────── */
 
-function countdown(deadline: string, now: number): string {
+export function countdown(deadline: string, now: number): string {
   const ms = new Date(deadline).getTime() - now;
   if (ms <= 0) return "Closed";
   const d = Math.floor(ms / 86_400_000);
@@ -636,7 +635,7 @@ function countdown(deadline: string, now: number): string {
   return `${d}d ${pad(h)}:${pad(m)}:${pad(s)}`;
 }
 
-function Tilt({ children, className }: { children: ReactNode; className?: string }) {
+export function Tilt({ children, className }: { children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   return (
     <div
@@ -670,7 +669,7 @@ function BountyCard({ b, now }: { b: StageData["bounties"][number]; now: number 
   return (
     <Tilt className="group/card relative h-[min(560px,68vh)] w-[min(420px,82vw)] shrink-0 snap-center will-change-transform">
       <Link
-        href={`/c/${b.slug}`}
+        href={`/lab/e/${b.slug}`}
         className={`relative flex size-full flex-col overflow-hidden rounded-[30px] p-7 ${b.open ? "text-black" : "bg-[#151515] text-white/70"}`}
         style={b.open ? { background: PAPER } : undefined}
       >
