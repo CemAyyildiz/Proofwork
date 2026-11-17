@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { Anybody, Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
+// Display face: variable width and weight, animated on scroll and pointer (components/e/motion).
+const anybody = Anybody({ subsets: ["latin"], axes: ["wdth"], variable: "--font-anybody" });
 const instrument = Instrument_Serif({ subsets: ["latin"], weight: "400", style: "italic", variable: "--font-instrument" });
 
 const SITE_URL = process.env.VERCEL_PROJECT_PRODUCTION_URL
@@ -26,7 +28,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geist.variable} ${geistMono.variable} ${instrument.variable}`}>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable} ${instrument.variable} ${anybody.variable}`}>
       <body className="min-h-screen bg-canvas font-sans text-text antialiased">
         {children}
         {/* Vercel Web Analytics, served same-origin by Vercel; cookieless page views only. Absent outside Vercel. */}

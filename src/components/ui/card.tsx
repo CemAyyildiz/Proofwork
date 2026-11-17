@@ -8,7 +8,7 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
 
 export function Card({ glow = false, className, children, ...rest }: CardProps) {
   return (
-    <div {...rest} className={cx("relative rounded-xl border border-line bg-surface", glow && "card-glow", className)}>
+    <div {...rest} className={cx("relative rounded-xl border border-white/[0.07] bg-surface", glow && "card-glow", className)}>
       {children}
     </div>
   );

@@ -14,14 +14,14 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants: Record<ButtonVariant, string> = {
-  primary: "bg-accent text-accent-ink hover:brightness-110",
+  primary: "bg-accent text-accent-ink hover:scale-[1.02] hover:brightness-105",
   secondary: "border border-line-strong bg-white/2 text-text hover:bg-white/5",
   danger: "border border-fail-line bg-transparent text-fail hover:bg-fail-soft",
 };
 
 const sizes: Record<ButtonSize, string> = {
-  md: "h-11 px-5 text-[14.5px] rounded-md",
-  sm: "h-11 md:h-9 px-3.5 text-[13.5px] rounded-[10px]",
+  md: "h-12 px-6 text-[14.5px] rounded-full",
+  sm: "h-11 md:h-9 px-4 text-[13.5px] rounded-full",
 };
 
 export function buttonClasses(variant: ButtonVariant = "primary", size: ButtonSize = "md", className?: string): string {
