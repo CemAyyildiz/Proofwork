@@ -6,6 +6,7 @@ import { SubmitForm } from "@/components/submit-form";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
 import { HashChip } from "@/components/ui/hash-chip";
+import { StepNote, StepRow } from "@/components/site/steps";
 import { publicEnv } from "@/config/public-env";
 import { signTransaction } from "@/wallet/kit";
 import {
@@ -108,93 +109,98 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
 
   const view = onboardingView(check, x);
 
+  const notes = (
+    <>
+      {cancelled ? <p className="mt-3 text-[12.5px] text-white/55">Signature cancelled in your wallet. Nothing was sent.</p> : null}
+      {error ? (
+        <p role="alert" className="mt-3 text-[12.5px] text-fail">
+          {error}
+        </p>
+      ) : null}
+    </>
+  );
+
   return (
     <>
       {view.step === "ready" ? (
-        trustTx ? (
-          <p role="status" className="mt-3 flex flex-wrap items-center gap-2 text-[13px] text-muted">
-            <span className="text-pass">USDC trustline added</span>
-            <HashChip value={trustTx} href={publicEnv.explorerTxUrl(trustTx)} />
-          </p>
-        ) : null
-      ) : (
-        <div className="mt-4 rounded-[14px] border border-line-strong bg-sunken p-4" aria-live="polite">
-          {view.step === "checking" ? (
-            <p className="text-[13.5px] text-muted">Checking your wallet on {publicEnv.networkName}…</p>
-          ) : view.step === "unreachable" ? (
-            <>
-              <p className="text-[13.5px] text-fail">Can&apos;t check your wallet on {publicEnv.networkName} right now.</p>
-              <Button variant="secondary" size="sm" className="mt-3" onClick={() => void recheck()}>
-                Retry
-              </Button>
-            </>
-          ) : (
-            <>
-              <p className="text-[13.5px] leading-normal text-text-2">
-                This wallet can&apos;t receive USDC yet. Set it up here in two steps, then submit.
-              </p>
-              <ol className="mt-3.5 grid gap-3">
-                <Node state={view.activate} n={1}>
-                  {publicEnv.isMainnet ? (
-                    <>
-                      Send XLM to this wallet
-                      <Sub>
-                        A Stellar account opens once it holds XLM. Send at least 2 XLM to this wallet&apos;s address from an exchange or
-                        another wallet: 1 XLM opens the account, 0.5 XLM is held by the USDC trustline, the rest pays network fees.
-                      </Sub>
-                      {view.activate === "current" ? (
-                        <Button variant="secondary" size="sm" className="mt-2.5" disabled={busy !== null} onClick={() => void recheck()}>
-                          Sent it? Check again
-                        </Button>
-                      ) : null}
-                    </>
-                  ) : (
-                    <>
-                      Activate testnet account
-                      <Sub>Friendbot sends free testnet XLM so the account exists.</Sub>
-                      {view.activate === "current" ? (
-                        <Button size="sm" className="mt-2.5" busy={busy === "fund"} busyLabel="Activating on testnet…" disabled={busy !== null} onClick={() => void activate()}>
-                          Activate testnet account
-                        </Button>
-                      ) : null}
-                    </>
-                  )}
-                </Node>
-                <Node state={view.trustline} n={2}>
-                  Add USDC trustline
-                  <Sub>Lets this wallet hold USDC. Your wallet signs it; the network fee is paid in XLM.</Sub>
-                  {view.trustline === "current" ? (
-                    <div className="mt-2.5 flex flex-wrap items-center gap-3">
-                      <Button
-                        size="sm"
-                        busy={busy === "sign" || busy === "submit"}
-                        busyLabel={busy === "submit" ? "Submitting to Stellar…" : "Awaiting your signature…"}
-                        disabled={busy !== null}
-                        onClick={() => void addTrustline()}
-                      >
-                        Add USDC trustline
-                      </Button>
-                      <button
-                        type="button"
-                        disabled={busy !== null}
-                        onClick={() => void recheck()}
-                        className="rounded-sm text-[12.5px] text-muted hover:text-text disabled:opacity-35"
-                      >
-                        Added it in your wallet? Check again
-                      </button>
-                    </div>
-                  ) : null}
-                </Node>
-              </ol>
-            </>
-          )}
-          {cancelled ? <p className="mt-3 text-[12.5px] text-muted">Signature cancelled in your wallet. Nothing was sent.</p> : null}
-          {error ? (
-            <p role="alert" className="mt-3 text-[12.5px] text-fail">
-              {error}
+        <StepRow state="done" title="Wallet can receive USDC">
+          {trustTx ? (
+            <p role="status" className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-white/55">
+              <span className="text-pass">USDC trustline added</span>
+              <HashChip value={trustTx} href={publicEnv.explorerTxUrl(trustTx)} />
             </p>
           ) : null}
-        </div>
+          {notes}
+        </StepRow>
+      ) : view.step === "checking" ? (
+        <StepRow state="pending" title={<span aria-live="polite">Checking your wallet on {publicEnv.networkName}…</span>} />
+      ) : view.step === "unreachable" ? (
+        <StepRow state="fail" title={<span className="text-fail">Can&apos;t check your wallet on {publicEnv.networkName} right now.</span>}>
+          <Button variant="secondary" size="sm" className="mt-3" onClick={() => void recheck()}>
+            Retry
+          </Button>
+          {notes}
+        </StepRow>
+      ) : (
+        <StepRow state="current" title="Get this wallet ready for USDC">
+          <div aria-live="polite">
+            <StepNote>This wallet can&apos;t receive USDC yet. Set it up here in two steps, then submit.</StepNote>
+            <ol className="mt-4 grid gap-3.5 rounded-2xl bg-white/[0.05] p-4">
+              <Node state={view.activate} n={1}>
+                {publicEnv.isMainnet ? (
+                  <>
+                    Send XLM to this wallet
+                    <Sub>
+                      A Stellar account opens once it holds XLM. Send at least 2 XLM to this wallet&apos;s address from an exchange or another
+                      wallet: 1 XLM opens the account, 0.5 XLM is held by the USDC trustline, the rest pays network fees.
+                    </Sub>
+                    {view.activate === "current" ? (
+                      <Button variant="secondary" size="sm" className="mt-2.5" disabled={busy !== null} onClick={() => void recheck()}>
+                        Sent it? Check again
+                      </Button>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    Activate testnet account
+                    <Sub>Friendbot sends free testnet XLM so the account exists.</Sub>
+                    {view.activate === "current" ? (
+                      <Button size="sm" className="mt-2.5" busy={busy === "fund"} busyLabel="Activating on testnet…" disabled={busy !== null} onClick={() => void activate()}>
+                        Activate testnet account
+                      </Button>
+                    ) : null}
+                  </>
+                )}
+              </Node>
+              <Node state={view.trustline} n={2}>
+                Add USDC trustline
+                <Sub>Lets this wallet hold USDC. Your wallet signs it; the network fee is paid in XLM.</Sub>
+                {view.trustline === "current" ? (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-3">
+                    <Button
+                      size="sm"
+                      busy={busy === "sign" || busy === "submit"}
+                      busyLabel={busy === "submit" ? "Submitting to Stellar…" : "Awaiting your signature…"}
+                      disabled={busy !== null}
+                      onClick={() => void addTrustline()}
+                    >
+                      Add USDC trustline
+                    </Button>
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() => void recheck()}
+                      className="rounded-sm text-[12.5px] text-white/55 underline decoration-white/25 underline-offset-4 hover:text-white disabled:opacity-35"
+                    >
+                      Added it in your wallet? Check again
+                    </button>
+                  </div>
+                ) : null}
+              </Node>
+            </ol>
+            {notes}
+          </div>
+        </StepRow>
       )}
       <SubmitForm campaignSlug={campaignSlug} payTo={address} locked={!view.canSubmit} />
     </>
@@ -207,15 +213,15 @@ function Node({ state, n, children }: { state: OnboardingNode; n: number; childr
       <span
         aria-hidden="true"
         className={cx(
-          "mt-px grid h-6 w-6 place-items-center rounded-full border-2 font-mono text-[11px] font-semibold",
-          state === "done" && "border-pass bg-pass text-accent-ink",
-          state === "current" && "border-accent text-accent shadow-[0_0_0_4px_var(--color-accent-soft)]",
-          state === "pending" && "border-line-strong text-muted",
+          "mt-px grid h-6 w-6 place-items-center rounded-full font-mono text-[11px] font-semibold",
+          state === "done" && "bg-white text-black",
+          state === "current" && "bg-accent text-black",
+          state === "pending" && "border border-white/15 text-white/40",
         )}
       >
         {state === "done" ? "✓" : n}
       </span>
-      <div className={cx("min-w-0 text-[14px] font-semibold", state === "pending" && "text-muted")}>
+      <div className={cx("min-w-0 text-[14px] font-semibold", state === "pending" && "text-white/45")}>
         {children}
         {state === "done" ? <span className="sr-only"> (done)</span> : null}
       </div>
@@ -224,5 +230,5 @@ function Node({ state, n, children }: { state: OnboardingNode; n: number; childr
 }
 
 function Sub({ children }: { children: ReactNode }) {
-  return <span className="mt-1 block text-[12.5px] font-normal leading-normal text-muted">{children}</span>;
+  return <span className="mt-1 block text-[12.5px] font-normal leading-relaxed text-white/55">{children}</span>;
 }

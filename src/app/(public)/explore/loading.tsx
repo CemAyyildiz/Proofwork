@@ -1,5 +1,5 @@
-import { PageSkeleton } from "@/components/route-states";
+import { DirectorySkeleton } from "@/components/route-states";
 
 export default function Loading() {
-  return <PageSkeleton />;
+  return <DirectorySkeleton />;
 }

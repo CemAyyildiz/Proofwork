@@ -6,11 +6,11 @@ export function NetworkBadge({ className }: { className?: string }) {
   return (
     <span
       className={cx(
-        "inline-flex h-7 items-center gap-[7px] rounded-full border border-accent-line bg-accent-soft px-[11px] font-mono text-[11px] font-medium uppercase tracking-widest text-accent",
+        "inline-flex h-7 items-center gap-[7px] rounded-full bg-white/[0.06] px-3 font-mono text-[10.5px] font-medium uppercase tracking-[0.18em] text-white/65",
         className,
       )}
     >
-      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent" />
+      <span aria-hidden="true" className="h-1.5 w-1.5 animate-ping rounded-full bg-accent text-accent" />
       {publicEnv.isMainnet ? "Mainnet" : "Testnet"}
     </span>
   );

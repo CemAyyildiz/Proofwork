@@ -12,11 +12,18 @@ export function LogoMark({ className }: { className?: string }) {
   );
 }
 
+/** The mark plus the wordmark, set lowercase in the wide display cut. */
 export function Logo({ wordmark = true, className }: { wordmark?: boolean; className?: string }) {
   return (
-    <span className={cx("inline-flex items-center gap-2.5 text-[17px] font-semibold tracking-[-0.03em] text-text", className)}>
+    <span className={cx("inline-flex items-center gap-2 text-text", className)}>
       <LogoMark />
-      {wordmark ? <span>Proofwork</span> : <span className="sr-only">Proofwork</span>}
+      {wordmark ? (
+        <span className="font-display text-[18px] lowercase leading-none" style={{ fontVariationSettings: '"wdth" 125, "wght" 800' }}>
+          Proofwork
+        </span>
+      ) : (
+        <span className="sr-only">Proofwork</span>
+      )}
     </span>
   );
 }

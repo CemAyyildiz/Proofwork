@@ -53,8 +53,8 @@ export function HashChip({ value, head = 6, tail = 6, href, className }: HashChi
   return (
     <span
       className={cx(
-        "group inline-flex h-[30px] shrink-0 items-center gap-1 whitespace-nowrap rounded-sm border border-line bg-sunken pl-2.5 pr-1 font-mono text-[12.5px] font-medium text-text-2",
-        "transition-colors duration-200 hover:border-line-strong hover:text-text",
+        "group inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-white/10 bg-[#0b0b0b] pl-3 pr-1 font-mono text-[12px] font-medium text-white/75",
+        "transition-colors duration-200 hover:border-white/25 hover:text-white",
         className,
       )}
     >
@@ -65,7 +65,7 @@ export function HashChip({ value, head = 6, tail = 6, href, className }: HashChi
           rel="noreferrer"
           title={value}
           aria-label={value}
-          className="inline-flex items-center gap-1.5 rounded-[4px] hover:text-text"
+          className="inline-flex items-center gap-1.5 rounded-full hover:text-white"
         >
           {text}
         </a>
@@ -78,7 +78,7 @@ export function HashChip({ value, head = 6, tail = 6, href, className }: HashChi
       <button
         type="button"
         onClick={onCopy}
-        className="relative inline-flex h-6 min-w-6 items-center after:absolute after:-inset-2.5 after:content-[''] justify-center rounded-[5px] px-1 text-muted opacity-70 transition-opacity duration-150 hover:bg-white/5 hover:text-text hover:opacity-100 focus-visible:opacity-100"
+        className="relative inline-flex h-6 min-w-6 items-center after:absolute after:-inset-2.5 after:content-[''] justify-center rounded-full px-1 text-white/50 opacity-80 transition-opacity duration-150 hover:bg-white/10 hover:text-white hover:opacity-100 focus-visible:opacity-100"
       >
         {copy === "idle" ? (
           <>

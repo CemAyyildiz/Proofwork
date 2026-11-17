@@ -14,7 +14,7 @@ export function Pill({ tone, children, className }: { tone: PillTone; children: 
   return (
     <span
       className={cx(
-        "inline-flex h-[26px] items-center gap-[7px] whitespace-nowrap rounded-full border px-[11px] font-mono text-[11.5px] font-medium tracking-[0.05em]",
+        "inline-flex h-[26px] items-center gap-[7px] whitespace-nowrap rounded-full border px-[11px] font-mono text-[11px] font-semibold uppercase tracking-[0.12em]",
         tones[tone],
         className,
       )}

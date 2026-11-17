@@ -7,8 +7,8 @@ import { sha256Hex } from "@/components/hash-check";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
 import { useReducedMotion } from "@/components/use-reduced-motion";
+import { useSeen } from "@/components/e/motion";
 import { SPIKE_RECORD } from "./evidence";
-import { useInView } from "./reveal";
 
 /** The figures on this page come from a recorded testnet run, so its links stay on testnet on any deployment. */
 const evidenceExplorer = explorerFor("testnet");
@@ -23,9 +23,9 @@ function highlight(json: string): ReactNode[] {
   for (const m of json.matchAll(re)) {
     const at = m.index;
     if (at > last) out.push(json.slice(last, at));
-    if (m[1] !== undefined && m[2] !== undefined) out.push(<span key={at} className="text-muted">{m[1]}</span>, m[2]);
-    else if (m[1] !== undefined) out.push(<span key={at} className="text-text">{m[1]}</span>);
-    else out.push(<span key={at} className="text-pass">{m[0]}</span>);
+    if (m[1] !== undefined && m[2] !== undefined) out.push(<span key={at} className="text-white/40">{m[1]}</span>, m[2]);
+    else if (m[1] !== undefined) out.push(<span key={at} className="text-white/85">{m[1]}</span>);
+    else out.push(<span key={at} className="text-accent">{m[0]}</span>);
     last = at + m[0].length;
   }
   if (last < json.length) out.push(json.slice(last));
@@ -38,7 +38,7 @@ function highlight(json: string): ReactNode[] {
  */
 export function VerifyPlayground() {
   const reduce = useReducedMotion();
-  const [ref, seen] = useInView<HTMLDivElement>("0px 0px -30% 0px");
+  const [ref, seen] = useSeen<HTMLDivElement>();
   const [hex, setHex] = useState<string | null>(null);
   const [shown, setShown] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -80,7 +80,7 @@ export function VerifyPlayground() {
 
   return (
     <div ref={ref}>
-      <pre className="relative mt-6 max-h-[170px] overflow-hidden whitespace-pre-wrap break-all rounded-lg border border-line bg-sunken p-[18px] font-mono text-xs leading-[1.7] text-text-2 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-14 after:bg-linear-180 after:from-transparent after:to-sunken">
+      <pre className="relative max-h-[150px] overflow-hidden whitespace-pre-wrap break-all rounded-2xl bg-white/[0.05] p-4 font-mono text-xs leading-[1.7] text-white/60 after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-14 after:bg-linear-180 after:from-transparent after:to-[#111]">
         {highlight(SPIKE_RECORD.canonicalJson)}
       </pre>
       <div className="mt-4 grid gap-2.5">
@@ -106,7 +106,7 @@ export function VerifyPlayground() {
           href={evidenceExplorer.tx(SPIKE_RECORD.txHash)}
           target="_blank"
           rel="noreferrer"
-          className="rounded-sm border-b border-line-strong pb-0.5 text-sm text-text-2 hover:text-text"
+          className="rounded-sm text-sm text-white/60 underline decoration-white/25 underline-offset-4 hover:text-white"
         >
           Open transaction ↗
         </a>
@@ -129,15 +129,15 @@ function HashRow({ label, state, children }: { label: ReactNode; state: "idle" |
   return (
     <div
       className={cx(
-        "rounded-[14px] border px-4 py-3.5 transition-colors duration-500",
-        state === "match" ? "border-accent-line bg-accent-soft" : state === "mismatch" ? "border-fail-line bg-fail-soft" : "border-line bg-sunken",
+        "rounded-2xl border px-4 py-3.5 transition-colors duration-500",
+        state === "match" ? "border-accent bg-accent text-black" : state === "mismatch" ? "border-fail-line bg-fail-soft" : "border-white/10 bg-transparent",
       )}
     >
-      <p className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-muted">{label}</p>
+      <p className={cx("font-mono text-[10.5px] font-medium uppercase tracking-[0.16em]", state === "match" ? "text-black/60" : "text-white/45")}>{label}</p>
       <code
         className={cx(
           "mt-1.5 block min-h-5 break-all font-mono text-[13px]",
-          state === "match" ? "text-accent" : state === "mismatch" ? "text-fail" : "text-text-2",
+          state === "match" ? "text-black" : state === "mismatch" ? "text-fail" : "text-white/70",
         )}
       >
         {children}

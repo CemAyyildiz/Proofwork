@@ -100,11 +100,11 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
     <div>
       <ol className="mt-5 grid gap-2.5">
         <ProofStep n={1} state={state(1)} title="Take the canonical record">
-          <p className="mt-1 text-[13px] text-muted">The exact bytes that were hashed: {bytes} bytes.</p>
+          <p className="mt-1 text-[13px] text-white/55">The exact bytes that were hashed: {bytes} bytes.</p>
           <pre
             id={recordId}
             className={cx(
-              "mt-2.5 overflow-hidden whitespace-pre-wrap break-all rounded-md border border-line bg-sunken p-3.5 font-mono text-xs leading-[1.65] text-text-2",
+              "mt-2.5 overflow-hidden whitespace-pre-wrap break-all rounded-2xl bg-white/[0.05] p-3.5 font-mono text-xs leading-[1.65] text-white/60",
               !expanded && "max-h-[calc(4*1.65*12px+28px)]",
             )}
           >
@@ -115,19 +115,19 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
             aria-expanded={expanded}
             aria-controls={recordId}
             onClick={() => setExpanded((v) => !v)}
-            className="mt-2 rounded-sm text-[12.5px] text-muted underline decoration-line-strong underline-offset-[3px] hover:text-text"
+            className="mt-2 rounded-sm text-[12.5px] text-white/55 underline decoration-white/25 underline-offset-4 hover:text-white"
           >
             {expanded ? "Collapse record" : "Show full record"}
           </button>
         </ProofStep>
         <ProofStep n={2} state={state(2)} title="Hash it with SHA-256">
-          <p className="mt-1 text-[13px] text-muted">WebCrypto, on your device. Nothing is sent anywhere.</p>
-          <code className={cx("mt-2.5 block min-h-5 break-all font-mono text-[12.5px] leading-[1.6]", done ? (match ? "text-accent" : "text-fail") : "text-text-2")}>
+          <p className="mt-1 text-[13px] text-white/55">WebCrypto, on your device. Nothing is sent anywhere.</p>
+          <code className={cx("mt-2.5 block min-h-5 break-all font-mono text-[12.5px] leading-[1.6]", done ? (match ? "text-accent" : "text-fail") : "text-white/70")}>
             {computed ? computed.slice(0, shown) : step >= 2 ? "computing…" : "—"}
           </code>
         </ProofStep>
         <ProofStep n={3} state={state(3)} title="Compare with the recorded hash">
-          <p className="mt-1 text-[13px] text-muted">
+          <p className="mt-1 text-[13px] text-white/55">
             {txHash ? (
               <>
                 Then confirm it is the memo_hash of tx{" "}
@@ -180,7 +180,7 @@ function ExplorerLink({ txHash }: { txHash: string }) {
       target="_blank"
       rel="noreferrer"
       title={txHash}
-      className="rounded-sm font-mono text-text-2 underline decoration-line-strong underline-offset-[3px] hover:text-text"
+      className="rounded-sm font-mono text-white/80 underline decoration-white/25 underline-offset-4 hover:text-white"
     >
       {truncateMiddle(txHash, 6, 6)} ↗
     </a>
@@ -191,18 +191,18 @@ function ProofStep({ n, state, title, children }: { n: number; state: "idle" | "
   return (
     <li
       className={cx(
-        "grid grid-cols-[36px_minmax(0,1fr)] gap-3.5 rounded-lg border bg-sunken p-4 transition-colors duration-300",
-        state === "ok" ? "border-accent-line" : state === "fail" ? "border-fail-line" : "border-line",
+        "grid grid-cols-[36px_minmax(0,1fr)] gap-3.5 rounded-[22px] border p-4 transition-colors duration-300",
+        state === "ok" ? "border-white/15 bg-white/[0.03]" : state === "fail" ? "border-fail-line" : state === "run" ? "border-accent/60" : "border-white/10",
       )}
     >
       <span
         aria-hidden="true"
         className={cx(
-          "grid h-9 w-9 place-items-center rounded-[11px] border font-mono text-[13px] font-medium transition-colors duration-300",
-          state === "ok" && "border-accent bg-accent text-accent-ink",
-          state === "fail" && "border-fail bg-fail text-accent-ink",
-          state === "run" && "border-accent text-accent",
-          state === "idle" && "border-line-strong text-muted",
+          "grid h-9 w-9 place-items-center rounded-full font-display text-[15px] transition-colors duration-300",
+          state === "ok" && "bg-white text-black",
+          state === "fail" && "bg-fail text-black",
+          state === "run" && "bg-accent text-black shadow-[0_0_0_5px_rgba(253,218,36,0.15)]",
+          state === "idle" && "border border-white/15 text-white/40",
         )}
       >
         {n}
@@ -220,18 +220,18 @@ function Seal({ tone, title, children }: { tone: "pass" | "fail"; title: string;
   return (
     <div
       className={cx(
-        "mt-4 flex animate-reveal items-center gap-4 rounded-[18px] border px-5 py-[18px]",
-        ok ? "border-accent-line bg-linear-90 from-accent-soft to-transparent" : "border-fail-line bg-linear-90 from-fail-soft to-transparent",
+        "mt-4 flex animate-reveal items-center gap-4 rounded-[22px] px-5 py-[18px]",
+        ok ? "bg-accent text-black" : "border border-fail-line bg-fail-soft",
       )}
     >
-      <span aria-hidden="true" className={cx("grid h-12 w-12 shrink-0 animate-pop place-items-center rounded-[15px]", ok ? "bg-accent" : "bg-fail")}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="stroke-accent-ink">
+      <span aria-hidden="true" className={cx("grid h-12 w-12 shrink-0 animate-pop place-items-center rounded-full", ok ? "bg-black" : "bg-fail")}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={ok ? "stroke-accent" : "stroke-black"}>
           {ok ? <path d="M5 12l5 5L20 7" /> : <path d="M6 6l12 12M18 6 6 18" />}
         </svg>
       </span>
       <div>
-        <p className={cx("text-[19px] font-semibold tracking-[-0.02em]", ok ? "text-accent" : "text-fail")}>{title}</p>
-        <p className="mt-0.5 text-[13.5px] text-text-2">{children}</p>
+        <p className={cx("font-display text-[21px] leading-tight", ok ? "text-black" : "text-fail")} style={{ fontVariationSettings: '"wdth" 90, "wght" 800' }}>{title}</p>
+        <p className={cx("mt-0.5 text-[13.5px] [&_a]:text-inherit", ok ? "text-black/70" : "text-white/70")}>{children}</p>
       </div>
     </div>
   );

@@ -11,7 +11,7 @@ import { cx } from "@/components/ui/cx";
 const COPIED_MS = 1500;
 
 const itemClass =
-  "flex w-full items-center justify-between gap-3 rounded-[10px] px-3 py-2 text-left text-sm font-medium text-text-2 hover:bg-white/5 hover:text-text focus-visible:bg-white/5 focus-visible:text-text";
+  "flex w-full items-center justify-between gap-3 rounded-full px-3.5 py-2.5 text-left text-sm font-medium text-text-2 hover:bg-white/5 hover:text-text focus-visible:bg-white/5 focus-visible:text-text";
 
 export function WalletButton({
   pubkey,
@@ -114,7 +114,7 @@ export function WalletButton({
             aria-label={`Wallet ${pubkey}`}
             title={pubkey}
             onClick={() => setOpen((o) => !o)}
-            className="flex h-11 items-center md:h-[38px] gap-2.5 rounded-full border border-line-strong bg-surface pl-[5px] pr-3 font-mono text-[13px] font-medium text-text transition-colors duration-200 hover:bg-raised disabled:opacity-50"
+            className="flex h-11 items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.06] pl-[5px] pr-3.5 font-mono text-[12.5px] font-medium text-text transition-colors duration-200 hover:bg-white/[0.12] disabled:opacity-50 md:h-[38px]"
           >
             <span aria-hidden="true" className="avatar-gradient h-7 w-7 rounded-full" />
             <span aria-hidden="true">{busy ? "Disconnecting…" : shortKey(pubkey)}</span>
@@ -127,7 +127,7 @@ export function WalletButton({
               aria-label="Wallet"
               onKeyDown={onMenuKeyDown}
               className={cx(
-                "absolute z-50 w-56 rounded-lg border border-line-strong bg-raised p-1.5 shadow-2xl shadow-black/60",
+                "absolute z-50 w-56 rounded-[20px] border border-white/10 bg-[#111] p-1.5 shadow-[0_30px_80px_-20px_rgba(0,0,0,0.9)]",
                 menuPlacement === "up" ? "bottom-full left-0 mb-2" : "right-0 top-full mt-2",
               )}
             >

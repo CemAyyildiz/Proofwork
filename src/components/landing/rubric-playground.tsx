@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { evaluate, PASS_THRESHOLD, SIGNALS, type Outcome, type ReasonCode, type Signals } from "@/domain/rubric";
+import { axes, FONT } from "@/components/e/motion";
+import { Stamp } from "@/components/site/stamp";
 import { cx } from "@/components/ui/cx";
 
 const ALL_PASS = Object.fromEntries(SIGNALS.map((s) => [s.id, true])) as Signals;
@@ -17,73 +19,63 @@ export function verdictFor(signals: Signals): { outcome: Outcome; passCount: num
   return { outcome, passCount, reason: outcome === "PASS" || !first ? "R00_PASS" : first.failCode };
 }
 
+/** The six review questions as yes/no switches, scored by the real rule, on paper. */
 export function RubricPlayground() {
   const [signals, setSignals] = useState<Signals>(ALL_PASS);
   const v = verdictFor(signals);
-  const pass = v.outcome === "PASS";
 
   return (
-    <div>
-      <div className="mt-7 grid gap-2.5 sm:grid-cols-2">
-        {SIGNALS.map((s) => {
+    <div className="text-black">
+      <ul className="border-t border-black/15">
+        {SIGNALS.map((s, i) => {
           const on = signals[s.id];
           return (
-            <button
-              key={s.id}
-              type="button"
-              aria-pressed={on}
-              onClick={() => setSignals((prev) => ({ ...prev, [s.id]: !prev[s.id] }))}
-              className={cx(
-                "flex min-h-[58px] items-center justify-between gap-3 rounded-lg border py-3 pl-[18px] pr-3.5 text-left text-[15px] transition-colors duration-300",
-                on ? "border-line bg-sunken hover:border-line-strong" : "border-fail-line bg-fail-soft",
-              )}
-            >
-              <span>{s.label}</span>
-              <span className="flex items-center gap-2.5">
-                <span className={cx("font-mono text-[11px] font-medium tracking-[0.06em]", on ? "text-pass" : "text-fail")}>{on ? "PASS" : "FAIL"}</span>
-                <span
-                  aria-hidden="true"
-                  className={cx("relative h-[26px] w-11 shrink-0 rounded-full transition-colors duration-300", on ? "bg-pass" : "bg-line-strong")}
-                >
+            <li key={s.id} className="border-b border-black/15">
+              <button
+                type="button"
+                aria-pressed={on}
+                onClick={() => setSignals((prev) => ({ ...prev, [s.id]: !prev[s.id] }))}
+                className="group flex min-h-14 w-full items-center gap-4 py-3 text-left"
+              >
+                <span className={`w-8 shrink-0 text-2xl leading-none text-black/25 ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <span className={cx("flex-1 text-[16px] font-semibold transition-colors", !on && "text-black/45 line-through decoration-black/30")}>{s.label}</span>
+                <span className="relative grid h-8 w-[5.5rem] shrink-0 grid-cols-2 rounded-full bg-black/8 p-1 font-mono text-[11px] font-semibold">
                   <span
+                    aria-hidden="true"
                     className={cx(
-                      "absolute left-[3px] top-[3px] h-5 w-5 rounded-full bg-text transition-transform duration-300 ease-expo",
-                      on && "translate-x-[18px]",
+                      "absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full transition-transform duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                      on ? "translate-x-0 bg-black" : "translate-x-full bg-fail",
                     )}
                   />
+                  <span className={cx("relative grid place-items-center transition-colors", on ? "text-accent" : "text-black/40")}>YES</span>
+                  <span className={cx("relative grid place-items-center transition-colors", on ? "text-black/40" : "text-black")}>NO</span>
                 </span>
-              </span>
-            </button>
+              </button>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
-      <div
-        aria-live="polite"
-        className="mt-[22px] flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-line-strong bg-sunken px-5 py-[22px] sm:px-6"
-      >
+      <div aria-live="polite" className="mt-6 flex flex-wrap items-end justify-between gap-6">
         <div>
-          <p className="text-[56px] font-semibold leading-none tracking-[-0.06em] md:text-[64px]">
-            <span key={v.passCount} className="inline-block animate-reveal [animation-duration:0.4s]">
+          <p className={`text-[5.5rem] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(62, 900) }}>
+            <span key={v.passCount} className="inline-block animate-pop">
               {v.passCount}
             </span>
-            <small className="text-2xl tracking-[-0.02em] text-muted"> / {SIGNALS.length}</small>
+            <span className="text-black/25">/{SIGNALS.length}</span>
           </p>
-          <div aria-hidden="true" className="mt-2.5 flex gap-[5px]">
+          <div aria-hidden="true" className="mt-3 flex gap-1">
             {SIGNALS.map((s) => (
-              <span key={s.id} className={cx("h-1.5 w-5 rounded-[3px] transition-colors duration-300 sm:w-[34px]", signals[s.id] ? "bg-pass" : "bg-fail")} />
+              <span key={s.id} className={cx("h-2 w-6 rounded-full transition-colors duration-300 sm:w-8", signals[s.id] ? "bg-black" : "bg-fail")} />
             ))}
           </div>
-          <p className="mt-2 text-xs text-muted">
-            {PASS_THRESHOLD} of {SIGNALS.length} needed to pass
+          <p className="mt-2 font-mono text-[11px] uppercase tracking-[0.16em] text-black/55">
+            {PASS_THRESHOLD} of {SIGNALS.length} to pass · {v.reason}
           </p>
         </div>
-        <div className="text-right">
-          <p className={cx("text-[34px] font-semibold tracking-[-0.05em] transition-colors duration-300 sm:text-[40px] md:text-[44px]", pass ? "text-pass" : "text-fail")}>
-            {v.outcome}
-          </p>
-          <p className="mt-1 font-mono text-xs font-medium tracking-widest text-muted">{v.reason}</p>
-        </div>
+        <Stamp key={v.outcome} outcome={v.outcome} className="mb-2 mr-2" />
       </div>
     </div>
   );

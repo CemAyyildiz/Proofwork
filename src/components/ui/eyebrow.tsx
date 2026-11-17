@@ -10,5 +10,5 @@ export function Eyebrow({
   className?: string;
   children: ReactNode;
 }) {
-  return <Tag className={cx("font-mono text-xs font-medium uppercase tracking-[0.12em] text-muted", className)}>{children}</Tag>;
+  return <Tag className={cx("font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-muted", className)}>{children}</Tag>;
 }
