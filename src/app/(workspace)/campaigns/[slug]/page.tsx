@@ -138,7 +138,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
 
       <Lifecycle nodes={lifecycleNodes(c, stage, ops, now)} />
 
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-10 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-10 min-[1360px]:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0 space-y-12">
           {/* Once funded, the contract and its balance sit with the money above and nothing here is left to do. */}
           {c.fundedAt ? null : (
@@ -228,7 +228,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
           </Section>
         </div>
 
-        <aside className="min-w-0 space-y-5 xl:sticky xl:top-10 xl:self-start">
+        <aside className="min-w-0 space-y-5 min-[1360px]:sticky min-[1360px]:top-10 min-[1360px]:self-start">
           <div className="rounded-[28px] border border-white/[0.07] bg-[#0d0d0d] p-6">
             <Label>Details</Label>
             <dl className="mt-4 space-y-3.5 text-sm">

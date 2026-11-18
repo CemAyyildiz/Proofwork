@@ -48,7 +48,7 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
   const [uncertain, setUncertain] = useState<ReadonlySet<string>>(new Set());
   const clocks = useRef(new Map<string, ReviewClock>());
   const focusTarget = useRef<HTMLDivElement>(null);
-  const firstFocus = useRef(true);
+  const shownId = useRef<string | null>(null);
 
   const open = items.filter((i) => !recorded.has(i.submissionId) && !gone.has(i.submissionId));
   const ids = open.map((i) => i.submissionId);
@@ -65,13 +65,13 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
     return () => clock.pause(Date.now());
   }, [activeId]);
 
-  // The next submission comes into focus; the first one on page load does not steal it.
+  // The next submission comes into focus; the first one on page load does not steal it. Keyed on the
+  // id actually changing, so a remounted effect (React Strict Mode in dev) does not count as "next".
   useEffect(() => {
-    if (!activeId) return;
-    if (firstFocus.current) {
-      firstFocus.current = false;
-      return;
-    }
+    if (!activeId) return; // the recorded receipt is showing; keep the last id until the next one
+    const previous = shownId.current;
+    shownId.current = activeId;
+    if (previous === null || previous === activeId) return;
     focusTarget.current?.focus();
   }, [activeId]);
 

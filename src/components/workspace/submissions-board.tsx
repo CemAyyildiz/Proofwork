@@ -340,7 +340,7 @@ export function SubmissionsBoard({
 
   return (
     <div id={BOARD_ID} className="space-y-4">
-      <div role="group" aria-label="Filter submissions" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+      <div role="group" aria-label="Filter submissions" className="flex flex-wrap gap-1.5 pb-1">
         {TABS.map((t) => {
           const active = t.id === tab;
           return (

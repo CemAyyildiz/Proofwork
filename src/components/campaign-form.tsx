@@ -169,7 +169,7 @@ export function CampaignForm({
             Proofwork&apos;s resolver key, kept in a wallet and never on the server. After you close the campaign, it signs the return of what is left in
             the escrow, and that transaction can only pay your wallet.{" "}
             <a href="/custody" target="_blank" rel="noreferrer" className="text-white/75 underline decoration-white/30 underline-offset-4 hover:text-text">
-              Custody and fees ↗
+              Custody and fees{"\u00a0"}↗
             </a>
           </span>
         </label>
