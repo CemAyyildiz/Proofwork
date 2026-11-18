@@ -15,7 +15,7 @@ import { reasonLabel } from "@/domain/rubric";
 import { signTransaction } from "@/wallet/kit";
 import { plural } from "./campaign-phase";
 import { payoutsCall } from "./funder-api";
-import { slotCount } from "./kit";
+import { freeSlots } from "./kit";
 
 export interface BoardRow {
   submissionId: string;
@@ -72,20 +72,6 @@ function actionable(rows: readonly BoardRow[], closed: boolean, locked: boolean)
   return { eligible: rows.filter((r) => isReadyToPay(r) && r.outcome === "PASS"), releasable: rows.filter((r) => r.payoutStatus === "approved") };
 }
 
-/**
- * How many more rewards the escrow can take on, mirroring the approve guard in
- * services/payout.ts: the balance (budget less what was released) must cover
- * the milestones already on chain and not released, plus one reward per new
- * milestone. Every payout row has its milestone on chain; a pass without a
- * payout row needs a new one. All of it is whole rewards, so it is a count of
- * slots. The server reads the chain again and stays the judge.
- */
-function freeSlots(rows: readonly BoardRow[], escrow: EscrowShape): number {
-  let taken = 0;
-  for (const r of rows) if (r.payoutStatus !== null) taken += 1;
-  return Math.max(0, slotCount(escrow.budget, escrow.reward) - taken);
-}
-
 /** A pass that needs a new milestone on chain: no payout run has started for it. */
 const needsMilestone = (r: BoardRow) => r.payoutStatus === null;
 
@@ -109,6 +95,8 @@ interface Selection {
   pick: string[];
   /** Every pass ready to approve, covered or not. */
   eligible: number;
+  /** New rewards the escrow still covers; passes already started on chain need none. */
+  free: number;
   releasable: string[];
 }
 
@@ -140,6 +128,7 @@ export function BoardSelection({
   const [tab, setTab] = useState<Tab>("all");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const { eligible, releasable } = actionable(rows, closed, payLock !== null);
+  const free = freeSlots(rows, escrow);
   return (
     <SelectionContext
       value={{
@@ -147,8 +136,9 @@ export function BoardSelection({
         setTab,
         selected,
         setSelected,
-        pick: approvePick(eligible, freeSlots(rows, escrow)),
+        pick: approvePick(eligible, free),
         eligible: eligible.length,
+        free,
         releasable: releasable.map((r) => r.submissionId),
       }}
     >
@@ -188,13 +178,23 @@ export function SelectForStep({ kind }: { kind: "approve" | "release" }) {
   return (
     <div className="space-y-2.5">
       <Button variant={done ? "secondary" : "primary"} onClick={go} aria-controls={BOARD_ID}>
-        {done ? `${ids.length} selected · go to the bar ↓` : capped ? `Select the first ${ids.length} of ${ctx.eligible}` : `Select the ${ids.length} ${what}`}
+        {done ? `${ids.length} selected · go to the bar ↓` : capped ? `Select ${ids.length} of ${ctx.eligible}` : `Select the ${ids.length} ${what}`}
       </Button>
-      {capped ? (
-        <p className="text-[13px] text-white/60">{`The escrow covers ${plural(ids.length, "more reward", "more rewards")}, so the oldest passes come first.`}</p>
-      ) : null}
+      {capped ? <p className="text-[13px] text-white/60">{cappedNote(ids.length - Math.min(ctx.free, ids.length), ctx.free)}</p> : null}
     </div>
   );
+}
+
+/**
+ * Why "Select K of N" ticks fewer than every pass: passes already started on
+ * chain cost no room and come first, then new ones, oldest first, as far as
+ * the escrow covers.
+ */
+function cappedNote(resumed: number, free: number): string {
+  const started = resumed > 0 ? `${plural(resumed, "pass", "passes")} already started on chain ${resumed === 1 ? "needs" : "need"} no new room` : "";
+  if (free === 0) return `The escrow has no room for another reward; ${started}.`;
+  const covers = `The escrow covers ${plural(free, "more reward", "more rewards")}, so the oldest new passes come first`;
+  return started ? `${covers}; ${started}.` : `${covers}.`;
 }
 
 function payoutPill(r: BoardRow): { tone: PillTone; label: string } | null {
@@ -418,7 +418,7 @@ export function SubmissionsBoard({
         // A solid strip under the bar, so rows never show through it and the last row can scroll clear of it.
         // On a phone the bar shows only once a row is ticked; its status line stays in the accessibility tree, so the first tick is announced.
         <div className={cx("sticky bottom-0 z-10 -mx-1 bg-[linear-gradient(to_top,var(--color-canvas)_70%,transparent)] px-1 pb-4 pt-6", idle && "max-sm:sr-only")}>
-          <div className="flex flex-wrap items-center gap-2 rounded-[26px] border border-white/12 bg-[#151515] p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] sm:gap-3 sm:rounded-full sm:pr-5">
+          <div className="flex flex-wrap items-center gap-2 rounded-[26px] border border-white/12 bg-[#151515] p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] sm:gap-3 sm:pr-5">
             <Button
               size="sm"
               className="flex-1 sm:flex-none"
@@ -435,7 +435,8 @@ export function SubmissionsBoard({
             <span
               role="status"
               className={cx(
-                "font-mono",
+                // Inset from the bar's rounded ends, so a line that wraps under the buttons never runs into the curve.
+                "px-3 font-mono",
                 idle ? "text-[11px] uppercase tracking-[0.14em] text-white/55" : "w-full pb-1 text-center text-[12px] sm:w-auto sm:pb-0",
                 overBy > 0 ? "text-fail" : !idle && "text-text",
               )}
@@ -520,6 +521,28 @@ function ReviewChip({ r }: { r: BoardRow }) {
       </span>
       <span className="sr-only">, verify decision</span>
     </Link>
+  );
+}
+
+/** A paid row's status and release transaction as one yellow link chip, for the phone card: "Paid · 9ba5… ↗". */
+function PaidLink({ label, hash }: { label: string; hash: string }) {
+  return (
+    <a
+      href={publicEnv.explorerTxUrl(hash)}
+      target="_blank"
+      rel="noreferrer"
+      title={hash}
+      className={cx(
+        "inline-flex h-[26px] items-center gap-[7px] whitespace-nowrap rounded-full border px-[11px] font-mono text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors duration-150 md:hidden",
+        TONE_CHIP.chain,
+        "hover:border-accent",
+      )}
+    >
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+      {label}
+      <span aria-hidden="true" className="font-medium normal-case tracking-normal opacity-80">{`· ${hash.slice(0, 4)}… ↗`}</span>
+      <span className="sr-only">{`, release transaction ${hash}`}</span>
+    </a>
   );
 }
 
@@ -613,8 +636,16 @@ function Row({
         </td>
         <td className="max-md:contents md:py-3 md:pl-3 md:pr-5">
           <div className="flex flex-wrap items-center gap-2 max-md:contents">
-            {payout ? <Pill tone={payout.tone}>{payout.label}</Pill> : <span className="hidden text-[12px] text-white/25 md:inline">—</span>}
-            {r.releaseTxHash ? <HashChip value={r.releaseTxHash} head={4} tail={4} href={publicEnv.explorerTxUrl(r.releaseTxHash)} /> : null}
+            {/* On a phone a paid row's chip and its transaction are one link, so the card keeps its chips on one line; the copy button is desktop only. */}
+            {payout && r.releaseTxHash ? <PaidLink label={payout.label} hash={r.releaseTxHash} /> : null}
+            {payout ? (
+              <Pill tone={payout.tone} className={r.releaseTxHash ? "max-md:hidden" : ""}>
+                {payout.label}
+              </Pill>
+            ) : (
+              <span className="hidden text-[12px] text-white/25 md:inline">—</span>
+            )}
+            {r.releaseTxHash ? <HashChip className="max-md:hidden" value={r.releaseTxHash} head={4} tail={4} href={publicEnv.explorerTxUrl(r.releaseTxHash)} /> : null}
           </div>
         </td>
       </tr>

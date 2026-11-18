@@ -50,19 +50,33 @@ export function lifecycleNodes(c: Campaign, stage: CampaignStage, ops: readonly 
 export function Lifecycle({ nodes }: { nodes: LifecycleNode[] }) {
   const current = nodes.findIndex((n) => !n.done);
   return (
-    <div className="rounded-[28px] border border-white/[0.07] bg-[#0d0d0d] p-5 md:p-7">
+    // A container: the steps run across only when the card itself is wide enough for six columns of dates and keys, whatever the
+    // viewport (at 1024 the sidebar leaves the card too narrow); narrower, six steps sit three to a row, and on a phone they are a list.
+    <div className="@container rounded-[28px] border border-white/[0.07] bg-[#0d0d0d] p-5 md:p-7">
       <ol
-        // From lg up, one column per node, each as wide as its own text needs while the row has room, so a date or a key stays on one line; the slack is shared out.
-        className={cx("relative grid grid-cols-[minmax(0,1fr)] gap-x-3 gap-y-5", nodes.length > 3 ? "lg:grid-cols-[repeat(6,minmax(0,auto))]" : "lg:grid-cols-[repeat(3,minmax(0,auto))]")}
+        // Across, one column per node, each as wide as its own text needs while the row has room, so a date or a key stays on one line; the slack is shared out.
+        className={cx(
+          "relative grid grid-cols-[minmax(0,1fr)] gap-x-3 gap-y-5",
+          nodes.length > 3 ? "@min-[34rem]:grid-cols-3 @min-[52rem]:grid-cols-[repeat(6,minmax(0,auto))]" : "@min-[34rem]:grid-cols-[repeat(3,minmax(0,auto))]",
+        )}
         aria-label="Campaign lifecycle"
       >
         {nodes.map((n, i) => {
           const state = n.done ? "done" : i === current ? "current" : "upcoming";
           return (
-            <li key={n.label} className="relative flex min-w-0 gap-3.5 lg:flex-col lg:items-start lg:gap-3">
-              {/* The rail to the next node, from lg up: yellow once this node is done. */}
+            <li
+              key={n.label}
+              className={cx(
+                "relative flex min-w-0 gap-3.5",
+                nodes.length > 3 ? "@min-[52rem]:flex-col @min-[52rem]:items-start @min-[52rem]:gap-3" : "@min-[34rem]:flex-col @min-[34rem]:items-start @min-[34rem]:gap-3",
+              )}
+            >
+              {/* The rail to the next node, once the steps run across: yellow once this node is done. */}
               {i < nodes.length - 1 ? (
-                <span aria-hidden="true" className="absolute -right-3 left-9 top-[13px] hidden h-[2px] bg-white/10 lg:block">
+                <span
+                  aria-hidden="true"
+                  className={cx("absolute -right-3 left-9 top-[13px] hidden h-[2px] bg-white/10", nodes.length > 3 ? "@min-[52rem]:block" : "@min-[34rem]:block")}
+                >
                   {n.done ? <span className="block h-full origin-left animate-grow bg-accent" style={{ animationDelay: `${i * 140}ms` }} /> : null}
                 </span>
               ) : null}

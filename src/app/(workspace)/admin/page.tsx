@@ -227,46 +227,43 @@ function EscrowLine({ campaign: c, counts, now }: { campaign: Campaign; counts: 
   );
 }
 
-const th = "whitespace-nowrap px-4 py-3 text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-white/60 first:pl-6";
-// Below sm a row is a card: the campaign across the top, then the other cells two by two, each under its label (drawn from data-label); from sm up, the table.
-const td = "align-top sm:whitespace-nowrap sm:px-4 sm:py-4 sm:first:pl-6 max-sm:flex max-sm:min-w-0 max-sm:flex-col max-sm:items-start max-sm:gap-1.5 max-sm:before:font-mono max-sm:before:text-[10px] max-sm:before:uppercase max-sm:before:tracking-[0.16em] max-sm:before:text-white/55 max-sm:before:content-[attr(data-label)]";
+const th = "whitespace-nowrap px-4 py-3 text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-white/60 first:pl-6 last:pr-6";
+// Below xl (the table needs the width the sidebar leaves at 1280) a row is a card. On a phone: the campaign across the top, then the
+// stage chip, whose step it waits on, the funder and the deadline, each inline after its label (drawn from data-label), wrapping as
+// they fit. From sm: the campaign on the left, those four stacked on the right. From xl, the table.
+const td =
+  "align-top xl:whitespace-nowrap xl:px-4 xl:py-4 xl:last:pr-6 max-xl:flex max-xl:min-w-0 max-xl:flex-wrap max-xl:items-center max-xl:gap-x-2 max-xl:gap-y-1 sm:max-xl:justify-end max-xl:before:font-mono max-xl:before:text-[10px] max-xl:before:uppercase max-xl:before:tracking-[0.16em] max-xl:before:text-white/55 max-xl:before:content-[attr(data-label)]";
 
-/** Every campaign: a table from sm up, one card per campaign on a phone. */
+/** Every campaign: a table from xl up, one card per campaign below it. */
 function CampaignsTable({ rows, now }: { rows: CampaignOverviewRow[]; now: Date }) {
   return (
     <div className="relative overflow-x-auto rounded-[24px] border border-white/[0.07] bg-[#0d0d0d] [&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-white/[0.02]">
-      <table className="w-full text-sm max-sm:block">
-        <thead className="max-sm:hidden">
+      <table className="w-full text-sm max-xl:block">
+        <thead className="max-xl:hidden">
           <tr>
             <th scope="col" className={th}>Campaign</th>
-            <th scope="col" className={th}>Funder</th>
             <th scope="col" className={th}>Stage</th>
-            <th scope="col" className={th}>Deadline</th>
             <th scope="col" className={th}>Waits on</th>
+            <th scope="col" className={th}>Funder</th>
+            <th scope="col" className={th}>Deadline</th>
           </tr>
         </thead>
-        {/* The row markup stays the plain table row; the phone card layout is set from here. */}
-        <tbody className="max-sm:block max-sm:[&>tr]:grid max-sm:[&>tr]:grid-cols-2 max-sm:[&>tr]:gap-x-4 max-sm:[&>tr]:gap-y-4 max-sm:[&>tr]:px-5 max-sm:[&>tr]:py-5 max-sm:[&>tr:first-child]:border-t-0">
+        {/* The row markup stays the plain table row; the card layout is set from here. */}
+        <tbody className="max-xl:block max-xl:[&>tr]:flex max-xl:[&>tr]:flex-wrap max-xl:[&>tr]:items-center max-xl:[&>tr]:gap-x-5 max-xl:[&>tr]:gap-y-2.5 max-xl:[&>tr]:px-5 max-xl:[&>tr]:py-5 sm:max-xl:[&>tr]:grid sm:max-xl:[&>tr]:grid-cols-[minmax(0,1fr)_auto] sm:max-xl:[&>tr]:items-start sm:max-xl:[&>tr]:gap-x-8 sm:max-xl:[&>tr]:gap-y-2 sm:max-xl:[&>tr]:px-6 max-xl:[&>tr:first-child]:border-t-0">
           {rows.map(({ campaign: c, counts, stage, step }) => {
             const owner = stepOwner(step, c);
             return (
               <tr key={c.id} className="border-t border-line">
-                <td className="align-top max-sm:col-span-2 max-sm:block sm:min-w-[16rem] sm:py-4 sm:pl-6 sm:pr-4">
+                <td className="align-top max-xl:mb-1 max-xl:block max-xl:basis-full sm:max-xl:row-span-4 sm:max-xl:mb-0 xl:min-w-[16rem] xl:py-4 xl:pl-6 xl:pr-4">
                   <p className="font-semibold [overflow-wrap:anywhere]">{c.title}</p>
                   <p className="mt-0.5 font-mono text-[11.5px] text-white/60 [overflow-wrap:anywhere]">{c.slug}</p>
                   <EscrowLine campaign={c} counts={counts} now={now} />
                 </td>
-                <td className={`${td} max-sm:order-2`} data-label="Funder">
-                  <Wallet pubkey={c.funderPubkey} />
-                </td>
-                {/* On a phone the stage sits right under the title, across the card, so a long stage name never clips. */}
-                <td className={`${td} max-sm:order-1 max-sm:col-span-2`} data-label="Stage">
+                {/* The chip says what it is: no label on the card. */}
+                <td className={`${td} max-xl:before:hidden`} data-label="Stage">
                   <StagePill stage={stage} />
                 </td>
-                <td className={`${td} font-mono text-[12px] text-white/60 max-sm:order-2`} data-label="Deadline">
-                  {formatDateShort(c.deadlineAt)}
-                </td>
-                <td className={`${td} max-sm:order-2`} data-label="Waits on">
+                <td className={td} data-label="Waits on">
                   {owner ? (
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{owner.label}</span>
@@ -275,6 +272,12 @@ function CampaignsTable({ rows, now }: { rows: CampaignOverviewRow[]; now: Date 
                   ) : (
                     <span className="text-white/25">—</span>
                   )}
+                </td>
+                <td className={td} data-label="Funder">
+                  <Wallet pubkey={c.funderPubkey} />
+                </td>
+                <td className={`${td} font-mono text-[12px] text-white/60`} data-label="Deadline">
+                  {formatDateShort(c.deadlineAt)}
                 </td>
               </tr>
             );

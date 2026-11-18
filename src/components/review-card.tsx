@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useId } from "react";
+import { useEffect, useEffectEvent, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
 import { ax, Pieces } from "@/components/workspace/kit";
@@ -40,9 +40,14 @@ export function ReviewCard({
 }) {
   const state = commitState(draft);
   const ready = !busy && state.blocker === null;
+  // The stamp lands once the reviewer has answered something; until then the all-yes default is only a ghost of an outcome.
+  // A draft kept from an earlier visit to this card counts as answered.
+  const [touched, setTouched] = useState(false);
+  const acted = touched || draft.note !== "" || draft.reason !== "" || Object.values(draft.signals).some((v) => !v);
 
   function setSignal(id: SignalId, value: boolean) {
     if (busy) return;
+    setTouched(true);
     onSignal(id, value);
   }
 
@@ -72,7 +77,7 @@ export function ReviewCard({
 
       <section aria-label="Rubric" className="relative min-w-0 rounded-[30px] border border-white/[0.08] bg-[#0d0d0d] p-5 md:p-7">
         <h2 className="sr-only">{`Rubric ${RUBRIC_VERSION}`}</h2>
-        <ScoreMeter signals={draft.signals} passCount={state.passCount} outcome={state.outcome} />
+        <ScoreMeter signals={draft.signals} passCount={state.passCount} outcome={state.outcome} acted={acted} />
 
         <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-2">
           {SIGNALS.map((s, i) => (
@@ -122,7 +127,10 @@ export function ReviewCard({
           <textarea
             value={draft.note}
             readOnly={busy}
-            onChange={(e) => onDraft({ ...draft, note: e.target.value })}
+            onChange={(e) => {
+              setTouched(true);
+              onDraft({ ...draft, note: e.target.value });
+            }}
             rows={2}
             maxLength={1000}
             placeholder="One line the contributor can act on."
@@ -277,7 +285,7 @@ function SubmissionPanel({ item, now }: { item: ReviewItem; now: Date }) {
  * filled for yes and red for no, so the meter shows which signals failed and
  * not only how many; a marker after the fourth, and the outcome stamped beside it.
  */
-function ScoreMeter({ signals, passCount, outcome }: { signals: Draft["signals"]; passCount: number; outcome: "PASS" | "FAIL" }) {
+function ScoreMeter({ signals, passCount, outcome, acted }: { signals: Draft["signals"]; passCount: number; outcome: "PASS" | "FAIL"; acted: boolean }) {
   const pass = outcome === "PASS";
   return (
     <div>
@@ -291,11 +299,13 @@ function ScoreMeter({ signals, passCount, outcome }: { signals: Draft["signals"]
         </div>
         <div className="flex flex-col items-end gap-2 pb-1">
           <span className="text-[12px] text-white/60">{`${PASS_THRESHOLD} of ${SIGNALS.length} needed to pass`}</span>
+          {/* The public stamp's shape: filled, black ink, tilted. Green for a pass (yellow stays on the Record button), red for a fail;
+              a dashed ghost until the reviewer has answered, then it lands. */}
           <span
-            key={outcome}
+            key={acted ? outcome : "ghost"}
             className={cx(
-              "inline-block -rotate-6 animate-pop rounded-lg border-[3px] px-3 py-0.5 font-display text-[28px] leading-tight",
-              pass ? "border-pass bg-pass-soft text-pass" : "border-fail text-fail",
+              "inline-block -rotate-[10deg] rounded-lg border-[3px] px-3 py-0.5 font-display text-[28px] leading-tight",
+              !acted ? "border-dashed border-white/20 text-white/25" : cx("animate-pop border-black text-black", pass ? "bg-pass" : "bg-fail"),
             )}
             style={{ fontVariationSettings: ax(70, 900) }}
           >

@@ -11,7 +11,7 @@ import { dateLine, describeStep, foundersStep, plural, StagePill, stepOwner } fr
 import { leftOf, slotParts } from "@/components/workspace/campaign-list";
 import { ClosePanel } from "@/components/workspace/close-panel";
 import { LimitMeter } from "@/components/workspace/limit-meter";
-import { ax, figure, figureAxes, isZero, Label, Pieces, RiseWords, SlotLegend, SlotMeter } from "@/components/workspace/kit";
+import { ax, figure, figureAxes, freeSlots, isZero, Label, Pieces, RiseWords, SlotLegend, SlotMeter } from "@/components/workspace/kit";
 import { ActivityLog, confirmedTx, Lifecycle, lifecycleNodes } from "@/components/workspace/lifecycle";
 import { CountUp } from "@/components/workspace/motion-bits";
 import { BOARD_HEADING_ID, BoardSelection, SelectForStep, SubmissionsBoard, type BoardRow, type PayLock } from "@/components/workspace/submissions-board";
@@ -19,7 +19,7 @@ import { funderLimits, sealedDualReviewEnabled } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import type { Campaign, EscrowOp } from "@/db/schema";
 import { fromStroops, toStroops } from "@/escrow/amount";
-import { campaignStage, closeBlockers, countSubmissions, deadlinePassed, nextStep, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
+import { campaignStage, closeBlockers, countSubmissions, deadlinePassed, isReadyToPay, nextStep, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
 import { currentUser } from "@/lib/current-user";
 import { formatDateShort, formatRelative, formatUsdc } from "@/lib/format";
 import { canManageCampaign } from "@/services/access";
@@ -84,6 +84,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
       ? { founder: c.releaseSignerPubkey, sealedHref: sealedDualReviewEnabled() ? "/review/sealed" : null }
       : null;
   const escrowShape = { budget: c.budget, reward: c.rewardAmount };
+  // Passes to approve, all needing a new milestone, and an escrow the approve guard says has no room for one: Approve is blocked (the board's own rule).
+  const passes = rows.filter((r) => isReadyToPay(r) && r.outcome === "PASS");
+  const noRoom = passes.length > 0 && passes.every((r) => r.payoutStatus === null) && freeSlots(rows, escrowShape) === 0;
   // What stands between the funder and the deploy or fund button below, for the Next step panel.
   const escrowFixes =
     walletStep === null
@@ -131,7 +134,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
 
       {/* The Next step panel can filter and tick the board below it, so both share one selection. */}
       <BoardSelection rows={rows} closed={c.closedAt !== null} escrow={escrowShape} payLock={payLock}>
-      <NextStepStrip campaign={c} step={step} viewer={user.pubkey} reviewer={user.roles.has("reviewer")} payLock={payLock} escrowFixes={escrowFixes} />
+      <NextStepStrip campaign={c} step={step} viewer={user.pubkey} reviewer={user.roles.has("reviewer")} payLock={payLock} escrowFixes={escrowFixes} noRoom={noRoom} />
 
       <Lifecycle nodes={lifecycleNodes(c, stage, ops, now)} />
 
@@ -301,18 +304,14 @@ function limitItems(message: string, caps: Cap[], budget: string): LimitItem[] {
         <p className="mt-1 font-mono text-[11.5px] leading-relaxed [overflow-wrap:anywhere]">{`This campaign can't be deployed while a limit is reached: ${part}.`}</p>
       </details>
     ) : null;
-  const left = (k: Cap) => {
-    const room = toStroops(k.limit) - toStroops(k.used);
-    return fromStroops(room > 0n ? room : 0n);
-  };
   const items = caps.map((k): LimitItem =>
     k.cap === "open_campaigns"
       ? {
           key: k.cap,
-          title: `Open campaigns: ${k.used} of ${k.limit} in use`,
+          title: Number(k.used) > Number(k.limit) ? `Open campaigns: ${k.used} in use, over the cap of ${k.limit}` : `Open campaigns: ${k.used} of ${k.limit} in use`,
           body: (
             <div className="space-y-3">
-              <p className="text-white/75">{`This wallet already runs ${k.used} of the ${k.limit} open campaigns it may have at once, so deploying this one would make one too many. Close a campaign first; Deploy stays off until this one fits.`}</p>
+              <p className="text-white/75">{campaignsCapText(Number(k.used), Number(k.limit))}</p>
               <dl>
                 <LimitMeter label="Open campaigns" value={`${k.used} of ${k.limit} in use, plus this one`} used={Number(k.used)} max={Number(k.limit)} adding={1} over />
               </dl>
@@ -325,7 +324,7 @@ function limitItems(message: string, caps: Cap[], budget: string): LimitItem[] {
           title: `Open budget: no room for ${formatUsdc(budget)}`,
           body: (
             <div className="space-y-3">
-              <p className="text-white/75">{`Open campaigns already hold ${formatUsdc(k.used)} of this wallet's ${formatUsdc(k.limit)} open budget, which leaves ${formatUsdc(left(k))}: not enough for this campaign's ${formatUsdc(budget)}. Close a campaign first; Deploy stays off until this one fits.`}</p>
+              <p className="text-white/75">{budgetCapText(k.used, k.limit, budget)}</p>
               <dl>
                 <LimitMeter
                   label="Open budget"
@@ -350,12 +349,44 @@ function limitItems(message: string, caps: Cap[], budget: string): LimitItem[] {
           title: "A funder limit is reached",
           body: (
             <div className="space-y-3">
-              <p className="text-white/75">This wallet is at one of its funder limits, so this campaign can&apos;t be deployed yet. Close a campaign first; Deploy stays off until this one fits.</p>
+              <p className="text-white/75">This wallet is at one of its funder limits, so this campaign can&apos;t be deployed yet. Closing campaigns frees room; Deploy stays off until this one fits.</p>
               {exact(message)}
             </div>
           ),
         },
       ];
+}
+
+/**
+ * The open-campaign cap in words: deploying needs used + 1 within the limit,
+ * so used + 1 - limit campaigns must close first (services/campaign.ts).
+ */
+function campaignsCapText(used: number, limit: number): string {
+  const toClose = Math.max(1, used + 1 - limit);
+  const now =
+    used > limit
+      ? `This wallet runs ${used} open campaigns, more than the ${limit} it may have at once.`
+      : `This wallet already runs ${used} of the ${limit} open campaigns it may have at once, so this one would be one too many.`;
+  return `${now} ${toClose === 1 ? "Close one campaign" : `Close ${toClose} campaigns`} first; Deploy stays off until this one fits.`;
+}
+
+/**
+ * The open-budget cap in words: deploying needs used + budget within the
+ * limit, so campaigns holding at least used + budget - limit must close first
+ * (services/campaign.ts). A budget over the whole limit never fits.
+ */
+function budgetCapText(used: string, limit: string, budget: string): string {
+  const u = toStroops(used);
+  const l = toStroops(limit);
+  const b = toStroops(budget);
+  if (b > l) {
+    return `This campaign's ${formatUsdc(budget)} is more than this wallet's whole ${formatUsdc(limit)} open budget, so it can't fit even with every other campaign closed.`;
+  }
+  const now =
+    u > l
+      ? `Open campaigns already hold ${formatUsdc(used)}, over this wallet's ${formatUsdc(limit)} open budget.`
+      : `Open campaigns already hold ${formatUsdc(used)} of this wallet's ${formatUsdc(limit)} open budget, which leaves ${formatUsdc(fromStroops(l - u))}: not enough for this campaign's ${formatUsdc(budget)}.`;
+  return `${now} Close campaigns holding at least ${formatUsdc(fromStroops(u + b - l))} first; Deploy stays off until this one fits.`;
 }
 
 /** A page section. `headingId` lets a control elsewhere on the page scroll to the heading and focus it. */
@@ -470,6 +501,7 @@ function NextStepStrip({
   reviewer,
   payLock,
   escrowFixes,
+  noRoom,
 }: {
   campaign: Campaign;
   step: NextStep;
@@ -478,6 +510,8 @@ function NextStepStrip({
   payLock: PayLock | null;
   /** Deploy or fund only: how many checklist items stand in the way, and whether the button below is off. */
   escrowFixes: { count: number; blocked: boolean } | null;
+  /** The escrow has no room for another reward, so none of the passes can be approved. */
+  noRoom: boolean;
 }) {
   const described = describeStep(step, c);
   const owner = stepOwner(step, c);
@@ -490,10 +524,16 @@ function NextStepStrip({
       : `${plural(n, "payout is", "payouts are")} approved on chain. This campaign uses founder-sealed review: the founder wallet signs each release. Nothing here waits on you.`
     : described.body;
   const escrowStep = (step.kind === "deploy" || step.kind === "fund") && escrowFixes !== null;
-  const blocked = escrowStep && escrowFixes.blocked;
   const payStep = mine && c.fundedAt !== null && !c.closedAt && (step.kind === "approve" || step.kind === "release");
+  // Passes the approve guard would refuse: nothing to select, so the panel is blocked and points to Close, which settles the campaign.
+  const roomBlocked = payStep && !sealed && step.kind === "approve" && noRoom;
+  const blocked = (escrowStep && escrowFixes.blocked) || roomBlocked;
   // The control this panel holds for the viewer, if any; only then is it yellow.
-  const control: ReactNode = !mine ? null : payStep ? (
+  const control: ReactNode = !mine ? null : roomBlocked ? (
+    <a href="#close" className={quietLink}>
+      Go to Close ↓
+    </a>
+  ) : payStep ? (
     <SelectForStep kind={step.kind === "approve" ? "approve" : "release"} />
   ) : escrowStep ? (
     <a href="#escrow-heading" className={quietLink}>
@@ -513,7 +553,7 @@ function NextStepStrip({
         yours ? "border border-accent/50 bg-[linear-gradient(120deg,rgba(253,218,36,0.10),rgba(253,218,36,0.02)_45%,transparent)]" : "border border-white/[0.07] bg-[#0d0d0d]",
       )}
     >
-      {yours ? <span aria-hidden="true" className="absolute inset-y-6 left-0 w-1 rounded-r-full bg-accent" /> : null}
+      {yours ? <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1 bg-accent" /> : null}
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="min-w-0 max-w-[720px]">
           <Label className={yours ? "text-accent" : undefined}>{blocked ? "Next step · blocked" : "Next step"}</Label>
@@ -522,7 +562,11 @@ function NextStepStrip({
           </p>
           <p className="mt-3 text-[15px] leading-relaxed text-white/60">
             {body}
-            {blocked ? " The checklist under Escrow says what to fix first." : ""}
+            {roomBlocked
+              ? " The escrow has no room left for another reward, so they can't be approved. Close the campaign to settle it."
+              : blocked
+                ? " The checklist under Escrow says what to fix first."
+                : ""}
           </p>
           {control ? <div className="mt-5">{control}</div> : null}
           {sealed && payLock.sealedHref ? (

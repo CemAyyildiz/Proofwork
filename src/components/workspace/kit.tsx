@@ -189,6 +189,31 @@ export function slotCount(budget: string, reward: string): number {
   return Number(b / r);
 }
 
+/**
+ * The close milestone every escrow is deployed with (CLOSE_MILESTONE_AMOUNT in
+ * services/campaign.ts): one stroop, unreleased until the campaign closes.
+ */
+const CLOSE_MILESTONE_STROOPS = 1n;
+
+/**
+ * How many more rewards the escrow takes on, mirroring the approve guard in
+ * services/payout.ts exactly: the balance (the funded budget less what was
+ * released) must cover every milestone on chain not yet released (the close
+ * milestone and each unreleased payout's reward) plus one reward per new
+ * milestone. Every payout row has its milestone on chain. In stroops, so a
+ * budget that is an exact multiple of the reward has room for one reward
+ * fewer than its slots, as the server counts it. The server reads the chain
+ * again and stays the judge.
+ */
+export function freeSlots(rows: ReadonlyArray<{ payoutStatus: string | null }>, escrow: { budget: string; reward: string }): number {
+  const budget = stroopsOf(escrow.budget);
+  const reward = stroopsOf(escrow.reward);
+  if (budget === null || reward === null) return 0;
+  const started = BigInt(rows.filter((r) => r.payoutStatus !== null).length);
+  const room = budget - CLOSE_MILESTONE_STROOPS - started * reward;
+  return room < 0n ? 0 : Number(room / reward);
+}
+
 /** A USDC amount as a bare figure for display type: "1,240.5". Decimal strings are grouped as text, never through a float. */
 export function figure(amount: string | number): string {
   const s = typeof amount === "string" ? amount.trim() : "";
