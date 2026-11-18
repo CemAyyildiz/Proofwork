@@ -39,10 +39,12 @@ export async function EscrowBalance({ slug, contractId }: { slug: string; contra
   const balance = await liveBalance(slug, contractId);
   if (balance === null) {
     return (
-      <p className={`${line} border border-fail-line text-fail`}>
+      // A slow or failed read says nothing about the money: a neutral line and where to check, not an alarm.
+      <p className={`${line} bg-white/[0.05] text-white/60`}>
+        <span aria-hidden="true" className="size-1.5 rounded-full bg-white/40" />
         Balance unavailable, check on-chain:{" "}
-        <a className="underline underline-offset-4" href={publicEnv.explorerContractUrl(contractId)} target="_blank" rel="noreferrer">
-          escrow on stellar.expert
+        <a className="font-semibold text-white underline decoration-white/30 underline-offset-4 hover:decoration-white" href={publicEnv.explorerContractUrl(contractId)} target="_blank" rel="noreferrer">
+          escrow on stellar.expert ↗
         </a>
       </p>
     );
@@ -50,7 +52,7 @@ export async function EscrowBalance({ slug, contractId }: { slug: string; contra
   return (
     <p className={`${line} bg-accent/10 text-white/70 [&_strong]:font-semibold [&_strong]:text-accent`}>
       <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
-      Balance <strong>{formatUsdc(balance)}</strong> <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/45">read from Stellar</span>
+      Balance <strong>{formatUsdc(balance)}</strong> <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/60">read from Stellar</span>
     </p>
   );
 }

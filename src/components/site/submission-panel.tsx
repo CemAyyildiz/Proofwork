@@ -90,14 +90,14 @@ export function SubmissionPanel({
                 {xNote.text}
               </p>
             ) : null}
-            <details className="group/ft mt-4 rounded-2xl bg-white/[0.06] p-4">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[13px] font-semibold [&::-webkit-details-marker]:hidden">
+            <details className="group/ft mt-4 rounded-2xl bg-white/[0.06]">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-2xl px-4 py-3 text-[13px] font-semibold [&::-webkit-details-marker]:hidden">
                 First time? About a minute
-                <span aria-hidden="true" className="text-white/50 transition-transform group-open/ft:rotate-45">
+                <span aria-hidden="true" className="text-white/60 transition-transform group-open/ft:rotate-45">
                   +
                 </span>
               </summary>
-              <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[13px] leading-relaxed text-white/65 marker:font-mono marker:text-white/40">
+              <ol className="list-decimal space-y-1.5 pb-4 pl-9 pr-4 text-[13px] leading-relaxed text-white/65 marker:font-mono marker:text-white/55">
                 <li>
                   <a href={FREIGHTER_URL} target="_blank" rel="noreferrer" className="rounded-sm font-semibold text-accent hover:underline">
                     Install Freighter ↗
@@ -122,7 +122,7 @@ export function SubmissionPanel({
   return (
     <>
       <PanelTitle>Submit your post</PanelTitle>
-      <StepList className="mt-6">
+      <StepList className="mt-5">
         <StepRow state="done" title="Wallet connected">
           <StepNote>
             <span className="font-mono" title={pubkey}>

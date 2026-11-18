@@ -40,7 +40,7 @@ export function StepRow({ state, title, children, className }: { state: StepStat
         ) : null}
       </span>
       <div className="min-w-0 pt-1.5">
-        <div className={cx("text-[15px] font-semibold leading-snug", state === "pending" && "text-white/45")}>
+        <div className={cx("text-[15px] font-semibold leading-snug", state === "pending" && "text-white/60")}>
           {title}
           {state === "done" ? <span className="sr-only"> (done)</span> : null}
         </div>

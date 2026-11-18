@@ -40,7 +40,7 @@ export function RubricPlayground() {
                 <span className={`w-8 shrink-0 text-2xl leading-none text-black/25 ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
                   {String(i + 1).padStart(2, "0")}
                 </span>
-                <span className={cx("flex-1 text-[16px] font-semibold transition-colors", !on && "text-black/45 line-through decoration-black/30")}>{s.label}</span>
+                <span className={cx("flex-1 text-[16px] font-semibold transition-colors", !on && "text-black/55 line-through decoration-black/30")}>{s.label}</span>
                 <span className="relative grid h-8 w-[5.5rem] shrink-0 grid-cols-2 rounded-full bg-black/8 p-1 font-mono text-[11px] font-semibold">
                   <span
                     aria-hidden="true"
@@ -49,8 +49,8 @@ export function RubricPlayground() {
                       on ? "translate-x-0 bg-black" : "translate-x-full bg-fail",
                     )}
                   />
-                  <span className={cx("relative grid place-items-center transition-colors", on ? "text-accent" : "text-black/40")}>YES</span>
-                  <span className={cx("relative grid place-items-center transition-colors", on ? "text-black/40" : "text-black")}>NO</span>
+                  <span className={cx("relative grid place-items-center transition-colors", on ? "text-accent" : "text-black/55")}>YES</span>
+                  <span className={cx("relative grid place-items-center transition-colors", on ? "text-black/55" : "text-black")}>NO</span>
                 </span>
               </button>
             </li>

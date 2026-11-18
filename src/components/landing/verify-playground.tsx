@@ -133,7 +133,7 @@ function HashRow({ label, state, children }: { label: ReactNode; state: "idle" |
         state === "match" ? "border-accent bg-accent text-black" : state === "mismatch" ? "border-fail-line bg-fail-soft" : "border-white/10 bg-transparent",
       )}
     >
-      <p className={cx("font-mono text-[10.5px] font-medium uppercase tracking-[0.16em]", state === "match" ? "text-black/60" : "text-white/45")}>{label}</p>
+      <p className={cx("font-mono text-[10.5px] font-medium uppercase tracking-[0.16em]", state === "match" ? "text-black/60" : "text-white/60")}>{label}</p>
       <code
         className={cx(
           "mt-1.5 block min-h-5 break-all font-mono text-[13px]",

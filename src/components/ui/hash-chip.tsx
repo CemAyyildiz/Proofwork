@@ -65,7 +65,7 @@ export function HashChip({ value, head = 6, tail = 6, href, className }: HashChi
           rel="noreferrer"
           title={value}
           aria-label={value}
-          className="inline-flex items-center gap-1.5 rounded-full hover:text-white"
+          className="relative inline-flex items-center gap-1.5 rounded-full after:absolute after:-inset-x-1 after:-inset-y-2.5 after:content-[''] hover:text-white"
         >
           {text}
         </a>

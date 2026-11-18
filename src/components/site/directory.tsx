@@ -12,7 +12,7 @@ export function BountyGrid({ items, variant }: { items: BountyCardData[]; varian
     <ul className={cx("grid gap-5", variant === "open" ? "md:grid-cols-2 xl:grid-cols-3" : "sm:grid-cols-2 lg:grid-cols-3")}>
       {items.map((b, i) => (
         <GridItem key={b.slug} i={i}>
-          <BountyCard b={b} now={now} className={variant === "open" ? "h-[540px]" : "h-[480px]"} />
+          <BountyCard b={b} now={now} className={variant === "open" ? "md:h-[540px]" : "sm:h-[480px]"} />
         </GridItem>
       ))}
     </ul>

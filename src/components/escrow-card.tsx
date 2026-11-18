@@ -1,6 +1,7 @@
 import { axes, FONT } from "@/components/site/type";
 import { HashChip } from "@/components/ui/hash-chip";
 import { publicEnv } from "@/config/public-env";
+import { toStroops } from "@/escrow/amount";
 import { budgetMeter, formatUsdc } from "@/lib/format";
 
 /** "95 USDC" → "95": the unit is set small beside the figure. */
@@ -10,12 +11,22 @@ function figure(amount: string): string {
 
 const SEGMENTS = 24;
 
+/** True when both are well-formed amounts and differ. An amount we cannot parse is never called a mismatch or a match. */
+function differs(live: string, recorded: string): boolean {
+  try {
+    return toStroops(live) !== toStroops(recorded);
+  } catch {
+    return false;
+  }
+}
+
 /** Live escrow balance, contract link and, once closed, the remainder return. A black card for paper sections. */
 export function EscrowCard({
   contractId,
   balance,
   loading = false,
   budget,
+  recorded = null,
   closed,
   remainderTxHash,
 }: {
@@ -24,6 +35,8 @@ export function EscrowCard({
   /** The live read is still in flight: a placeholder, not "unavailable". */
   loading?: boolean;
   budget: string;
+  /** What the escrow should hold by Proofwork's records (budget less releases, 0 once the remainder is back); null before funding. */
+  recorded?: string | null;
   closed: boolean;
   remainderTxHash: string | null;
 }) {
@@ -31,9 +44,9 @@ export function EscrowCard({
   const lit = meter ? Math.round((meter.pct / 100) * SEGMENTS) : 0;
 
   return (
-    <div className="relative overflow-hidden rounded-[28px] bg-black p-6 text-white shadow-[0_40px_100px_-50px_rgba(0,0,0,0.7)] md:p-8">
+    <div data-surface="dark" className="relative overflow-hidden rounded-[28px] bg-black p-6 text-white shadow-[0_40px_100px_-50px_rgba(0,0,0,0.7)] md:p-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/50">Escrow balance</span>
+        <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/55">Escrow balance</span>
         {balance !== null ? (
           <span className="inline-flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-accent">
             <span aria-hidden="true" className="h-[7px] w-[7px] animate-ping rounded-full bg-current" />
@@ -60,7 +73,23 @@ export function EscrowCard({
           </div>
         </div>
       ) : balance === null ? (
-        <p className="mt-4 text-lg font-semibold text-fail">Balance unavailable, check on-chain</p>
+        // A failed read is not a problem with the money: show the recorded figure as recorded, and where to check it.
+        <>
+          {recorded !== null ? (
+            <p className={`mt-3 flex items-end gap-3 text-[clamp(4.5rem,10vw,7rem)] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(62, 900) }}>
+              {figure(recorded)}
+              <small className="mb-[0.1em] font-sans text-base font-semibold leading-none text-white/60" style={{ fontVariationSettings: "normal" }}>
+                USDC by our records
+              </small>
+            </p>
+          ) : null}
+          <p className="mt-4 text-[13px] leading-relaxed text-white/60">
+            The live read from Stellar didn&apos;t answer just now{recorded !== null ? ", so this is the last recorded figure, not the balance" : ""}.{" "}
+            <a href={publicEnv.explorerContractUrl(contractId)} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center rounded-sm font-semibold text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">
+              Check the balance on the explorer ↗
+            </a>
+          </p>
+        </>
       ) : (
         <>
           <p className={`mt-3 flex items-end gap-3 text-[clamp(4.5rem,10vw,7rem)] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(62, 900) }}>
@@ -88,8 +117,13 @@ export function EscrowCard({
                   />
                 ))}
               </div>
-              <p className="mt-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-white/50">{meter.label}</p>
+              <p className="mt-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-white/55">{meter.label}</p>
             </>
+          ) : null}
+          {recorded !== null && differs(balance, recorded) ? (
+            <p role="status" className="mt-4 rounded-2xl border border-fail-line bg-fail-soft px-4 py-3 text-[13px] leading-relaxed text-fail">
+              Differs from Proofwork&apos;s records, which expect {formatUsdc(recorded)} here. The chain is the source of truth.
+            </p>
           ) : null}
         </>
       )}
@@ -103,7 +137,7 @@ export function EscrowCard({
       </p>
       {contractId ? (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <span className="text-[13px] text-white/50">Escrow contract</span>
+          <span className="text-[13px] text-white/55">Escrow contract</span>
           <HashChip value={contractId} href={publicEnv.explorerContractUrl(contractId)} />
         </div>
       ) : null}
@@ -122,11 +156,11 @@ function RemainderReturn({ txHash, balance }: { txHash: string | null; balance: 
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
       {txHash ? (
         <>
-          <span className="text-[13px] text-white/50">Remainder returned to funder</span>
+          <span className="text-[13px] text-white/55">Remainder returned to funder</span>
           <HashChip value={txHash} href={publicEnv.explorerTxUrl(txHash)} />
         </>
       ) : (
-        <span className="text-[13px] text-white/50">{balance !== null && Number(balance) === 0 ? "Nothing left to return" : "Remainder return pending"}</span>
+        <span className="text-[13px] text-white/55">{balance !== null && Number(balance) === 0 ? "Nothing left to return" : "Remainder return pending"}</span>
       )}
     </div>
   );

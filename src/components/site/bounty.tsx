@@ -3,24 +3,30 @@
 import Link from "next/link";
 import { ArrowUpRight, Plus } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { axes, ease, FONT, seg, useClock, useSeen, useTrack, Y } from "@/components/e/motion";
+import { axes, ease, FONT, seg, useClock, useSeen, useTrack } from "@/components/e/motion";
 import { cx } from "@/components/ui/cx";
 import { SIGNALS } from "@/domain/rubric";
 
 /* The moving parts of the bounty page; the page itself stays a server component. */
 
+/** Clear of the floating nav (top-4 plus its 56px pill) with a little air. */
+const BELOW_NAV = 96;
+
 /**
- * The ticket column's sticky wrapper. A ticket taller than the window sticks
- * by its bottom edge instead of its top, so the submit form at its foot can
- * always be scrolled into view.
+ * The ticket column's sticky wrapper. A ticket that fits under the nav sticks
+ * there; a taller one sticks by its bottom edge instead, so the submit form at
+ * its foot can always be scrolled into view.
  */
 export function StickyTicket({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [top, setTop] = useState(96);
+  const [top, setTop] = useState(BELOW_NAV);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const fit = () => setTop(Math.min(96, window.innerHeight - el.offsetHeight - 24));
+    const fit = () => {
+      const bottomEdge = window.innerHeight - el.offsetHeight - 24;
+      setTop(bottomEdge >= BELOW_NAV ? BELOW_NAV : bottomEdge);
+    };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
@@ -33,6 +39,42 @@ export function StickyTicket({ children }: { children: ReactNode }) {
   return (
     <div ref={ref} className="lg:sticky" style={{ top }}>
       {children}
+    </div>
+  );
+}
+
+/**
+ * The phone's bottom bar on an open bounty: the contributor's next step, one
+ * tap from the ticket. It steps aside while the hero's button, the ticket
+ * itself or the yellow payouts section is on screen (`data-bar-hide`), so a
+ * view never holds two yellow buttons.
+ */
+export function SubmitBar({ label }: { label: string }) {
+  const [hidden, setHidden] = useState(true);
+  useEffect(() => {
+    const els = Array.from(document.querySelectorAll("[data-bar-hide]"));
+    const inView = new Set<Element>();
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (e.isIntersecting) inView.add(e.target);
+        else inView.delete(e.target);
+      }
+      setHidden(inView.size > 0);
+    });
+    for (const el of els) io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return (
+    <div
+      inert={hidden}
+      className={cx(
+        "pw-submit-bar fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-black p-3 pb-[max(12px,env(safe-area-inset-bottom))] transition-transform duration-300 ease-[cubic-bezier(0.2,0.7,0.1,1)] lg:hidden",
+        hidden ? "translate-y-full" : "translate-y-0",
+      )}
+    >
+      <a href="#submit" className="flex h-13 items-center justify-center gap-2 rounded-full bg-accent px-5 text-center font-semibold text-black">
+        {label} <span aria-hidden="true">↓</span>
+      </a>
     </div>
   );
 }
@@ -58,15 +100,15 @@ export function TicketClock({ deadline, label }: { deadline: string; label: stri
     <div>
       <div className="grid grid-cols-4 gap-2" role="timer" aria-label={`Closes ${label}`}>
         {(parts ?? [["--", "days"], ["--", "hrs"], ["--", "min"], ["--", "sec"]]).map(([v, l]) => (
-          <div key={l} className="rounded-2xl bg-white/[0.06] py-3 text-center">
+          <div key={l} className="rounded-2xl bg-white/[0.06] py-2.5 text-center">
             <p className={`text-4xl leading-none tabular-nums ${FONT}`} style={{ fontVariationSettings: axes(70, 800) }}>
               {now !== null && parts === null ? "00" : v}
             </p>
-            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-white/45">{l}</p>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-white/55">{l}</p>
           </div>
         ))}
       </div>
-      <p className="mt-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-white/40">{label}</p>
+      <p className="mt-2.5 font-mono text-[11px] uppercase tracking-[0.14em] text-white/55">{label}</p>
     </div>
   );
 }
@@ -123,8 +165,8 @@ export interface PayoutRowData {
   verify: string | null;
 }
 
-/** Yellow: everything this bounty has paid, one row per release transaction. */
-export function Payouts({ payouts }: { payouts: PayoutRowData[] }) {
+/** Yellow: everything this bounty has paid, one row per release transaction. `fee` says what one reward arrives as. */
+export function Payouts({ payouts, fee }: { payouts: PayoutRowData[]; fee: { gross: string; net: string } }) {
   const track = useRef<HTMLElement>(null);
   const big = useRef<HTMLHeadingElement>(null);
   useTrack(track, (p) => {
@@ -132,20 +174,26 @@ export function Payouts({ payouts }: { payouts: PayoutRowData[] }) {
     if (big.current) big.current.style.fontVariationSettings = axes(125 - ease(seg(p, 0, 0.5)) * 65, 900);
   });
   return (
-    <section ref={track} aria-labelledby="paid-title" className="overflow-hidden px-5 py-24 text-black sm:px-6" style={{ background: Y }}>
+    <section ref={track} data-bar-hide aria-labelledby="paid-title" className="overflow-hidden bg-accent px-5 py-24 text-black sm:px-6">
       <div className="mx-auto max-w-6xl">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/60">Paid from this bounty</p>
+        <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/65">Released from this escrow</p>
         <h2 id="paid-title" ref={big} className={`mt-2 whitespace-nowrap text-[clamp(3rem,10vw,8.5rem)] leading-[0.85] ${FONT}`} style={{ fontVariationSettings: axes(125, 900) }}>
           {payouts.length === 0 ? "Nobody yet." : `${payouts.length} ${payouts.length === 1 ? "payout" : "payouts"}.`}
         </h2>
         {payouts.length === 0 ? (
           <p className="mt-6 max-w-md text-lg">The first approved post here gets paid first. Every payout shows up with its transaction.</p>
         ) : (
-          <ul className="mt-12 border-t-2 border-black">
-            {payouts.map((p, i) => (
-              <PayoutRow key={p.hash} p={p} i={i} />
-            ))}
-          </ul>
+          <>
+            <p className="mt-6 max-w-lg text-[15px] text-black/70">
+              Each row is the amount released. The escrow takes its 0.3% protocol fee on the way out, so a {fee.gross} USDC release reaches the
+              contributor as {fee.net}.
+            </p>
+            <ul className="mt-10 border-t-2 border-black">
+              {payouts.map((p, i) => (
+                <PayoutRow key={p.hash} p={p} i={i} />
+              ))}
+            </ul>
+          </>
         )}
       </div>
     </section>
@@ -168,7 +216,7 @@ function PayoutRow({ p, i }: { p: PayoutRowData; i: number }) {
       </span>
       <span>
         <span className="block font-semibold">Submission {p.shortId}</span>
-        <span className="block text-sm text-black/60">{p.ago}</span>
+        <span className="block text-sm text-black/65">USDC released · {p.ago}</span>
       </span>
       <span className="col-span-2 flex flex-wrap items-center gap-2 sm:col-span-1 sm:justify-end md:contents">
         {p.verify ? (

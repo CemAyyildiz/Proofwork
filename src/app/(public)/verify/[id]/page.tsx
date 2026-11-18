@@ -69,9 +69,10 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
           {/* The receipt */}
           <article
             aria-label="Decision"
+            data-surface="paper"
             className="relative min-w-0 animate-reveal rounded-t-[28px] bg-paper px-6 pb-12 pt-7 text-paper-ink [animation-delay:200ms] [mask-image:radial-gradient(circle_at_10px_100%,transparent_9px,#000_9.5px)] [mask-position:-10px_0] [mask-size:20px_100%] [mask-repeat:repeat-x] sm:px-8"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-black/55">
+            <div className="flex flex-wrap items-center justify-between gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-black/60">
               <span>Decision record · {s.shortId}</span>
               <span className="flex flex-wrap gap-2">
                 {d.txHash ? (
@@ -85,7 +86,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
 
             <div className="mt-6 flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-sm text-black/55">Campaign</p>
+                <p className="text-sm text-black/60">Campaign</p>
                 <p className={`mt-1 text-[clamp(1.5rem,2.6vw,2rem)] leading-[1] [overflow-wrap:anywhere] ${FONT}`} style={{ fontVariationSettings: axes(88, 800) }}>
                   {c.title}
                 </p>
@@ -120,7 +121,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
                     <span className={`w-7 shrink-0 text-xl leading-none text-black/25 ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
                       {String(i + 1).padStart(2, "0")}
                     </span>
-                    <span className={cx("flex-1 text-[15.5px] font-semibold", !ok && "text-black/55")}>{sg.label}</span>
+                    <span className={cx("flex-1 text-[15.5px] font-semibold", !ok && "text-black/60")}>{sg.label}</span>
                     <span
                       className={cx(
                         "rounded-full px-3 py-1 font-mono text-[11px] font-semibold tracking-[0.08em]",
@@ -139,7 +140,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
               <>
                 <Tear />
                 <figure>
-                  <figcaption className="font-mono text-[11px] uppercase tracking-[0.18em] text-black/50">Reviewer&rsquo;s reason</figcaption>
+                  <figcaption className="font-mono text-[11px] uppercase tracking-[0.18em] text-black/60">Reviewer&rsquo;s reason</figcaption>
                   <blockquote className={`mt-3 text-[clamp(1.2rem,2vw,1.5rem)] leading-snug [overflow-wrap:anywhere] ${FONT}`} style={{ fontVariationSettings: axes(95, 600) }}>
                     &ldquo;{d.note}&rdquo;
                   </blockquote>
@@ -168,7 +169,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
 
             <Tear />
 
-            <h2 className="font-mono text-[11px] uppercase tracking-[0.18em] text-black/50">On-chain record</h2>
+            <h2 className="font-mono text-[11px] uppercase tracking-[0.18em] text-black/60">On-chain record</h2>
             <dl className="mt-3 grid">
               <OnChainRow label="Ledger key">
                 <HashChip value={d.ledgerKey} head={12} tail={6} />
@@ -188,12 +189,12 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
 
           {/* The proof */}
           <section aria-labelledby="proof-title" className="min-w-0 animate-reveal rounded-[28px] border border-white/10 bg-[#111] p-6 [animation-delay:320ms] sm:p-8 lg:sticky lg:top-24">
-            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/50">Runs on your device</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/60">Runs on your device</p>
             <h2 id="proof-title" className={`mt-2 text-[clamp(1.9rem,3vw,2.6rem)] leading-[0.95] ${FONT}`} style={{ fontVariationSettings: axes(85, 850) }}>
               Proof, <span className="text-accent">rebuilt in your browser.</span>
             </h2>
             <HashCheck canonicalJson={d.canonicalJson} expectedHash={d.decisionHash} txHash={d.txHash} />
-            <p className="mt-6 border-t border-white/10 pt-5 text-sm text-white/50">
+            <p className="mt-6 border-t border-white/10 pt-5 text-sm text-white/60">
               From{" "}
               <Link href={`/c/${c.slug}`} className="rounded-sm font-semibold text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">
                 {c.title}
@@ -210,7 +211,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
 function Kv({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-xs text-black/50">{label}</dt>
+      <dt className="text-xs text-black/60">{label}</dt>
       <dd className="mt-1.5 text-[14px] font-medium">{children}</dd>
     </div>
   );
@@ -219,7 +220,7 @@ function Kv({ label, children }: { label: string; children: ReactNode }) {
 function OnChainRow({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-b border-black/10 py-3 last:border-0">
-      <dt className="text-[13px] text-black/55">{label}</dt>
+      <dt className="text-[13px] text-black/60">{label}</dt>
       <dd className="min-w-0 max-w-full overflow-x-auto">{children}</dd>
     </div>
   );

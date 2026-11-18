@@ -106,24 +106,29 @@ export function SubmitForm({
             <path d="M5 12l5 5L20 7" />
           </svg>
         </div>
-        <p id={hintId} aria-live="polite" className={cx("mt-2 min-h-[18px] text-[12.5px]", wrong ? "text-fail" : "text-white/45")}>
-          {wrong ? "That isn't an X post link. Copy it from the post's share menu." : "Only x.com or twitter.com status links."}
+        <p id={hintId} aria-live="polite" className={cx("mt-2 min-h-[18px] text-[12.5px]", wrong ? "text-fail" : "text-white/55")}>
+          {locked ? "Opens once the steps above are done." : wrong ? "That isn't an X post link. Copy it from the post's share menu." : "Only x.com or twitter.com status links."}
         </p>
         {error ? (
           <p role="alert" className="mt-2 text-[13px] text-fail">
             {error}
           </p>
         ) : null}
-        <Button type="submit" disabled={!valid || locked} busy={busy} busyLabel="Submitting…" className="mt-3 h-14 w-full text-[15px]">
-          Submit for review <span aria-hidden="true">→</span>
-        </Button>
-        <p className="mt-3 text-[12.5px] leading-relaxed text-white/45">
-          One submission per wallet, with a post from your connected X account. The post must stay public until the campaign closes.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4 text-[13px] text-white/55">
-          <span>Paid in USDC to</span>
-          <HashChip value={payTo} head={4} tail={4} href={publicEnv.explorerAccountUrl(payTo)} />
-        </div>
+        {/* Locked, the step stays one line: the field, and what opens it. The button and terms come with it. */}
+        {locked ? null : (
+          <>
+            <Button type="submit" disabled={!valid} busy={busy} busyLabel="Submitting…" className="mt-3 h-14 w-full text-[15px]">
+              Submit for review <span aria-hidden="true">→</span>
+            </Button>
+            <p className="mt-3 text-[12.5px] leading-relaxed text-white/55">
+              One submission per wallet, with a post from your connected X account. The post must stay public until the campaign closes.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-4 text-[13px] text-white/60">
+              <span>Paid in USDC to</span>
+              <HashChip value={payTo} head={4} tail={4} href={publicEnv.explorerAccountUrl(payTo)} />
+            </div>
+          </>
+        )}
       </form>
     </StepRow>
   );

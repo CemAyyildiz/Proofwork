@@ -1,8 +1,10 @@
 import { cx } from "./cx";
 
-export type PillTone = "pass" | "fail" | "wait" | "chain";
+/** `live` is an open, running thing (white outline, dot); yellow `chain` is kept for money that moved. */
+export type PillTone = "pass" | "fail" | "wait" | "chain" | "live";
 
 const tones: Record<PillTone, string> = {
+  live: "text-white bg-transparent border-white/30",
   pass: "text-pass bg-pass-soft border-pass-line",
   fail: "text-fail bg-fail-soft border-fail-line",
   wait: "text-muted bg-white/3 border-line-strong",

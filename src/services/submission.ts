@@ -55,6 +55,8 @@ export interface PublicCampaign {
   deadlineAt: Date;
   escrowContractId: string | null;
   open: boolean;
+  /** The budget reached the escrow. Until then the page shows a budget, never money "left in escrow". */
+  funded: boolean;
   closedAt: Date | null;
   /** Resolver's remainder return to the funder; set only once that withdraw is confirmed. */
   remainderTxHash: string | null;
@@ -91,6 +93,7 @@ function toPublic(c: Campaign, now = new Date()): PublicCampaign {
     deadlineAt: c.deadlineAt,
     escrowContractId: c.escrowContractId,
     open: isOpen(c, now),
+    funded: c.fundedAt !== null,
     closedAt: c.closedAt,
     remainderTxHash: c.remainderTxHash,
   };

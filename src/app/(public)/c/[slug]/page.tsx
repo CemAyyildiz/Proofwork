@@ -7,15 +7,17 @@ import { stageOf, xNotice, type Stage } from "@/components/contributor-state";
 import { SubmissionPanel } from "@/components/site/submission-panel";
 import { EscrowCard } from "@/components/escrow-card";
 import { amount } from "@/components/site/amount";
-import { Payouts, ReviewQuestions, StickyTicket, TicketClock } from "@/components/site/bounty";
+import { Payouts, ReviewQuestions, StickyTicket, SubmitBar, TicketClock } from "@/components/site/bounty";
 import { axes, FONT } from "@/components/site/type";
 import { cx } from "@/components/ui/cx";
+import { leftOf } from "@/components/workspace/campaign-list";
 import { campaignFor } from "./campaign";
 import { xConfig } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import { PASS_THRESHOLD } from "@/domain/rubric";
 import { xOutcomeSchema } from "@/domain/x-connect";
 import { getEscrow } from "@/escrow";
+import { fromStroops, toStroops } from "@/escrow/amount";
 import { currentUser } from "@/lib/current-user";
 import { formatDateShort, formatRelative, formatUsdc, truncateMiddle } from "@/lib/format";
 import { log } from "@/lib/logger";
@@ -70,35 +72,37 @@ export default async function ContributorCampaignPage({
 
   const now = new Date();
   const [facts, payouts] = await Promise.all([campaignFacts(c.id), campaignPayouts(c.id)]);
-  const paidTotal = payouts.reduce((sum, p) => sum + Number(p.amount), 0);
+  const money = moneyOf(c, stage, payouts.map((p) => p.amount), facts.paid);
   const reward = amount(c.rewardAmount);
-  const left = amount(Math.max(0, Number(c.budget) - paidTotal));
+  // The next thing a contributor does here, for the phone's bottom bar.
+  const next = !user ? "Connect a wallet to submit" : xAvailable && !xConnected ? "Connect X to submit" : "Submit your post";
 
   return (
     <div className="bg-canvas">
-      <Hero c={c} stage={stage} team={facts.team} submissions={facts.submissions} paid={facts.paid} reward={reward} left={left} mine={mine !== null} />
+      <Hero c={c} stage={stage} team={facts.team} submissions={facts.submissions} money={money} reward={reward} mine={mine !== null} />
 
-      <section className="bg-paper px-5 py-16 text-paper-ink sm:px-6 md:py-20">
+      <section data-surface="paper" className="bg-paper px-5 py-16 text-paper-ink sm:px-6 md:py-20">
         <div className="mx-auto grid max-w-6xl items-start gap-x-14 gap-y-12 lg:grid-cols-[minmax(0,1fr)_400px]">
           <div className="min-w-0 lg:col-start-1 lg:row-start-1">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/50">The task</p>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/60">The task</p>
             <p className="mt-5 max-w-2xl whitespace-pre-wrap text-[clamp(1.1rem,1.6vw,1.35rem)] leading-[1.6] [overflow-wrap:anywhere]">{c.brief}</p>
           </div>
 
           <aside
             id="submit"
             aria-label="Reward and your submission"
+            data-bar-hide
             className="min-w-0 scroll-mt-24 lg:col-start-2 lg:row-span-3 lg:row-start-1 lg:self-stretch"
           >
             <StickyTicket>
-              <Ticket c={c} stage={stage} budget={amount(c.budget)} left={left}>
+              <Ticket c={c} stage={stage} money={money}>
                 <SubmissionPanel c={c} stage={stage} signedIn={user !== null} pubkey={user?.pubkey ?? null} mine={mine} xConnected={xConnected} xAvailable={xAvailable} xNote={notice} />
               </Ticket>
             </StickyTicket>
           </aside>
 
           <div className="min-w-0 lg:col-start-1 lg:row-start-2">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/50">How you&rsquo;re reviewed</p>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/60">How you&rsquo;re reviewed</p>
             <h2 className={`mt-3 text-[clamp(2.2rem,4.5vw,3.8rem)] leading-[0.92] ${FONT}`} style={{ fontVariationSettings: axes(85, 850) }}>
               Six questions.
               <br />
@@ -112,22 +116,23 @@ export default async function ContributorCampaignPage({
           </div>
 
           <div className="min-w-0 lg:col-start-1 lg:row-start-3">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/50">Where the money is</p>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/60">Where the money is</p>
             <h2 className={`mb-6 mt-3 text-[clamp(2.2rem,4.5vw,3.8rem)] leading-[0.92] ${FONT}`} style={{ fontVariationSettings: axes(85, 850) }}>
               In escrow, not with us.
             </h2>
             {c.escrowContractId ? (
-              <Suspense fallback={<EscrowCard contractId={c.escrowContractId} balance={null} loading budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />}>
-                <LiveEscrowCard slug={slug} contractId={c.escrowContractId} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
+              <Suspense fallback={<EscrowCard contractId={c.escrowContractId} balance={null} loading budget={c.budget} recorded={money.expected} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />}>
+                <LiveEscrowCard slug={slug} contractId={c.escrowContractId} budget={c.budget} recorded={money.expected} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
               </Suspense>
             ) : (
-              <EscrowCard contractId={null} balance={null} budget={c.budget} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
+              <EscrowCard contractId={null} balance={null} budget={c.budget} recorded={null} closed={stage === "closed"} remainderTxHash={c.remainderTxHash} />
             )}
           </div>
         </div>
       </section>
 
       <Payouts
+        fee={{ gross: reward, net: amount(netOfFee(c.rewardAmount)) }}
         payouts={payouts.map((p) => ({
           shortId: p.shortId,
           amount: amount(p.amount),
@@ -138,15 +143,57 @@ export default async function ContributorCampaignPage({
         }))}
       />
 
-      {stage === "open" && !mine ? (
-        <div className="pw-submit-bar fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-black/90 p-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden">
-          <a href="#submit" className="flex h-13 items-center justify-center gap-2 rounded-full bg-accent font-semibold text-black">
-            Submit your post · {formatUsdc(c.rewardAmount)}
-          </a>
-        </div>
-      ) : null}
+      {stage === "open" && !mine ? <SubmitBar label={`${next} · ${formatUsdc(c.rewardAmount)}`} /> : null}
     </div>
   );
+}
+
+/* ───────────────────────────── the money, as this page may state it ───────────────────────────── */
+
+interface Money {
+  /** The budget reached the escrow. Before that there is a budget, never money "left". */
+  funded: boolean;
+  closed: boolean;
+  budget: string;
+  /** Posts the budget pays for at this reward. */
+  total: number;
+  paidCount: number;
+  /** USDC released so far, a decimal string. */
+  paid: string;
+  /** Budget less what was released, never below zero. */
+  left: string;
+  /** What the escrow should hold by Proofwork's records, to set beside the live read; null before funding. */
+  expected: string | null;
+}
+
+/** Figures in stroops, never floats: the same rule as the funder's campaign list (workspace/campaign-list.tsx). */
+function moneyOf(c: PublicCampaign, stage: Stage, released: readonly string[], paidCount: number): Money {
+  const paid = fromStroops(released.reduce((sum, a) => sum + toStroops(a), 0n));
+  const left = leftOf(c.budget, paid);
+  const per = toStroops(c.rewardAmount);
+  const closed = c.funded && stage === "closed";
+  return {
+    funded: c.funded,
+    closed,
+    budget: c.budget,
+    total: per > 0n ? Number(toStroops(c.budget) / per) : 0,
+    paidCount,
+    paid,
+    left,
+    expected: !c.funded ? null : closed && c.remainderTxHash ? "0" : left,
+  };
+}
+
+/** What a contributor receives of `gross` after the escrow's 0.3% protocol fee (README: 1 USDC arrives as 0.997). */
+function netOfFee(gross: string): string {
+  const g = toStroops(gross);
+  return fromStroops(g - (g * 3n) / 1000n);
+}
+
+/** One line on what happened to the rest of a closed budget. */
+function remainderLine(c: PublicCampaign, m: Money): string {
+  if (c.remainderTxHash) return "remainder returned to the funder";
+  return toStroops(m.left) > 0n ? "remainder return pending" : "nothing left over";
 }
 
 /* ───────────────────────────── hero: title, the reward, the escrow drawn as slots ───────────────────────────── */
@@ -156,38 +203,38 @@ function Hero({
   stage,
   team,
   submissions,
-  paid,
+  money,
   reward,
-  left,
   mine,
 }: {
   c: PublicCampaign;
   stage: Stage;
   team: string | null;
   submissions: number;
-  paid: number;
+  money: Money;
   reward: string;
-  left: string;
   mine: boolean;
 }) {
   const words = c.title.split(/\s+/);
   const open = stage === "open";
-  const budget = Number(c.budget);
-  const per = Number(c.rewardAmount);
-  const total = per > 0 ? Math.max(1, Math.floor(budget / per)) : 1;
-  const shown = Math.min(total, 60);
+  const { funded, closed, total, paidCount: paid } = money;
+  const shown = Math.min(Math.max(total, 1), 60);
   const now = new Date();
   return (
     <section className="relative overflow-hidden bg-canvas px-5 pb-14 pt-32 text-white sm:px-6 md:pt-36">
       <div className="mx-auto max-w-6xl">
-        <Link href="/explore" className="inline-flex min-h-9 items-center gap-1.5 rounded-full font-mono text-[11px] uppercase tracking-[0.18em] text-white/50 transition-colors hover:text-white">
+        <Link href="/explore" className="inline-flex min-h-11 items-center gap-1.5 rounded-full font-mono text-[11px] uppercase tracking-[0.18em] text-white/55 transition-colors hover:text-white">
           <ArrowLeft className="size-3.5" aria-hidden="true" /> All bounties
         </Link>
-        <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-white/60">
+        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-white/60">
           <span
-            className={cx("rounded-full px-3 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider", open ? "bg-accent text-black" : "bg-white/10 text-white/70")}
+            className={cx(
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider",
+              open ? "border-white/35 text-white" : "border-transparent bg-white/10 text-white/70",
+            )}
           >
-            {STATUS[stage]}
+            <span aria-hidden="true" className={cx("size-1.5 rounded-full bg-current", open && "animate-ping")} />
+            {funded ? STATUS[stage] : STATUS.unfunded}
           </span>
           {team ? (
             <span>
@@ -213,18 +260,20 @@ function Hero({
 
         <div className="mt-12 grid items-end gap-8 md:grid-cols-[1fr_auto] md:gap-10">
           <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
-            <p className={`text-[clamp(6.5rem,19vw,15rem)] leading-[0.78] text-accent ${FONT}`} style={{ fontVariationSettings: axes(62, 900) }}>
+            {/* Yellow is money in escrow: an unfunded bounty's reward is a promise, set in white. */}
+            <p className={cx(`text-[clamp(6.5rem,19vw,15rem)] leading-[0.78] ${FONT}`, funded ? "text-accent" : "text-white")} style={{ fontVariationSettings: axes(62, 900) }}>
               {reward}
             </p>
             <div className="pb-3">
-              <p className="text-xl font-semibold">USDC{publicEnv.isMainnet ? "" : <span className="ml-2 font-mono text-[11px] uppercase tracking-[0.14em] text-white/45">testnet</span>}</p>
-              <p className="text-sm text-white/55">for every approved post</p>
-              <p className="mt-2 max-w-[15rem] text-xs leading-relaxed text-white/40">
-                Net of the 0.3% protocol fee. {publicEnv.isMainnet ? "Paid in USDC on Stellar mainnet." : "Testnet USDC, not real money."}
+              <p className="text-xl font-semibold">USDC{publicEnv.isMainnet ? "" : <span className="ml-2 font-mono text-[11px] uppercase tracking-[0.14em] text-white/55">testnet</span>}</p>
+              <p className="text-sm text-white/60">for every approved post</p>
+              <p className="mt-2 max-w-[16rem] text-xs leading-relaxed text-white/55">
+                The escrow takes its 0.3% protocol fee from each payout, so {reward} arrives as {amount(netOfFee(c.rewardAmount))}.{" "}
+                {publicEnv.isMainnet ? "Paid in USDC on Stellar mainnet." : "Testnet USDC, not real money."}
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-3 pb-3">
+          <div data-bar-hide className="flex flex-wrap gap-3 pb-3">
             {open && !mine ? (
               <a href="#submit" className="group inline-flex items-center gap-2 rounded-full bg-accent px-7 py-4 font-semibold text-black transition-transform hover:scale-[1.03]">
                 Submit your post <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" aria-hidden="true" />
@@ -255,20 +304,43 @@ function Hero({
               return (
                 <span
                   key={i}
-                  className={cx("h-8 animate-pop rounded-[5px] sm:h-10 md:h-14 md:rounded-md", done ? "bg-accent" : "border border-white/15")}
+                  className={cx(
+                    "h-8 animate-pop rounded-[5px] sm:h-10 md:h-14 md:rounded-md",
+                    done ? "bg-accent" : !funded ? "border border-dashed border-white/20" : closed ? "bg-white/[0.04]" : "border border-white/15",
+                  )}
                   style={{ animationDelay: `${500 + i * 22}ms` }}
                 />
               );
             })}
           </div>
-          <p className="mt-3 flex flex-wrap justify-between gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-white/50">
-            <span>
-              <span className="text-accent">{paid} paid</span> · {Math.max(0, total - paid)} still payable
-              {total > shown ? ` (first ${shown} shown)` : ""}
-            </span>
-            <span>
-              {left} of {amount(c.budget)} USDC left in escrow
-            </span>
+          <p className="mt-3 flex flex-wrap justify-between gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-white/55">
+            {!funded ? (
+              <>
+                <span>
+                  {total} {total === 1 ? "post" : "posts"} once funded{total > shown ? ` (first ${shown} shown)` : ""}
+                </span>
+                <span>{amount(money.budget)} USDC budget · not in escrow yet</span>
+              </>
+            ) : closed ? (
+              <>
+                <span>
+                  <span className="text-accent">{paid} paid</span> of {total} · closed{total > shown ? ` (first ${shown} shown)` : ""}
+                </span>
+                <span>
+                  {amount(money.paid)} of {amount(money.budget)} USDC paid out · {remainderLine(c, money)}
+                </span>
+              </>
+            ) : (
+              <>
+                <span>
+                  <span className="text-accent">{paid} paid</span> · {open ? `${Math.max(0, total - paid)} still payable` : "no new posts"}
+                  {total > shown ? ` (first ${shown} shown)` : ""}
+                </span>
+                <span>
+                  {amount(money.left)} of {amount(money.budget)} USDC {open ? "left" : "still"} in escrow
+                </span>
+              </>
+            )}
           </p>
         </div>
       </div>
@@ -278,12 +350,13 @@ function Hero({
 
 /* ───────────────────────────── the ticket: the clock, your steps, the budget ───────────────────────────── */
 
-function Ticket({ c, stage, budget, left, children }: { c: PublicCampaign; stage: Stage; budget: string; left: string; children: ReactNode }) {
+function Ticket({ c, stage, money, children }: { c: PublicCampaign; stage: Stage; money: Money; children: ReactNode }) {
   const open = stage === "open";
+  const over = money.funded && (stage === "closed" || stage === "ended");
   return (
-    <div className="rounded-[28px] bg-black p-6 text-white shadow-[0_40px_100px_-40px_rgba(0,0,0,0.6)] sm:p-7">
-      <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.18em] text-white/50">
-        {open ? "Closes in" : stage === "unfunded" ? "Opens when funded · closes" : stage === "ended" ? "Ended" : "Closed"}
+    <div data-surface="dark" className="rounded-[28px] bg-black p-6 text-white shadow-[0_40px_100px_-40px_rgba(0,0,0,0.6)] sm:p-7">
+      <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.18em] text-white/55">
+        {open ? "Closes in" : !money.funded ? "Opens when funded · closes" : stage === "ended" ? "Ended" : "Closed"}
       </p>
       {open ? (
         <TicketClock deadline={c.deadlineAt.toISOString()} label={formatDateShort(c.deadlineAt)} />
@@ -293,17 +366,51 @@ function Ticket({ c, stage, budget, left, children }: { c: PublicCampaign; stage
         </p>
       )}
 
-      <div className="mt-7 border-t border-white/10 pt-6">{children}</div>
+      {over ? (
+        // The final tally: what this bounty paid, and where the rest of the budget is.
+        <div className="mt-7 border-t border-white/10 pt-6">
+          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/55">Final tally</p>
+          <p className={`mt-3 text-[clamp(3.5rem,6vw,4.5rem)] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(62, 900) }}>
+            <span className={money.paidCount > 0 ? "text-accent" : undefined}>{money.paidCount}</span>
+            <span className="text-white/45"> / {money.total}</span>
+          </p>
+          <p className="mt-2 text-sm text-white/60">posts paid from this escrow</p>
+        </div>
+      ) : null}
 
-      <dl className="mt-7 grid grid-cols-2 gap-4 border-t border-white/10 pt-5 text-sm">
+      <div className="mt-6 border-t border-white/10 pt-5">{children}</div>
+
+      <dl className="mt-6 grid grid-cols-2 gap-4 border-t border-white/10 pt-4 text-sm">
         <div>
-          <dt className="font-mono text-[10px] uppercase tracking-wider text-white/45">Budget</dt>
-          <dd className="mt-1 font-semibold">{budget} USDC</dd>
+          <dt className="font-mono text-[10px] uppercase tracking-wider text-white/55">Budget</dt>
+          <dd className="mt-1 font-semibold">{amount(money.budget)} USDC</dd>
         </div>
-        <div>
-          <dt className="font-mono text-[10px] uppercase tracking-wider text-white/45">Left</dt>
-          <dd className="mt-1 font-semibold text-accent">{left} USDC</dd>
-        </div>
+        {!money.funded ? (
+          <div>
+            <dt className="font-mono text-[10px] uppercase tracking-wider text-white/55">In escrow</dt>
+            <dd className="mt-1 font-semibold text-white/70">Not yet</dd>
+          </div>
+        ) : over ? (
+          <>
+            <div>
+              <dt className="font-mono text-[10px] uppercase tracking-wider text-white/55">Paid out</dt>
+              <dd className="mt-1 font-semibold">{amount(money.paid)} USDC</dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="font-mono text-[10px] uppercase tracking-wider text-white/55">The rest</dt>
+              <dd className="mt-1 font-semibold">
+                {stage === "closed"
+                  ? `${amount(money.left)} USDC · ${remainderLine(c, money)}`
+                  : `${amount(money.left)} USDC still in escrow, returned to the funder after they close`}
+              </dd>
+            </div>
+          </>
+        ) : (
+          <div>
+            <dt className="font-mono text-[10px] uppercase tracking-wider text-white/55">Left</dt>
+            <dd className="mt-1 font-semibold">{amount(money.left)} USDC</dd>
+          </div>
+        )}
       </dl>
     </div>
   );
@@ -318,6 +425,7 @@ async function LiveEscrowCard({
   slug: string;
   contractId: string;
   budget: string;
+  recorded: string | null;
   closed: boolean;
   remainderTxHash: string | null;
 }) {

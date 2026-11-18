@@ -18,7 +18,8 @@ export function Stamp({
 }) {
   const pass = outcome === "PASS";
   return (
-    <span className={cx("pointer-events-none inline-block -rotate-[10deg]", className)}>
+    // Decorative: the outcome is always said in words next to it.
+    <span aria-hidden="true" className={cx("pointer-events-none inline-block -rotate-[10deg]", className)}>
       <span
         className={cx(
           "inline-block animate-in fade-in zoom-in-[3] fill-mode-both duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]",

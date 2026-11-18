@@ -8,7 +8,8 @@ import { WalletButton } from "@/components/wallet-button";
 /**
  * Top-bar action. The landing page sends signed-out visitors to the public
  * campaign list; every other public page (explore, campaign, verify) keeps
- * the wallet button so a contributor can connect when submitting.
+ * the wallet button so a contributor can connect when submitting. It is an
+ * outline there: the page's own yellow button is the one to press.
  */
 export function HeaderAction({ pubkey }: { pubkey: string | null }) {
   const pathname = usePathname();
@@ -19,5 +20,5 @@ export function HeaderAction({ pubkey }: { pubkey: string | null }) {
       </Link>
     );
   }
-  return <WalletButton pubkey={pubkey} />;
+  return <WalletButton pubkey={pubkey} variant="secondary" />;
 }

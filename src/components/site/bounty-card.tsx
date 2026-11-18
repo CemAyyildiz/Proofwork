@@ -8,7 +8,8 @@ import { cx } from "@/components/ui/cx";
 export interface BountyCardData {
   slug: string;
   title: string;
-  team: string;
+  /** The funding team's approved name; null when it has none, and then nothing is shown. */
+  team: string | null;
   /** Reward per approved post, as a display figure ("10"). */
   reward: string;
   budget: string;
@@ -48,7 +49,7 @@ export function BountyCard({ b, now, className }: { b: BountyCardData; now: numb
       >
         <span className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 [background:radial-gradient(circle_at_var(--gx,50%)_var(--gy,50%),rgba(255,255,255,0.7),transparent_45%)] group-hover/card:opacity-100" />
         <div className="relative flex items-center justify-between gap-3 text-sm">
-          <span className="truncate font-semibold">{b.team}</span>
+          <span className="truncate font-semibold">{b.team ?? ""}</span>
           <span className={cx("shrink-0 rounded-full px-2.5 py-1 font-mono text-[11px] tabular-nums", b.open ? "bg-black text-accent" : "bg-white/10")}>
             {b.open ? (now ? countdown(b.deadline, now) : `closes ${b.distance}`) : b.status}
           </span>
@@ -68,7 +69,7 @@ export function BountyCard({ b, now, className }: { b: BountyCardData; now: numb
               ))}
             </div>
           ) : null}
-          <div className="mt-2 flex justify-between gap-3 text-xs opacity-70">
+          <div className={cx("mt-2 flex justify-between gap-3 text-xs", b.open ? "text-black/70" : "text-white/60")}>
             <span>
               {b.paid} of {slots} paid
             </span>
@@ -81,7 +82,7 @@ export function BountyCard({ b, now, className }: { b: BountyCardData; now: numb
               Do this bounty <ArrowRight className="size-4 transition-transform group-hover/card:translate-x-1" />
             </span>
           ) : (
-            <span className="mt-5 block border-t border-white/10 pt-4 font-mono text-[11px] uppercase tracking-[0.16em] text-white/45">
+            <span className="mt-5 block border-t border-white/10 pt-4 font-mono text-[11px] uppercase tracking-[0.16em] text-white/55">
               {b.status} · {b.dateLabel}
             </span>
           )}

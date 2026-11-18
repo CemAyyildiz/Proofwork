@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { MoneyFlow } from "@/components/site/money-flow";
 import { axes, FONT } from "@/components/site/type";
 import { cx } from "@/components/ui/cx";
 import { funderLimits, sealedDualReviewEnabled } from "@/config/env";
@@ -16,37 +17,6 @@ export const metadata: Metadata = {
 /** Trustless Work's protocol fee, charged by the escrow contract on every release and on the remainder. Measured in Month 2. */
 const PROTOCOL_FEE = "0.3%";
 const AUDIT_URL = "https://stellarsecurityportal.com";
-
-/** Dashes running from one box to the next: the direction money can move. Static under reduced motion. */
-function Flow({ label, vertical = false }: { label: string; vertical?: boolean }) {
-  const strip = (
-    <div className="h-1 w-full overflow-hidden">
-      <div
-        aria-hidden="true"
-        className="h-1 w-[200%] animate-marquee"
-        style={{ animationDuration: "6s", animationDirection: "reverse", background: "repeating-linear-gradient(90deg,#fdda24 0 10px,transparent 10px 20px)" }}
-      />
-    </div>
-  );
-  return (
-    <div className={cx("relative flex items-center justify-center", vertical ? "h-20 w-full" : "min-w-16 flex-1")}>
-      {vertical ? <div className="w-20 rotate-90">{strip}</div> : strip}
-      <span className="absolute whitespace-nowrap rounded-full bg-canvas px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white/60">{label}</span>
-    </div>
-  );
-}
-
-function Node({ kicker, title, body, tone = "dark" }: { kicker: string; title: string; body: string; tone?: "dark" | "yellow" }) {
-  return (
-    <div className={cx("w-full rounded-[26px] p-6 md:w-[17rem] md:shrink-0", tone === "yellow" ? "bg-accent text-black" : "border border-white/10 bg-[#111] text-white")}>
-      <p className={cx("font-mono text-[10.5px] uppercase tracking-[0.18em]", tone === "yellow" ? "text-black/60" : "text-white/45")}>{kicker}</p>
-      <p className={`mt-2 text-[1.7rem] leading-none ${FONT}`} style={{ fontVariationSettings: axes(88, 850) }}>
-        {title}
-      </p>
-      <p className={cx("mt-3 text-sm leading-relaxed", tone === "yellow" ? "text-black/75" : "text-white/60")}>{body}</p>
-    </div>
-  );
-}
 
 /**
  * What a team is told before it puts money in: every statement here describes
@@ -80,41 +50,7 @@ export default function CustodyPage() {
           </p>
 
           {/* Who can move the money, drawn. */}
-          <figure className="mt-16 animate-reveal [animation-delay:450ms]" aria-label="How the budget moves">
-            <div className="flex flex-col items-stretch md:flex-row md:items-stretch">
-              <Node kicker="Funder" title="Your wallet" body="Deploys and funds the escrow. Signs every release." />
-              <div className="flex md:flex-1">
-                <span className="contents md:hidden">
-                  <Flow label="Fund" vertical />
-                </span>
-                <span className="hidden md:contents">
-                  <Flow label="Fund" />
-                </span>
-              </div>
-              <Node tone="yellow" kicker="Trustless Work escrow" title="The contract" body="Holds the budget. Its balance is read from the chain, not from our database." />
-              <div className="flex md:flex-1">
-                <span className="contents md:hidden">
-                  <Flow label="Release, you sign" vertical />
-                </span>
-                <span className="hidden md:contents">
-                  <Flow label="Release, you sign" />
-                </span>
-              </div>
-              <Node kicker="Contributors" title="Their wallets" body="Paid one release per approved post, to the wallet the release names." />
-            </div>
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div className="rounded-[26px] border border-dashed border-white/20 p-6">
-                <p className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-white/45">Proofwork keys</p>
-                <p className="mt-2 text-white/75">Add a payout line for a passed post and write each decision to Stellar.</p>
-                <p className="mt-2 font-semibold text-fail">Cannot release, withdraw or move any amount.</p>
-              </div>
-              <div className="rounded-[26px] border border-dashed border-white/20 p-6">
-                <p className="font-mono text-[10.5px] uppercase tracking-[0.18em] text-white/45">Dispute resolver</p>
-                <p className="mt-2 text-white/75">After you close, signs the return of what is left.</p>
-                <p className="mt-2 font-semibold text-accent">Only to your wallet.</p>
-              </div>
-            </div>
-          </figure>
+          <MoneyFlow you className="mt-16 animate-reveal [animation-delay:450ms]" />
 
           <dl className="mt-16 grid grid-cols-2 gap-4 lg:grid-cols-4">
             {figures.map(([value, label, accent]) => (
@@ -130,8 +66,8 @@ export default function CustodyPage() {
       </section>
 
       <section className="bg-paper px-5 py-20 text-paper-ink sm:px-6">
-        <div className="mx-auto max-w-4xl">
-          <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/50">The details</p>
+        <div className="mx-auto max-w-6xl">
+          <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/60">The details</p>
           <ol className="mt-6 border-t-2 border-black">
             <Section n={1} title="Where the budget sits">
               <p>
@@ -240,7 +176,7 @@ function Section({ n, title, children }: { n: number; title: string; children: R
         <h2 className={`text-[clamp(1.8rem,3.2vw,2.6rem)] leading-[0.95] ${FONT}`} style={{ fontVariationSettings: axes(88, 850) }}>
           {title}
         </h2>
-        <div className="mt-4 text-[16px] leading-[1.65] text-black/75">{children}</div>
+        <div className="mt-4 max-w-3xl text-[16px] leading-[1.65] text-black/75">{children}</div>
       </div>
     </li>
   );
@@ -248,11 +184,11 @@ function Section({ n, title, children }: { n: number; title: string; children: R
 
 function List({ items }: { items: Array<[string, ReactNode]> }) {
   return (
-    <dl className="grid gap-5">
+    <dl className="grid">
       {items.map(([term, body]) => (
-        <div key={term} className="border-l-2 border-black/15 pl-4">
-          <dt className="font-semibold text-black">{term}</dt>
-          <dd className="mt-1">{body}</dd>
+        <div key={term} className="grid gap-1 border-t border-black/10 py-4 first:border-t-0 first:pt-0 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-6">
+          <dt className="font-semibold leading-snug text-black">{term}</dt>
+          <dd>{body}</dd>
         </div>
       ))}
     </dl>

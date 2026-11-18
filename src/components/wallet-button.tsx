@@ -17,9 +17,12 @@ export function WalletButton({
   pubkey,
   className,
   menuPlacement = "down",
+  variant = "primary",
 }: {
   pubkey: string | null;
   className?: string;
+  /** "secondary" for the nav, where the page's own yellow button is the one to press. */
+  variant?: "primary" | "secondary";
   /** "up" opens the account menu above the button, for the sidebar foot. */
   menuPlacement?: "down" | "up";
 }) {
@@ -167,7 +170,7 @@ export function WalletButton({
           ) : null}
         </>
       ) : (
-        <Button size="sm" busy={busy} busyLabel="Waiting for wallet…" onClick={() => run(login)}>
+        <Button size="sm" variant={variant} busy={busy} busyLabel="Waiting for wallet…" onClick={() => run(login)}>
           Connect wallet
         </Button>
       )}

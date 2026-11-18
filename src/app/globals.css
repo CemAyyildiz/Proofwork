@@ -152,6 +152,15 @@
     outline-offset: 2px;
   }
 
+  /* A yellow ring disappears on yellow and is too faint on paper: there it is ink. */
+  :is(.bg-accent, .bg-paper, [data-surface="yellow"], [data-surface="paper"]) :focus-visible {
+    outline-color: var(--color-accent-ink);
+  }
+
+  /* A dark card set on a light surface (the ticket, a receipt) gets the yellow ring back. */
+  :is(.bg-accent, .bg-paper, [data-surface="yellow"], [data-surface="paper"]) :is(.bg-black, .bg-canvas, [data-surface="dark"]) :focus-visible {
+    outline-color: var(--color-accent);
+  }
 }
 
 /* Gradient hairline border for hero cards (DESIGN.md card-glow). */

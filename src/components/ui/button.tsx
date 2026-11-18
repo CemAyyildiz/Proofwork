@@ -28,7 +28,10 @@ export function buttonClasses(variant: ButtonVariant = "primary", size: ButtonSi
   return cx(
     "relative inline-flex items-center justify-center gap-2 overflow-hidden whitespace-nowrap font-semibold tracking-[-0.01em]",
     "transition-[transform,background-color,filter,opacity] duration-150 ease-expo active:scale-[0.97]",
-    "disabled:cursor-not-allowed disabled:opacity-35 disabled:active:scale-100",
+    // Disabled reads as unavailable, not as a dimmed version of the action colour: a flat neutral pill for every variant.
+    // A busy button keeps its colour and runs the sheen instead.
+    "disabled:cursor-not-allowed disabled:hover:scale-100 disabled:active:scale-100 data-busy:cursor-wait",
+    "[&:disabled:not([data-busy])]:border-transparent [&:disabled:not([data-busy])]:bg-white/10 [&:disabled:not([data-busy])]:text-white/40",
     variants[variant],
     sizes[size],
     className,
@@ -52,6 +55,7 @@ export function Button({
       type={type}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
+      data-busy={busy || undefined}
       className={buttonClasses(variant, size, className)}
     >
       {busy ? (

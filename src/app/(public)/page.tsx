@@ -47,7 +47,7 @@ export default async function HomePage() {
       return {
         slug: c.slug,
         title: c.title,
-        team: c.team ?? "Independent",
+        team: c.team,
         reward: amount(c.rewardAmount),
         budget: amount(c.budget),
         paid: c.paid,

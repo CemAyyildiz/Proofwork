@@ -26,18 +26,12 @@ const STAGE_LABEL: Record<Stage, string> = {
   unfunded: "Not funded yet",
 };
 
-const HOW = [
-  { title: "Do the task", body: "Read the brief and post on X. No wallet needed to look around." },
-  { title: "Submit the link", body: publicEnv.isMainnet ? "Connect a Stellar wallet and paste your post's link." : "Connect a Stellar testnet wallet and paste your post's link." },
-  { title: "Get reviewed and paid", body: publicEnv.isMainnet ? "A person scores it; a pass is paid from escrow in USDC." : "A person scores it; a pass is paid from escrow in testnet USDC." },
-] as const;
-
 function card(c: DirectoryRow, now: Date): BountyCardData {
   const stage = stageOf(c, now.getTime());
   return {
     slug: c.slug,
     title: c.title,
-    team: c.team ?? "Independent",
+    team: c.team,
     reward: amount(c.rewardAmount),
     budget: amount(c.budget),
     paid: c.paid,
@@ -90,7 +84,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
             </div>
             <dl className="grid min-w-[16rem] grid-cols-2 gap-x-8 gap-y-5 pb-3">
               <div className="col-span-2 flex flex-col-reverse">
-                <dt className="mt-2 font-mono text-[11px] uppercase tracking-[0.18em] text-white/50">USDC paid out</dt>
+                <dt className="mt-2 font-mono text-[11px] uppercase tracking-[0.18em] text-white/55">USDC released</dt>
                 <dd className={`text-[clamp(3.5rem,7vw,5.5rem)] leading-[0.82] text-accent ${FONT}`} style={{ fontVariationSettings: axes(62, 900) }}>
                   <RollingTotal value={amount(totals.paidAmount)} />
                 </dd>
@@ -114,13 +108,13 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
                 <p className={`text-4xl ${FONT}`} style={{ fontVariationSettings: axes(85, 850) }}>
                   No live campaigns yet.
                 </p>
-                <p className="mt-3 text-white/55">The first campaign appears here as soon as its budget is in escrow.</p>
+                <p className="mt-3 text-white/60">The first campaign appears here as soon as its budget is in escrow.</p>
               </div>
             ) : (
               <>
                 <GroupHead title="Taking posts" count={open.length} note="Each card is a funded escrow; the slots are the posts it can still pay for." />
                 {open.length === 0 ? (
-                  <p className="rounded-[30px] border border-dashed border-white/15 px-6 py-14 text-center text-white/55">No campaign is open right now.</p>
+                  <p className="rounded-[30px] border border-dashed border-white/15 px-6 py-14 text-center text-white/60">No campaign is open right now.</p>
                 ) : (
                   <BountyGrid items={open.map((c) => card(c, now))} variant="open" />
                 )}
@@ -130,24 +124,16 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
         </div>
       </section>
 
-      <section aria-labelledby="how-title" className="bg-paper px-5 py-20 text-paper-ink sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/50">
-            <span id="how-title">How it works</span>
+      <section aria-label="How it works" className="px-5 sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-10 gap-y-4 border-y border-white/10 py-8">
+          <p className="max-w-2xl text-[17px] leading-relaxed text-white/70">
+            <span className="font-semibold text-white">New here?</span> Do the task and post it on X, then submit the link with a Stellar
+            {publicEnv.isMainnet ? "" : " testnet"} wallet. A person reviews it, and a pass is paid from escrow in{publicEnv.isMainnet ? "" : " testnet"} USDC.
+            No wallet needed to look around.
           </p>
-          <ol className="mt-8 grid gap-10 md:grid-cols-3 md:gap-8">
-            {HOW.map((step, i) => (
-              <li key={step.title} className="border-t-2 border-black pt-5">
-                <span className={`block text-[5rem] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(60, 900) }}>
-                  0{i + 1}
-                </span>
-                <p className={`mt-4 text-[1.7rem] leading-none ${FONT}`} style={{ fontVariationSettings: axes(90, 800) }}>
-                  {step.title}
-                </p>
-                <p className="mt-3 max-w-xs text-black/65">{step.body}</p>
-              </li>
-            ))}
-          </ol>
+          <Link href="/#how" className="inline-flex min-h-11 items-center gap-2 rounded-full border border-white/20 px-5 text-sm font-semibold transition-colors hover:bg-white hover:text-black">
+            Follow one post to payout <ArrowRight className="size-4" aria-hidden="true" />
+          </Link>
         </div>
       </section>
 
@@ -166,7 +152,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
             <h2 id="paid-title" className={`text-[clamp(3rem,8vw,6.5rem)] leading-[0.85] ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
               Recent payouts.
             </h2>
-            <p className="max-w-xs text-sm text-black/70">
+            <p className="max-w-xs text-sm text-black/75">
               Running a campaign?{" "}
               <Link href="/custody" className="rounded-sm font-semibold underline decoration-black/40 underline-offset-4 hover:decoration-black">
                 See where the budget sits
@@ -187,7 +173,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
                     <Link href={`/c/${p.campaignSlug}`} className="block truncate rounded-sm font-semibold hover:underline">
                       {p.campaignTitle}
                     </Link>
-                    <span className="block text-sm text-black/60">{formatRelative(p.releasedAt, now)}</span>
+                    <span className="block text-sm text-black/65">USDC released · {formatRelative(p.releasedAt, now)}</span>
                   </span>
                   <a
                     href={publicEnv.explorerTxUrl(p.releaseTxHash)}
@@ -202,7 +188,8 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
               ))}
             </ul>
           )}
-          <Link href="/" className="mt-10 inline-flex items-center gap-2 text-sm font-semibold">
+          <p className="mt-6 max-w-lg text-sm text-black/70">Amounts are what left the escrow; the contributor receives each less the 0.3% protocol fee.</p>
+          <Link href="/" className="mt-6 inline-flex min-h-11 items-center gap-2 rounded-sm text-sm font-semibold">
             How Proofwork works <ArrowRight className="size-4" aria-hidden="true" />
           </Link>
         </div>
@@ -214,7 +201,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
 function Stat({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex flex-col-reverse">
-      <dt className="mt-1 font-mono text-[11px] uppercase tracking-[0.18em] text-white/50">{label}</dt>
+      <dt className="mt-1 font-mono text-[11px] uppercase tracking-[0.18em] text-white/55">{label}</dt>
       <dd className={`text-4xl leading-none ${FONT}`} style={{ fontVariationSettings: axes(75, 900) }}>
         {value}
       </dd>
@@ -231,7 +218,7 @@ function GroupHead({ title, count, note }: { title: string; count: number; note:
           {count}
         </span>
       </h2>
-      <p className="max-w-sm text-sm text-white/50">{note}</p>
+      <p className="max-w-sm text-sm text-white/60">{note}</p>
     </div>
   );
 }

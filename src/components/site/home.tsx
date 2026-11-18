@@ -1,15 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDown, ArrowRight, ArrowUpRight, Check, X } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUpRight, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { axes, clamp, ease, FONT, PAPER, seg, useClock, useSeen, useTrack, Y } from "@/components/e/motion";
 import { BountyCard, type BountyCardData } from "./bounty-card";
+import { MoneyFlow } from "./money-flow";
 import { Odometer } from "./odometer";
 import { EVIDENCE_TXS } from "@/components/landing/evidence";
 import { RubricPlayground } from "@/components/landing/rubric-playground";
 import { VerifyPlayground } from "@/components/landing/verify-playground";
-import { LogoMark } from "@/components/ui/logo";
 import { canHoverFine, useMediaQuery, useReducedMotion } from "@/components/use-reduced-motion";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
 import { truncateMiddle } from "@/lib/format";
@@ -46,11 +46,15 @@ function Hero({ data }: { data: HomeData }) {
   const fade = useRef<HTMLDivElement>(null);
   const cards = useRef<(HTMLDivElement | null)[]>([]);
 
-  const n = 18;
+  // Every card is a real payout: with none yet, nothing flies rather than a made-up receipt.
+  const n = data.payouts.length > 0 ? 18 : 0;
   const fly = Array.from({ length: n }, (_, i) => {
     const a = i * 2.39996;
     const r = 26 + ((i * 37) % 19);
-    return { x: Math.cos(a) * r, y: Math.sin(a) * r * 0.62, z: (i / n) * SPAN, ry: Math.cos(a) * -18, payout: data.payouts[i % Math.max(1, data.payouts.length)], kind: i % 3 };
+    // Kept to the sides: a card straight above or below the centre would cross the headline and the copy under it.
+    const x = Math.cos(a) * r;
+    const side = Math.sign(x) || 1;
+    return { x: side * Math.max(Math.abs(x), 24), y: Math.sin(a) * r * 0.62, z: (i / n) * SPAN, ry: Math.cos(a) * -18, payout: data.payouts[i % data.payouts.length], kind: i % 3 };
   });
 
   useEffect(() => {
@@ -128,11 +132,13 @@ function Hero({ data }: { data: HomeData }) {
               }}
               className="absolute left-1/2 top-1/2 -ml-[120px] -mt-[70px] w-[240px] opacity-0 will-change-transform"
             >
-              <FlyCard kind={f.kind} payout={f.payout} />
+              {f.payout ? <FlyCard kind={f.kind} payout={f.payout} /> : null}
             </div>
           ))}
         </div>
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(7,7,7,0.55)_45%,#070707_80%)]" />
+        {/* A scrim under the copy and buttons, so no receipt card ever sits behind words you have to read. */}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[52%] bg-[linear-gradient(to_top,#070707_0%,#070707_45%,rgba(7,7,7,0.85)_70%,transparent)]" />
 
         <div className="relative z-10 flex h-full flex-col items-center justify-center px-4 pt-10 text-center">
           <div ref={fade} className="mb-6 flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/55">
@@ -154,10 +160,11 @@ function Hero({ data }: { data: HomeData }) {
               </span>
             ))}
           </h1>
-          <div className="mt-10 flex animate-reveal flex-col items-center gap-6 [animation-delay:700ms]">
-            <p className="max-w-md text-balance text-[15px] leading-relaxed text-white/60">
-              Teams post bounties. You post the work on X. A person reviews it, and the escrow pays you on Stellar. Every payout below is a real
-              transaction.
+          {/* Its own dark pool: whatever card flies past, the copy and buttons sit on black. */}
+          <div className="relative isolate mt-10 flex animate-reveal flex-col items-center gap-6 [animation-delay:700ms] before:pointer-events-none before:absolute before:-inset-x-[40vw] before:-inset-y-10 before:-z-10 before:bg-[radial-gradient(closest-side,#070707_55%,rgba(7,7,7,0.85)_75%,transparent)] md:before:-inset-x-48">
+            <p className="max-w-md text-balance text-[15px] leading-relaxed text-white/65">
+              Teams post bounties. You post the work on X. A person reviews it, and the escrow pays you on Stellar.
+              {data.payouts.length > 0 ? " Every receipt here is a real transaction." : ""}
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               <Link href={data.cta.href} className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3.5 text-sm font-semibold text-black transition-transform hover:scale-[1.03]">
@@ -169,7 +176,7 @@ function Hero({ data }: { data: HomeData }) {
             </div>
           </div>
         </div>
-        <div className="absolute inset-x-0 bottom-6 z-10 flex justify-center font-mono text-[11px] uppercase tracking-[0.2em] text-white/40">
+        <div aria-hidden="true" className="absolute inset-x-0 bottom-6 z-10 flex justify-center font-mono text-[11px] uppercase tracking-[0.2em] text-white/55">
           <span className="flex animate-pulse items-center gap-2">
             Scroll <ArrowDown className="size-3" />
           </span>
@@ -179,20 +186,20 @@ function Hero({ data }: { data: HomeData }) {
   );
 }
 
-function FlyCard({ kind, payout }: { kind: number; payout: HomePayout | undefined }) {
-  const amount = payout?.amount ?? "10";
+function FlyCard({ kind, payout }: { kind: number; payout: HomePayout }) {
+  const amount = payout.amount;
   if (kind === 0)
     return (
       <div className="rounded-2xl p-4 text-black shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)]" style={{ background: Y }}>
         <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-black/60">
           <span>Released</span>
-          <span>{payout?.ago ?? "now"}</span>
+          <span>{payout.ago}</span>
         </div>
         <p className={`mt-2 text-5xl leading-none ${FONT}`} style={{ fontVariationSettings: axes(80, 900) }}>
           +{amount}
         </p>
-        <p className="mt-1 truncate text-xs font-semibold">USDC · {payout?.campaign ?? "Bounty"}</p>
-        <p className="mt-3 font-mono text-[10px] text-black/60">tx {payout?.hash ?? "…"}</p>
+        <p className="mt-1 truncate text-xs font-semibold">USDC · {payout.campaign}</p>
+        <p className="mt-3 font-mono text-[10px] text-black/60">tx {payout.hash}</p>
       </div>
     );
   if (kind === 1)
@@ -206,18 +213,18 @@ function FlyCard({ kind, payout }: { kind: number; payout: HomePayout | undefine
           </div>
           <span className="ml-auto text-sm font-black">X</span>
         </div>
-        <p className="mt-3 line-clamp-2 text-[13px] leading-snug text-white/80">Posted for &ldquo;{payout?.campaign ?? "a bounty"}&rdquo;.</p>
+        <p className="mt-3 line-clamp-2 text-[13px] leading-snug text-white/80">Posted for &ldquo;{payout.campaign}&rdquo;.</p>
       </div>
     );
   return (
     <div className="rounded-2xl p-4 text-black shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)]" style={{ background: PAPER }}>
       <div className="flex items-center justify-between">
         <span className="rounded-full bg-black px-2 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-accent">PASS</span>
-        <span className={`text-2xl ${FONT}`} style={{ fontVariationSettings: axes(90, 800) }}>
-          6/6
-        </span>
+        <span className="truncate text-xs font-semibold">{payout.campaign}</span>
       </div>
-      <p className="mt-3 text-xs text-black/60">Reviewed by a person, recorded on chain.</p>
+      <p className="mt-3 text-xs text-black/60">
+        {PASS_THRESHOLD} of {SIGNALS.length} yes to pass. Reviewed by a person, recorded on chain.
+      </p>
     </div>
   );
 }
@@ -226,12 +233,13 @@ function FlyCard({ kind, payout }: { kind: number; payout: HomePayout | undefine
 
 const STEPS = [
   { t: "Post it on X.", d: "Pick a bounty, do the work, and post about it from your own account. Paste the link into the bounty." },
-  { t: "Machines check the boring part.", d: "A real x.com status, from the account linked to your wallet, posted while the bounty was open." },
+  { t: "Machines check the boring part.", d: "A public x.com status link, written by the X account you connected, never submitted before, and sent while the bounty is open." },
   { t: "A person reads it.", d: `A reviewer answers six yes/no questions about the post. ${PASS_THRESHOLD} yeses pass it, and the funding team gives the final approval.` },
   { t: "The decision goes on chain.", d: "The answers and the reason are recorded on Stellar before a single cent moves. Disagree? You can ask for one re-review." },
   { t: "Escrow pays you.", d: "The reward leaves the bounty’s escrow contract for your wallet. The transaction is your receipt." },
 ];
-const CHECKS = ["Real x.com status link", "Account linked to your wallet", "Posted inside the window"];
+/* What submission.ts and the X client actually check before a post is accepted. */
+const CHECKS = ["Public x.com status link", "Written by your connected X account", "Not submitted before", "Bounty open when you submit"];
 
 function Story({ data }: { data: HomeData }) {
   const reduced = useReducedMotion();
@@ -251,8 +259,9 @@ function Story({ data }: { data: HomeData }) {
   const rail = useRef<HTMLSpanElement>(null);
   const [step, setStep] = useState(0);
 
+  // The post and the receipt it ends in belong to the same bounty.
   const first = data.payouts[0];
-  const bounty = data.bounties[0]?.title ?? first?.campaign ?? "Stellar Builders";
+  const bounty = first?.campaign ?? data.bounties[0]?.title ?? "a bounty";
   const post = `Wrote up how a Soroban escrow actually releases funds, step by step, with the real transactions linked. For the “${bounty}” bounty.`;
   const reward = Number((first?.amount ?? "10").replace(/,/g, ""));
 
@@ -303,8 +312,19 @@ function Story({ data }: { data: HomeData }) {
     }
   });
 
+  // Less motion asked for: the same five steps as a plain list, with the receipt they end in. No pinned scene.
+  if (reduced) return <StillStory first={first} />;
+
   return (
     <section id="how" ref={track} aria-label="How it works" className="relative h-[560vh] scroll-mt-0 bg-canvas">
+      {/* The scene below shows one step at a time; a screen reader gets all five, in order. */}
+      <ol className="sr-only">
+        {STEPS.map((s) => (
+          <li key={s.t}>
+            {s.t} {s.d}
+          </li>
+        ))}
+      </ol>
       <div ref={sticky} data-flood="0" className="group sticky top-0 h-screen overflow-hidden text-white transition-colors duration-500 data-[flood=1]:text-black">
         <div ref={flood} className="absolute inset-0 [clip-path:circle(0)]" style={{ background: Y }} />
 
@@ -317,17 +337,17 @@ function Story({ data }: { data: HomeData }) {
               {STEPS.map((s, i) => (
                 <div
                   key={s.t}
-                  aria-hidden={i !== step}
+                  aria-hidden="true"
                   className={`absolute inset-0 transition-all duration-700 ease-[cubic-bezier(0.2,0.7,0.1,1)] ${i === step ? "translate-y-0 opacity-100" : i < step ? "-translate-y-8 opacity-0" : "translate-y-8 opacity-0"}`}
                 >
-                  <p className="font-mono text-xs uppercase tracking-[0.2em] text-white/50 transition-colors group-data-[flood=1]:text-black/55">Step {i + 1} of 5</p>
+                  <p className="font-mono text-xs uppercase tracking-[0.2em] text-white/60 transition-colors group-data-[flood=1]:text-black/65">Step {i + 1} of 5</p>
                   <p className={`mt-2 text-[clamp(5rem,12vw,10rem)] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(60, 900) }}>
                     0{i + 1}
                   </p>
                   <h2 className={`mt-4 text-balance text-[clamp(2rem,4.2vw,3.6rem)] leading-[0.95] ${FONT}`} style={{ fontVariationSettings: axes(88, 800) }}>
                     {s.t}
                   </h2>
-                  <p className="mt-4 max-w-sm text-[15px] leading-relaxed text-white/60 transition-colors group-data-[flood=1]:text-black/70">{s.d}</p>
+                  <p className="mt-4 max-w-sm text-[15px] leading-relaxed text-white/65 transition-colors group-data-[flood=1]:text-black/75">{s.d}</p>
                 </div>
               ))}
             </div>
@@ -366,11 +386,12 @@ function Story({ data }: { data: HomeData }) {
                     <span>Paid from escrow</span>
                     <span className="text-accent">● on chain</span>
                   </div>
-                  <p className={`mt-auto text-[clamp(6rem,14vh,9rem)] leading-[0.8] text-accent ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
+                  <p className={`mt-8 text-[clamp(6rem,14vh,9rem)] leading-[0.8] text-accent ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
                     +<span ref={amount}>0</span>
                   </p>
-                  <p className="mt-2 text-lg font-semibold">USDC to your wallet</p>
-                  <dl className="mt-6 space-y-2 border-t border-white/15 pt-4 text-sm">
+                  <p className="mt-2 text-lg font-semibold">USDC released to your wallet</p>
+                  <p className="mt-1 text-sm text-white/60">less the escrow&rsquo;s 0.3% protocol fee</p>
+                  <dl className="mt-auto space-y-2 border-t border-white/15 pt-4 text-sm">
                     <div className="flex justify-between gap-4">
                       <dt className="text-white/50">Bounty</dt>
                       <dd className="truncate">{first?.campaign ?? bounty}</dd>
@@ -392,7 +413,7 @@ function Story({ data }: { data: HomeData }) {
               </div>
 
               <div ref={checks} className="absolute -right-4 -top-6 w-64 rounded-2xl border border-white/10 bg-[#161616] p-4 text-white opacity-0 shadow-2xl md:-right-24">
-                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/45">Automatic checks</p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/55">Automatic checks</p>
                 <ul className="mt-3 space-y-2.5 text-sm">
                   {CHECKS.map((c, i) => (
                     <li
@@ -446,21 +467,64 @@ function Story({ data }: { data: HomeData }) {
   );
 }
 
+function StillStory({ first }: { first: HomePayout | undefined }) {
+  return (
+    <section id="how" aria-labelledby="how-title" className="bg-canvas px-6 py-28 text-white">
+      <div className="mx-auto grid max-w-6xl gap-14 md:grid-cols-[1fr_22rem] md:items-start">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-[0.2em] text-white/60">How it works</p>
+          <h2 id="how-title" className={`mt-3 text-[clamp(2.6rem,6vw,5rem)] leading-[0.9] ${FONT}`} style={{ fontVariationSettings: axes(80, 850) }}>
+            The life of one post.
+          </h2>
+          <ol className="mt-10 grid gap-8">
+            {STEPS.map((s, i) => (
+              <li key={s.t} className="grid grid-cols-[4.5rem_1fr] gap-5 border-t border-white/10 pt-6">
+                <span className={`text-[3.5rem] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(60, 900) }}>
+                  0{i + 1}
+                </span>
+                <div>
+                  <h3 className={`text-[clamp(1.5rem,2.6vw,2rem)] leading-[0.95] ${FONT}`} style={{ fontVariationSettings: axes(88, 800) }}>
+                    {s.t}
+                  </h3>
+                  <p className="mt-2 max-w-md text-[15px] leading-relaxed text-white/65">{s.d}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+        {first ? (
+          <a href={first.href} target="_blank" rel="noreferrer" className="block rounded-[28px] bg-accent p-6 text-black">
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-black/65">Released from escrow · {first.ago}</p>
+            <p className={`mt-6 text-[6rem] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
+              +{first.amount}
+            </p>
+            <p className="mt-2 font-semibold">USDC · {first.campaign}</p>
+            <p className="mt-6 border-t border-black/20 pt-4 font-mono text-[12px]">
+              tx {first.hash} <span aria-hidden="true">↗</span>
+            </p>
+          </a>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 /* ───────────────────────────── 3. the ledger: yellow, loud, real ───────────────────────────── */
 
-function Receipt({ p }: { p: HomePayout }) {
+/** One release as a black receipt. `copy` marks the marquee's repeats: hidden from screen readers and out of the tab order. */
+function Receipt({ p, copy = false }: { p: HomePayout; copy?: boolean }) {
   return (
-    <a href={p.href} target="_blank" rel="noreferrer" className="group flex shrink-0 items-center gap-4 rounded-2xl bg-black px-5 py-4 text-white transition-transform hover:-translate-y-1">
+    <a href={p.href} target="_blank" rel="noreferrer" tabIndex={copy ? -1 : undefined} className="group flex shrink-0 items-center gap-4 rounded-2xl bg-black px-5 py-4 text-white transition-transform hover:-translate-y-1">
       <span className={`text-4xl leading-none text-accent ${FONT}`} style={{ fontVariationSettings: axes(75, 900) }}>
         +{p.amount}
       </span>
       <span className="leading-tight">
         <span className="block max-w-[16rem] truncate text-sm font-semibold">{p.campaign}</span>
-        <span className="block font-mono text-[11px] text-white/50">
+        <span className="block font-mono text-[11px] text-white/60">
           {p.hash} · {p.ago}
         </span>
       </span>
-      <ArrowUpRight className="size-4 text-white/40 transition-colors group-hover:text-white" />
+      <ArrowUpRight aria-hidden="true" className="size-4 text-white/50 transition-colors group-hover:text-white" />
     </a>
   );
 }
@@ -469,9 +533,9 @@ function Ledger({ data, totals }: { data: HomeData; totals: NonNullable<HomeData
   const [ref, seen] = useSeen<HTMLDivElement>();
   const rows = data.payouts.length > 0 ? [data.payouts, [...data.payouts].reverse()] : [];
   return (
-    <section id="ledger" aria-label="Paid so far" className="relative overflow-hidden pb-28 pt-16 text-black" style={{ background: Y }}>
+    <section id="ledger" aria-label="Paid so far" className="relative overflow-hidden bg-accent pb-28 pt-16 text-black">
       <div ref={ref} className="mx-auto max-w-6xl px-6">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/60">Paid so far · every one is a transaction</p>
+        <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/65">Released from escrow so far · every one is a transaction</p>
         <p className={`mt-2 flex flex-wrap items-end gap-x-4 text-[clamp(7rem,27vw,24rem)] leading-[0.86] ${FONT}`} style={{ fontVariationSettings: axes(62, 900) }}>
           <Odometer value={totals.paid} seen={seen} />
           <span className="mb-[0.12em] text-[0.18em] leading-none" style={{ fontVariationSettings: axes(100, 800) }}>
@@ -487,7 +551,7 @@ function Ledger({ data, totals }: { data: HomeData; totals: NonNullable<HomeData
             ] as const
           ).map(([n, l]) => (
             <div key={l} className="flex flex-col-reverse">
-              <dt className="mt-1 text-sm text-black/65">{l}</dt>
+              <dt className="mt-1 text-sm text-black/70">{l}</dt>
               <dd className={`text-5xl leading-none ${FONT}`} style={{ fontVariationSettings: axes(80, 900) }}>
                 {n}
               </dd>
@@ -497,16 +561,23 @@ function Ledger({ data, totals }: { data: HomeData; totals: NonNullable<HomeData
       </div>
       {rows.length > 0 ? (
         <div className="mt-20 -rotate-[3deg] space-y-4 [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]">
+          {/* One real link per payout: the first run of the top row. Everything else repeats it for the loop. Focus stops the belt. */}
           {rows.map((row, r) => (
             <div
               key={r}
-              aria-hidden={r === 1 || undefined}
-              className="flex w-max animate-marquee gap-4 hover:[animation-play-state:paused]"
+              className="flex w-max animate-marquee gap-4 hover:[animation-play-state:paused] focus-within:[animation-play-state:paused]"
               style={{ animationDirection: r === 1 ? "reverse" : "normal", animationDuration: "55s" }}
             >
-              {[...row, ...row].map((p, i) => (
-                <Receipt key={i} p={p} />
-              ))}
+              <div aria-hidden={r === 1 || undefined} className="flex gap-4">
+                {row.map((p, i) => (
+                  <Receipt key={i} p={p} copy={r === 1} />
+                ))}
+              </div>
+              <div aria-hidden="true" className="flex gap-4">
+                {row.map((p, i) => (
+                  <Receipt key={i} p={p} copy />
+                ))}
+              </div>
             </div>
           ))}
         </div>
@@ -530,6 +601,29 @@ function OpenRun({ data }: { data: HomeData }) {
   const bar = useRef<HTMLSpanElement>(null);
   const open = list.filter((b) => b.open).length;
 
+  // Tabbing to a card the pinned rail has not slid in yet: scroll the page to where the rail shows it.
+  // A frame later, because the browser's own scroll-into-view runs after the focus event.
+  function onFocus(e: React.FocusEvent<HTMLDivElement>) {
+    const card = e.target instanceof HTMLElement ? e.target.closest("a") : null;
+    if (!pin || !card) return;
+    requestAnimationFrame(() => {
+      const el = rail.current;
+      const sec = track.current;
+      if (!el || !sec || !el.contains(card)) return;
+      const box = card.getBoundingClientRect();
+      if (box.left >= 0 && box.right <= window.innerWidth) return;
+      const dist = Math.max(0, el.scrollWidth - window.innerWidth);
+      if (dist === 0) return;
+      // Where the card sits on the untranslated rail, and the slide that centres it.
+      const cardLeft = box.left - el.getBoundingClientRect().left;
+      const want = clamp((cardLeft - (window.innerWidth - box.width) / 2) / dist);
+      // Undo ease(): the rail moves by ease(p) of the distance.
+      const p = 1 - Math.cbrt(1 - want);
+      const top = sec.getBoundingClientRect().top + window.scrollY;
+      window.scrollTo({ top: top + p * (sec.offsetHeight - window.innerHeight), behavior: "auto" });
+    });
+  }
+
   useTrack(track, (p) => {
     const el = rail.current;
     if (!el) return;
@@ -544,12 +638,12 @@ function OpenRun({ data }: { data: HomeData }) {
 
   return (
     <section id="open" ref={track} aria-labelledby="open-title" className="relative bg-canvas text-white" style={{ height: pin ? `${100 + list.length * 45}vh` : undefined }}>
-      <div className={pin ? "sticky top-0 flex h-screen flex-col justify-center overflow-hidden pt-16" : "py-24"}>
+      <div className={pin ? "sticky top-0 flex h-screen flex-col justify-center overflow-clip pt-16" : "py-24"}>
         <div className="mx-auto mb-8 flex w-full max-w-6xl flex-wrap items-end justify-between gap-6 px-6">
           <h2 id="open-title" className={`text-[clamp(3.2rem,8vw,7rem)] leading-[0.85] ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
             Open now<span className="text-accent">.</span>
           </h2>
-          <div className="mb-2 flex max-w-[18rem] flex-col items-start gap-3 text-sm text-white/55 md:items-end md:text-right">
+          <div className="mb-2 flex max-w-[18rem] flex-col items-start gap-3 text-sm text-white/60 md:items-end md:text-right">
             <p>
               {open} open, {list.length - open} ended. Each card is a funded escrow; the slots are the posts it can still pay for.
             </p>
@@ -563,10 +657,11 @@ function OpenRun({ data }: { data: HomeData }) {
         ) : (
           <div
             ref={rail}
+            onFocus={onFocus}
             className={`flex gap-6 px-6 md:pl-[max(1.5rem,calc((100vw-72rem)/2+1.5rem))] ${pin ? "will-change-transform md:pr-[20vw]" : "snap-x snap-mandatory overflow-x-auto pb-4"}`}
           >
             {list.map((b) => (
-              <BountyCard key={b.slug} b={b} now={now} className="h-[min(560px,68vh)] min-h-[440px] w-[min(420px,82vw)] shrink-0 snap-center" />
+              <BountyCard key={b.slug} b={b} now={now} className="w-[min(420px,82vw)] shrink-0 snap-center md:h-[min(560px,68vh)] md:min-h-[440px]" />
             ))}
           </div>
         )}
@@ -584,13 +679,13 @@ function OpenRun({ data }: { data: HomeData }) {
 
 function CheckIt() {
   return (
-    <section id="verify" aria-labelledby="verify-title" className="scroll-mt-0 overflow-hidden pb-16 pt-24 text-black" style={{ background: PAPER }}>
+    <section id="verify" aria-labelledby="verify-title" className="scroll-mt-0 overflow-hidden bg-paper pb-16 pt-24 text-black">
       <div className="mx-auto max-w-6xl px-6">
-        <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/50">Don&rsquo;t trust us</p>
+        <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/60">Don&rsquo;t trust us</p>
         <h2 id="verify-title" className={`mt-3 max-w-4xl text-[clamp(2.6rem,6vw,5.5rem)] leading-[0.9] ${FONT}`} style={{ fontVariationSettings: axes(82, 850) }}>
           Try the rubric. Then check the proof.
         </h2>
-        <p className="mt-5 max-w-xl text-black/65">
+        <p className="mt-5 max-w-xl text-black/70">
           Both run the real thing: the same pass rule the reviewer uses, and a live SHA-256 over a decision that is actually on Stellar testnet.
         </p>
         <div className="mt-12 grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
@@ -598,14 +693,14 @@ function CheckIt() {
             <h3 className={`text-2xl ${FONT}`} style={{ fontVariationSettings: axes(90, 800) }}>
               Six questions, {PASS_THRESHOLD} to pass
             </h3>
-            <p className="mb-6 mt-2 max-w-md text-[15px] text-black/60">Flip any answer. A person makes this call for every post, and the outcome and the reason go on chain.</p>
+            <p className="mb-6 mt-2 max-w-md text-[15px] text-black/65">Flip any answer. A person makes this call for every post, and the outcome and the reason go on chain.</p>
             <RubricPlayground />
           </div>
-          <div className="rounded-[30px] bg-[#111] p-6 text-white md:p-8">
+          <div data-surface="dark" className="rounded-[30px] bg-[#111] p-6 text-white md:p-8">
             <h3 className={`text-2xl ${FONT}`} style={{ fontVariationSettings: axes(90, 800) }}>
               Don&rsquo;t trust us. <span className="text-accent">Check.</span>
             </h3>
-            <p className="mb-6 mt-2 max-w-md text-[15px] text-white/55">
+            <p className="mb-6 mt-2 max-w-md text-[15px] text-white/60">
               A real decision record from the testnet run. Your browser hashes it; compare with the memo on the transaction.
             </p>
             <VerifyPlayground />
@@ -617,7 +712,7 @@ function CheckIt() {
           {[0, 1].map((copy) => (
             <ul key={copy} aria-hidden={copy === 1 || undefined} className="flex gap-3">
               {EVIDENCE_TXS.map((tx) => (
-                <li key={tx.label} className="flex items-center gap-2.5 whitespace-nowrap rounded-full bg-black px-4 py-2 font-mono text-[12px] text-white/60">
+                <li key={tx.label} className="flex items-center gap-2.5 whitespace-nowrap rounded-full bg-black px-4 py-2 font-mono text-[12px] text-white/65">
                   <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
                   <b className="font-medium uppercase tracking-[0.08em] text-white">{tx.label}</b>
                   <span title={tx.hash}>{truncateMiddle(tx.hash, 10, 6)}</span>
@@ -633,60 +728,13 @@ function CheckIt() {
 
 /* ───────────────────────────── 6. custody: who can move the money ───────────────────────────── */
 
-const ROLES: ReadonlyArray<{ name: string; can: string[]; cannot: string[]; mark: "funder" | "proofwork" | "resolver" }> = [
-  { name: "Funder", mark: "funder", can: ["Funds the escrow", "Signs every release, the final approval", "Gets the remainder back at the deadline"], cannot: [] },
-  { name: "Proofwork keys", mark: "proofwork", can: ["Add a milestone per approved submission", "Write decision records to Stellar"], cannot: ["Cannot release or move funds"] },
-  { name: "Neutral resolver", mark: "resolver", can: ["Returns what's left to the funder"], cannot: ["Cannot pay anyone else"] },
-];
-
-const FACTS: ReadonlyArray<{ value: number; label: string; accent?: boolean }> = [
-  { value: SIGNALS.length, label: "signals scored per submission" },
-  { value: PASS_THRESHOLD, label: "needed to pass" },
-  { value: 1, label: "re-review per rejection, while the campaign is open" },
-  { value: 0, label: "funds held by Proofwork", accent: true },
-];
-
-function RoleCard({ r, i }: { r: (typeof ROLES)[number]; i: number }) {
-  const [ref, seen] = useSeen<HTMLDivElement>();
-  const funder = r.mark === "funder";
-  return (
-    <div
-      ref={ref}
-      className={`flex min-h-[300px] flex-col rounded-[28px] p-7 transition-all duration-700 ease-[cubic-bezier(0.2,0.7,0.1,1)] ${funder ? "text-black" : "border border-white/10 bg-[#111] text-white"} ${seen ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"}`}
-      style={{ background: funder ? Y : undefined, transitionDelay: `${i * 90}ms` }}
-    >
-      <span className={`grid size-12 place-items-center rounded-2xl ${funder ? "bg-black text-accent" : "bg-white/[0.06]"}`}>
-        {r.mark === "proofwork" ? <LogoMark className="size-[22px]" /> : r.mark === "funder" ? <span className={`text-xl ${FONT}`} style={{ fontVariationSettings: axes(80, 900) }}>$</span> : <span className={`text-xl ${FONT}`} style={{ fontVariationSettings: axes(80, 900) }}>⚖</span>}
-      </span>
-      <h3 className={`mt-6 text-[1.7rem] leading-none ${FONT}`} style={{ fontVariationSettings: axes(90, 800) }}>
-        {r.name}
-      </h3>
-      <ul className="mt-5 grid gap-2.5">
-        {r.can.map((t) => (
-          <li key={t} className={`flex items-start gap-2.5 text-[15px] leading-snug ${funder ? "text-black/80" : "text-white/75"}`}>
-            <Check className="mt-0.5 size-4 shrink-0" strokeWidth={3} />
-            {t}
-          </li>
-        ))}
-        {r.cannot.map((t) => (
-          <li key={t} className="flex items-start gap-2.5 text-[15px] leading-snug text-fail">
-            <X className="mt-0.5 size-4 shrink-0" strokeWidth={3} />
-            {t}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 function Custody() {
-  const [ref, seen] = useSeen<HTMLDListElement>();
   return (
     <section id="custody" aria-labelledby="custody-title" className="bg-canvas px-6 py-28 text-white">
       <div className="mx-auto max-w-6xl">
         <div className="flex flex-wrap items-end justify-between gap-8">
           <div>
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-white/50">Custody</p>
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-white/60">Custody</p>
             <h2 id="custody-title" className={`mt-3 text-[clamp(2.8rem,7vw,6.5rem)] leading-[0.88] ${FONT}`} style={{ fontVariationSettings: axes(76, 900) }}>
               Who can move the money?
               <br />
@@ -694,30 +742,20 @@ function Custody() {
             </h2>
           </div>
           <div className="max-w-sm">
-            <p className="text-white/60">
+            <p className="text-white/65">
               Roles are fixed on the escrow contract when it is deployed. Proofwork&rsquo;s keys can add and approve milestones. They cannot send funds
               anywhere.
             </p>
-            <Link href="/custody" className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold underline decoration-white/30 underline-offset-4 hover:decoration-white">
-              Custody and fees <ArrowRight className="size-3.5" />
+            <Link href="/custody" className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-sm text-sm font-semibold underline decoration-white/30 underline-offset-4 hover:decoration-white">
+              Custody and fees <ArrowRight className="size-3.5" aria-hidden="true" />
             </Link>
           </div>
         </div>
-        <div className="mt-14 grid gap-4 md:grid-cols-3">
-          {ROLES.map((r, i) => (
-            <RoleCard key={r.name} r={r} i={i} />
-          ))}
-        </div>
-        <dl ref={ref} className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-          {FACTS.map((f) => (
-            <div key={f.label} className="flex flex-col-reverse justify-end rounded-[28px] border border-white/10 p-6">
-              <dt className="mt-3 text-sm text-white/55">{f.label}</dt>
-              <dd className={`text-[clamp(4rem,8vw,6rem)] leading-[0.8] ${FONT} ${f.accent ? "text-accent" : ""}`} style={{ fontVariationSettings: axes(62, 900) }}>
-                <Odometer value={String(f.value)} seen={seen} />
-              </dd>
-            </div>
-          ))}
-        </dl>
+        <MoneyFlow className="mt-14" />
+        <p className="mt-10 max-w-3xl text-[clamp(1.15rem,1.8vw,1.4rem)] leading-snug text-white/75">
+          {SIGNALS.length} questions per post, {PASS_THRESHOLD} yeses to pass, one re-review per rejection while the bounty is open, and{" "}
+          <span className="font-semibold text-white">no funds held by Proofwork</span>, ever.
+        </p>
       </div>
     </section>
   );

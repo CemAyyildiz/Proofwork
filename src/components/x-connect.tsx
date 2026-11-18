@@ -62,17 +62,24 @@ export function XConnectStep({
   }
   return (
     <StepRow state="current" title="Connect your X account">
-      <StepNote>
-        Sign in with X to tie this wallet to the account you post from. You can submit once it is connected, and only a post written by that
-        account is accepted. X will ask you to let Proofwork read your posts and profile; Proofwork reads only the account&apos;s ID and
-        keeps nothing else. One X account per wallet, and it can&apos;t be changed later.
-      </StepNote>
-      <a
-        href={`/api/x/connect?slug=${encodeURIComponent(campaignSlug)}`}
-        className="mt-3.5 inline-flex h-11 items-center rounded-full bg-white px-5 text-sm font-semibold text-black transition-transform hover:scale-[1.03] active:scale-[0.97]"
-      >
-        Connect X
-      </a>
+      <StepNote>You can submit once it is connected, and only a post written by that account is accepted.</StepNote>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+        <a
+          href={`/api/x/connect?slug=${encodeURIComponent(campaignSlug)}`}
+          className="inline-flex h-11 items-center rounded-full bg-white px-5 text-sm font-semibold text-black transition-transform hover:scale-[1.03] active:scale-[0.97]"
+        >
+          Connect X
+        </a>
+        <details className="group/xp open:basis-full">
+          <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-sm text-[13px] font-semibold text-white/70 underline decoration-white/25 underline-offset-4 hover:text-white [&::-webkit-details-marker]:hidden">
+            What X will ask for
+          </summary>
+          <p className="mb-1 rounded-2xl bg-white/[0.06] p-4 text-[13px] leading-relaxed text-white/65">
+            Sign in with X ties this wallet to the account you post from. X will ask you to let Proofwork read your posts and profile; Proofwork
+            reads only the account&apos;s ID and keeps nothing else. One X account per wallet, and it can&apos;t be changed later.
+          </p>
+        </details>
+      </div>
       {message}
     </StepRow>
   );

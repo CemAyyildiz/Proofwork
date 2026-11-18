@@ -78,12 +78,12 @@ export function RouteError({ error, retry }: { error: Error & { digest?: string 
   return (
     <div className="mx-auto max-w-[620px] pb-24 pt-10">
       <div className="rounded-[30px] border border-white/10 bg-[#111] p-8 text-center sm:p-10">
-        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/45">Something went wrong</p>
+        <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/60">Something went wrong</p>
         <p className="mt-4 font-display text-[clamp(2.2rem,6vw,3.4rem)] leading-[0.92]" style={{ fontVariationSettings: '"wdth" 82, "wght" 850' }}>
           This page didn&apos;t load.
         </p>
         <p className="mt-4 text-sm text-white/60">Usually a slow network or a Stellar hiccup. Try again in a moment.</p>
-        {error.digest ? <p className="mt-3 font-mono text-[12px] text-white/40">ref {error.digest}</p> : null}
+        {error.digest ? <p className="mt-3 font-mono text-[12px] text-white/55">ref {error.digest}</p> : null}
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Button onClick={() => retry()}>Try again</Button>
           <Link

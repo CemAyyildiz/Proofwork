@@ -304,7 +304,7 @@ function Preview({ draft, days, closesAt }: { draft: Draft; days: number; closes
           </span>
         </div>
       </div>
-      <p className="text-[12.5px] leading-relaxed text-white/60">Rewards are paid net of the 0.3% protocol fee. Contributors see this once the budget is in escrow.</p>
+      <p className="text-[12.5px] leading-relaxed text-white/60">Each contributor receives the reward less the 0.3% protocol fee. Contributors see this once the budget is in escrow.</p>
     </section>
   );
 }
