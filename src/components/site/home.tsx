@@ -144,8 +144,9 @@ function Hero({ data }: { data: HomeData }) {
             <span className="size-1.5 animate-ping rounded-full text-accent" style={{ background: Y }} />
             Bounties on {data.network}
           </div>
-          {/* On a phone the cards fly right through the headline: a dark band keeps a yellow receipt from sitting under "GET PAID.". */}
-          <h1 className="relative isolate w-full before:pointer-events-none before:absolute before:-inset-x-4 before:-inset-y-10 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,rgba(7,7,7,0.9)_20%,rgba(7,7,7,0.9)_80%,transparent)] md:before:hidden">
+          {/* The cards fly right through the headline: a dark band keeps a yellow or paper receipt from sitting under the yellow "GET PAID.".
+              On a phone it covers the whole headline; wider, only the last line, faded at the sides so it reads as depth, not a stripe. */}
+          <h1 className="relative isolate w-full before:pointer-events-none before:absolute before:-inset-x-4 before:-inset-y-10 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,rgba(7,7,7,0.9)_20%,rgba(7,7,7,0.9)_80%,transparent)] md:before:-inset-x-[8vw] md:before:top-[58%] md:before:-bottom-12 md:before:bg-[linear-gradient(to_bottom,transparent,rgba(7,7,7,0.94)_22%,rgba(7,7,7,0.94)_78%,transparent)] md:before:[mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
             {LINES.map((l, i) => (
               <span key={l} className="block w-full overflow-x-visible overflow-y-clip py-[0.02em]">
                 <span
@@ -282,17 +283,25 @@ function Story({ data }: { data: HomeData }) {
     if (card.current) card.current.style.transform = reduced ? "" : `translate3d(0, ${(1 - enter) * 70}vh, 0) rotate(${(1 - enter) * -9}deg)`;
     if (typed.current) typed.current.textContent = post.slice(0, Math.round(seg(p, 0.03, 0.17) * post.length));
 
-    const ck = seg(p, 0.2, 0.25) * (1 - seg(p, 0.74, 0.79));
+    // Step 4 resolves the scene: just before the stamp lands, the checks and the reviewer's card fade out,
+    // then settle back dimmed and tucked behind the post, so the PASS stamp is the one thing in front.
+    const behind = p >= 0.6;
+    const tuck = ease(seg(p, 0.6, 0.63));
+    const dim = behind ? 0.4 * tuck : 1 - seg(p, 0.57, 0.6);
+
+    const ck = seg(p, 0.2, 0.25) * (1 - seg(p, 0.74, 0.79)) * dim;
     if (checks.current) {
       checks.current.style.opacity = ck.toFixed(3);
-      checks.current.style.transform = `translate3d(${(1 - ease(seg(p, 0.2, 0.25))) * 60}px, 0, 0)`;
+      checks.current.style.zIndex = behind ? "-1" : "";
+      checks.current.style.transform = `translate3d(${(1 - ease(seg(p, 0.2, 0.25))) * 60 + tuck * 14}px, ${tuck * -26}px, 0) rotate(${tuck * 4}deg)`;
     }
     checkRows.current.forEach((row, i) => row?.setAttribute("data-on", p > 0.24 + i * 0.045 ? "1" : "0"));
 
-    const rb = seg(p, 0.4, 0.45) * (1 - seg(p, 0.74, 0.79));
+    const rb = seg(p, 0.4, 0.45) * (1 - seg(p, 0.74, 0.79)) * dim;
     if (rubric.current) {
       rubric.current.style.opacity = rb.toFixed(3);
-      rubric.current.style.transform = `translate3d(${(1 - ease(seg(p, 0.4, 0.45))) * -60}px, 0, 0)`;
+      rubric.current.style.zIndex = behind ? "-1" : "";
+      rubric.current.style.transform = `translate3d(${(1 - ease(seg(p, 0.4, 0.45))) * -60 - tuck * 14}px, ${tuck * 26}px, 0) rotate(${tuck * -4}deg)`;
     }
     let yes = 0;
     signals.current.forEach((row, i) => {

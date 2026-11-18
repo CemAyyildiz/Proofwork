@@ -232,7 +232,7 @@ function Hero({
             {funded || stage === "ended" ? STATUS[stage] : STATUS.unfunded}
           </span>
           {team ? (
-            <span className="hidden sm:inline">
+            <span>
               by <span className="font-semibold text-white">{team}</span>
             </span>
           ) : null}

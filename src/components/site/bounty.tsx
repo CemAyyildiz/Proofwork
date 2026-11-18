@@ -15,19 +15,17 @@ const BELOW_NAV = 96;
 
 /**
  * The ticket column's sticky wrapper. A ticket that fits under the nav sticks
- * there; a taller one sticks by its bottom edge instead, so the submit form at
- * its foot can always be scrolled into view.
+ * there, never higher. One too tall for the window does not stick at all: it
+ * scrolls with the page, so no part of it is held under the nav and the submit
+ * form at its foot can always be scrolled into view.
  */
 export function StickyTicket({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [top, setTop] = useState(BELOW_NAV);
+  const [fits, setFits] = useState(true);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const fit = () => {
-      const bottomEdge = window.innerHeight - el.offsetHeight - 24;
-      setTop(bottomEdge >= BELOW_NAV ? BELOW_NAV : bottomEdge);
-    };
+    const fit = () => setFits(window.innerHeight - el.offsetHeight - 24 >= BELOW_NAV);
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
@@ -38,7 +36,7 @@ export function StickyTicket({ children }: { children: ReactNode }) {
     };
   }, []);
   return (
-    <div ref={ref} className="lg:sticky" style={{ top }}>
+    <div ref={ref} className={fits ? "lg:sticky" : undefined} style={{ top: BELOW_NAV }}>
       {children}
     </div>
   );
