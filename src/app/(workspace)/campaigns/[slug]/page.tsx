@@ -7,17 +7,18 @@ import { EscrowBalance, EscrowBalanceLoading } from "@/components/escrow-balance
 import { FundingReadinessPanel, type LimitItem } from "@/components/funding-readiness";
 import { cx } from "@/components/ui/cx";
 import { HashChip } from "@/components/ui/hash-chip";
-import { dateLine, describeStep, OWNER_LABEL, StagePill } from "@/components/workspace/campaign-phase";
+import { dateLine, describeStep, foundersStep, plural, StagePill, stepOwner } from "@/components/workspace/campaign-phase";
 import { leftOf, slotParts } from "@/components/workspace/campaign-list";
 import { ClosePanel } from "@/components/workspace/close-panel";
 import { LimitMeter } from "@/components/workspace/limit-meter";
 import { ax, figure, figureAxes, isZero, Label, Pieces, RiseWords, SlotLegend, SlotMeter } from "@/components/workspace/kit";
 import { ActivityLog, confirmedTx, Lifecycle, lifecycleNodes } from "@/components/workspace/lifecycle";
 import { CountUp } from "@/components/workspace/motion-bits";
-import { BoardSelection, SelectForStep, SubmissionsBoard, type BoardRow } from "@/components/workspace/submissions-board";
-import { funderLimits } from "@/config/env";
+import { BOARD_HEADING_ID, BoardSelection, SelectForStep, SubmissionsBoard, type BoardRow, type PayLock } from "@/components/workspace/submissions-board";
+import { funderLimits, sealedDualReviewEnabled } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import type { Campaign, EscrowOp } from "@/db/schema";
+import { fromStroops, toStroops } from "@/escrow/amount";
 import { campaignStage, closeBlockers, countSubmissions, deadlinePassed, nextStep, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
 import { currentUser } from "@/lib/current-user";
 import { formatDateShort, formatRelative, formatUsdc } from "@/lib/format";
@@ -75,8 +76,22 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
   const canAbandon = escrowStage === "deployed" && !fundSent;
   const open = stage === "open" || stage === "reviewing_and_paying" || stage === "ready_to_close";
 
-  const meter = slotParts(c, counts);
+  const meter = slotParts(c, counts, now);
   const toPay = counts.readyToPay + counts.awaitingSignature;
+  // A founder-sealed campaign's rewards are approved and released only by its release signer (the payouts route's rule); anyone else sees them read-only.
+  const payLock: PayLock | null =
+    c.founderSealedReview && (c.releaseSignerPubkey === null || c.releaseSignerPubkey !== user.pubkey)
+      ? { founder: c.releaseSignerPubkey, sealedHref: sealedDualReviewEnabled() ? "/review/sealed" : null }
+      : null;
+  const escrowShape = { budget: c.budget, reward: c.rewardAmount };
+  // What stands between the funder and the deploy or fund button below, for the Next step panel.
+  const escrowFixes =
+    walletStep === null
+      ? null
+      : {
+          count: (overLimit ? Math.max(1, overLimit.caps.length) : 0) + (readiness?.status === "not-ready" && !fundSent ? readiness.missing.length : 0),
+          blocked: overLimit !== null || (readiness !== null && readiness.status !== "ready" && !fundSent),
+        };
 
   return (
     <div className="space-y-10">
@@ -115,8 +130,8 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
       </MoneyHero>
 
       {/* The Next step panel can filter and tick the board below it, so both share one selection. */}
-      <BoardSelection rows={rows} closed={c.closedAt !== null}>
-      <NextStepStrip campaign={c} step={step} viewer={user.pubkey} reviewer={user.roles.has("reviewer")} />
+      <BoardSelection rows={rows} closed={c.closedAt !== null} escrow={escrowShape} payLock={payLock}>
+      <NextStepStrip campaign={c} step={step} viewer={user.pubkey} reviewer={user.roles.has("reviewer")} payLock={payLock} escrowFixes={escrowFixes} />
 
       <Lifecycle nodes={lifecycleNodes(c, stage, ops, now)} />
 
@@ -124,7 +139,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
         <div className="min-w-0 space-y-12">
           {/* Once funded, the contract and its balance sit with the money above and nothing here is left to do. */}
           {c.fundedAt ? null : (
-          <Section title="Escrow">
+          <Section title="Escrow" headingId="escrow-heading">
             <div className="space-y-5 rounded-[28px] border border-white/[0.07] bg-[#0d0d0d] p-5 md:p-7">
               {c.escrowContractId ? (
                 <p className="flex flex-wrap items-center gap-2 text-sm text-white/60">
@@ -173,6 +188,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
           {c.fundedAt ? (
             <Section
               title="Submissions and payouts"
+              headingId={BOARD_HEADING_ID}
               aside={
                 rows.some((r) => r.decisionId) ? (
                   <a
@@ -184,12 +200,13 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
                 ) : null
               }
             >
-              <SubmissionsBoard campaignId={c.id} funderPubkey={c.funderPubkey} rows={rows} counts={counts} closed={c.closedAt !== null} />
+              <SubmissionsBoard campaignId={c.id} funderPubkey={c.funderPubkey} rows={rows} counts={counts} closed={c.closedAt !== null} escrow={escrowShape} payLock={payLock} />
             </Section>
           ) : null}
 
           {/* A funded campaign must always be closable: the panel renders without submissions too. */}
           {open ? (
+            <div id="close" className="scroll-mt-24 xl:scroll-mt-10">
             <ClosePanel
               campaignId={c.id}
               funderPubkey={c.funderPubkey}
@@ -198,6 +215,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
               ended={deadlinePassed(c, now)}
               reviewer={user.roles.has("reviewer")}
             />
+            </div>
           ) : null}
 
           {stage === "closed_awaiting_return" || stage === "settled" ? <MoneyStory campaign={c} ops={ops} rows={rows} paidAmount={counts.paidAmount} /> : null}
@@ -264,14 +282,29 @@ function capsOf(details: Record<string, unknown> | undefined): Cap[] {
 
 /**
  * A draft that does not fit under the funder's limits, as checklist items:
- * one per limit it breaks, said in the service's own words, each with a meter
- * that runs past the cap. Amounts go to the meter as decimal strings.
+ * one per limit it breaks, said in plain words from the refusal's figures,
+ * each with a meter that runs past the cap. The service's exact refusal stays
+ * one click away, folded. Amounts go to the meter as decimal strings.
  */
 function limitItems(message: string, caps: Cap[], budget: string): LimitItem[] {
   const parts = message.split("; ");
   const said = (prefix: string) => parts.find((p) => p.startsWith(prefix)) ?? (parts.length === 1 ? message : null);
-  const sentence = (part: string | null) =>
-    part ? <p className="text-white/75">{`This campaign can't be deployed while a limit is reached: ${part}. Deploy stays off until it fits.`}</p> : null;
+  const exact = (part: string | null) =>
+    part ? (
+      <details className="group text-[12.5px] text-white/60">
+        <summary className="inline-flex min-h-8 cursor-pointer list-none items-center gap-1.5 font-medium hover:text-text [&::-webkit-details-marker]:hidden">
+          The refusal in full
+          <span aria-hidden="true" className="text-[10px] transition-transform duration-200 group-open:rotate-180">
+            ▾
+          </span>
+        </summary>
+        <p className="mt-1 font-mono text-[11.5px] leading-relaxed [overflow-wrap:anywhere]">{`This campaign can't be deployed while a limit is reached: ${part}.`}</p>
+      </details>
+    ) : null;
+  const left = (k: Cap) => {
+    const room = toStroops(k.limit) - toStroops(k.used);
+    return fromStroops(room > 0n ? room : 0n);
+  };
   const items = caps.map((k): LimitItem =>
     k.cap === "open_campaigns"
       ? {
@@ -279,10 +312,11 @@ function limitItems(message: string, caps: Cap[], budget: string): LimitItem[] {
           title: `Open campaigns: ${k.used} of ${k.limit} in use`,
           body: (
             <div className="space-y-3">
-              {sentence(said("open-campaign"))}
+              <p className="text-white/75">{`This wallet already runs ${k.used} of the ${k.limit} open campaigns it may have at once, so deploying this one would make one too many. Close a campaign first; Deploy stays off until this one fits.`}</p>
               <dl>
-                <LimitMeter label="Open campaigns" value={`${k.used} of ${k.limit} in use`} used={Number(k.used)} max={Number(k.limit)} adding={1} over note={parts.length > 1 ? "Close one first." : undefined} />
+                <LimitMeter label="Open campaigns" value={`${k.used} of ${k.limit} in use, plus this one`} used={Number(k.used)} max={Number(k.limit)} adding={1} over />
               </dl>
+              {exact(said("open-campaign"))}
             </div>
           ),
         }
@@ -291,7 +325,7 @@ function limitItems(message: string, caps: Cap[], budget: string): LimitItem[] {
           title: `Open budget: no room for ${formatUsdc(budget)}`,
           body: (
             <div className="space-y-3">
-              {sentence(said("open-budget"))}
+              <p className="text-white/75">{`Open campaigns already hold ${formatUsdc(k.used)} of this wallet's ${formatUsdc(k.limit)} open budget, which leaves ${formatUsdc(left(k))}: not enough for this campaign's ${formatUsdc(budget)}. Close a campaign first; Deploy stays off until this one fits.`}</p>
               <dl>
                 <LimitMeter
                   label="Open budget"
@@ -302,19 +336,39 @@ function limitItems(message: string, caps: Cap[], budget: string): LimitItem[] {
                   over
                 />
               </dl>
+              {exact(said("open-budget"))}
             </div>
           ),
         },
   );
   // A refusal whose details carry no caps is still said, as one item.
-  return items.length > 0 ? items : [{ key: "limit", title: "A funder limit is reached", body: sentence(message) }];
+  return items.length > 0
+    ? items
+    : [
+        {
+          key: "limit",
+          title: "A funder limit is reached",
+          body: (
+            <div className="space-y-3">
+              <p className="text-white/75">This wallet is at one of its funder limits, so this campaign can&apos;t be deployed yet. Close a campaign first; Deploy stays off until this one fits.</p>
+              {exact(message)}
+            </div>
+          ),
+        },
+      ];
 }
 
-function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+/** A page section. `headingId` lets a control elsewhere on the page scroll to the heading and focus it. */
+function Section({ title, headingId, aside, children }: { title: string; headingId?: string; aside?: ReactNode; children: ReactNode }) {
   return (
-    <section className="space-y-4">
+    <section className="space-y-4" aria-labelledby={headingId}>
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 className="font-display text-[clamp(1.75rem,3vw,2.4rem)] leading-none" style={{ fontVariationSettings: ax(85, 830) }}>
+        <h2
+          id={headingId}
+          tabIndex={headingId ? -1 : undefined}
+          className="scroll-mt-24 font-display text-[clamp(1.75rem,3vw,2.4rem)] leading-none outline-none xl:scroll-mt-10"
+          style={{ fontVariationSettings: ax(85, 830) }}
+        >
           {title}
         </h2>
         {aside}
@@ -344,7 +398,7 @@ function MoneyHero({ campaign: c, counts, meter, toPay, children }: { campaign: 
   const small = "block font-display text-[clamp(2.5rem,4.6vw,3.75rem)] leading-[0.82]";
   return (
     <section aria-label="Money" className="rounded-[30px] border border-white/[0.07] bg-[#0d0d0d] p-5 md:p-8">
-      <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+      <div className="flex flex-wrap items-end gap-x-16 gap-y-8">
         <div className="min-w-0">
           <Label>{funded ? (c.closedAt ? "Paid out" : "Left of budget") : "Budget"}</Label>
           <p className="mt-3">
@@ -400,11 +454,57 @@ function MoneyHero({ campaign: c, counts, meter, toPay, children }: { campaign: 
   );
 }
 
-/** The one next step, whose it is and, for a wallet's step, which wallet. Same words as the list row. */
-function NextStepStrip({ campaign: c, step, viewer, reviewer }: { campaign: Campaign; step: NextStep; viewer: string; reviewer: boolean }) {
-  const { title, body } = describeStep(step, c);
-  const wallet = step.owner === "funder" ? c.funderPubkey : step.owner === "resolver" ? c.disputeResolverPubkey : null;
-  const yours = wallet === viewer;
+const quietLink =
+  "inline-flex min-h-10 items-center rounded-full border border-white/15 px-4 text-[13px] font-semibold text-text transition-colors hover:border-white/40";
+
+/**
+ * The one next step, whose it is and, for a wallet's step, which wallet. Same
+ * words as the list row. It is drawn as the page's call to action only while
+ * it holds a control the viewer can use; a step that is blocked, or that waits
+ * on another wallet, is a plain panel.
+ */
+function NextStepStrip({
+  campaign: c,
+  step,
+  viewer,
+  reviewer,
+  payLock,
+  escrowFixes,
+}: {
+  campaign: Campaign;
+  step: NextStep;
+  viewer: string;
+  reviewer: boolean;
+  payLock: PayLock | null;
+  /** Deploy or fund only: how many checklist items stand in the way, and whether the button below is off. */
+  escrowFixes: { count: number; blocked: boolean } | null;
+}) {
+  const described = describeStep(step, c);
+  const owner = stepOwner(step, c);
+  const mine = owner !== null && owner.wallet === viewer;
+  const sealed = foundersStep(step, c) && payLock !== null;
+  const n = step.count ?? 0;
+  const body = sealed
+    ? step.kind === "approve"
+      ? `${plural(n, "submission", "submissions")} passed review. This campaign uses founder-sealed review: the founder wallet records each final decision, then approves and releases the reward. Nothing here waits on you.`
+      : `${plural(n, "payout is", "payouts are")} approved on chain. This campaign uses founder-sealed review: the founder wallet signs each release. Nothing here waits on you.`
+    : described.body;
+  const escrowStep = (step.kind === "deploy" || step.kind === "fund") && escrowFixes !== null;
+  const blocked = escrowStep && escrowFixes.blocked;
+  const payStep = mine && c.fundedAt !== null && !c.closedAt && (step.kind === "approve" || step.kind === "release");
+  // The control this panel holds for the viewer, if any; only then is it yellow.
+  const control: ReactNode = !mine ? null : payStep ? (
+    <SelectForStep kind={step.kind === "approve" ? "approve" : "release"} />
+  ) : escrowStep ? (
+    <a href="#escrow-heading" className={quietLink}>
+      {blocked ? (escrowFixes.count > 0 ? `Fix ${plural(escrowFixes.count, "item", "items")} first ↓` : "See what is missing ↓") : `Go to ${described.title} ↓`}
+    </a>
+  ) : step.kind === "close" ? (
+    <a href="#close" className={quietLink}>
+      Go to Close ↓
+    </a>
+  ) : null;
+  const yours = mine && control !== null && !blocked;
   return (
     <section
       aria-label="Next step"
@@ -416,35 +516,38 @@ function NextStepStrip({ campaign: c, step, viewer, reviewer }: { campaign: Camp
       {yours ? <span aria-hidden="true" className="absolute inset-y-6 left-0 w-1 rounded-r-full bg-accent" /> : null}
       <div className="flex flex-wrap items-end justify-between gap-6">
         <div className="min-w-0 max-w-[720px]">
-          <Label className={yours ? "text-accent" : undefined}>Next step</Label>
+          <Label className={yours ? "text-accent" : undefined}>{blocked ? "Next step · blocked" : "Next step"}</Label>
           <p className="mt-3 font-display text-[clamp(2rem,4vw,3.25rem)] leading-[0.92]" style={{ fontVariationSettings: ax(84, 850) }}>
-            {title}
+            {described.title}
           </p>
-          <p className="mt-3 text-[15px] leading-relaxed text-white/60">{body}</p>
-          {/* The panel's one control for a payout step: it filters the board and ticks those rows, so the bar under it is live. */}
-          {yours && c.fundedAt && !c.closedAt && (step.kind === "approve" || step.kind === "release") ? (
-            <div className="mt-5">
-              <SelectForStep kind={step.kind} />
-            </div>
+          <p className="mt-3 text-[15px] leading-relaxed text-white/60">
+            {body}
+            {blocked ? " The checklist under Escrow says what to fix first." : ""}
+          </p>
+          {control ? <div className="mt-5">{control}</div> : null}
+          {sealed && payLock.sealedHref ? (
+            <Link href={payLock.sealedHref} className={cx(quietLink, "mt-5")}>
+              Open sealed reviews →
+            </Link>
           ) : null}
         </div>
-        {step.owner ? (
+        {owner ? (
           <div className="flex flex-wrap items-center gap-2 text-[13px] text-white/60">
             <span>
-              Waits on <span className="font-semibold text-text">{OWNER_LABEL[step.owner]}</span>
-              {wallet === viewer ? " (you)" : ""}
+              Waits on <span className="font-semibold text-text">{owner.label}</span>
+              {mine ? " (you)" : ""}
             </span>
-            {wallet ? <HashChip value={wallet} head={4} tail={4} href={publicEnv.explorerAccountUrl(wallet)} /> : null}
+            {owner.wallet ? <HashChip value={owner.wallet} head={4} tail={4} href={publicEnv.explorerAccountUrl(owner.wallet)} /> : null}
           </div>
         ) : null}
       </div>
       {step.kind === "review" && reviewer ? (
-        <Link href="/review" className="mt-5 inline-flex min-h-10 items-center rounded-full border border-white/15 px-4 text-[13px] font-semibold text-text transition-colors hover:border-white/40">
+        <Link href="/review" className={cx(quietLink, "mt-5")}>
           Open the review queue →
         </Link>
       ) : null}
       {step.kind === "remainder" && c.disputeResolverPubkey === viewer ? (
-        <Link href="/admin" className="mt-5 inline-flex min-h-10 items-center rounded-full border border-white/15 px-4 text-[13px] font-semibold text-text transition-colors hover:border-white/40">
+        <Link href="/admin" className={cx(quietLink, "mt-5")}>
           Return the remainder from Admin →
         </Link>
       ) : null}

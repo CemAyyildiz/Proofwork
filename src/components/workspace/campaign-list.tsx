@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { cx } from "@/components/ui/cx";
 import type { Campaign } from "@/db/schema";
-import { campaignStage, nextStep, type CampaignStage, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
+import { campaignStage, deadlinePassed, nextStep, type CampaignStage, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
 import { fromStroops, toStroops } from "@/escrow/amount";
-import { dateLine, describeStep, OWNER_LABEL, stageLabel, StagePill } from "./campaign-phase";
+import { dateLine, describeStep, foundersStep, stageLabel, StagePill, stepOwner } from "./campaign-phase";
 import { ax, figure, figureAxes, isZero, Label, Pieces, SlotLegend, SlotMeter, slotCount, type Slots } from "./kit";
 import { CountUp, Reveal } from "./motion-bits";
 
@@ -40,12 +40,13 @@ export function groupByStage(items: readonly CampaignListItem[], now: Date): Arr
   });
 }
 
-/** The campaign id whose next step is the funder's most urgent one, or null when nothing waits on the funder. */
+/** The campaign id whose next step is the funder's most urgent one, or null when nothing waits on the funder. A founder-sealed campaign's payouts wait on the founder, not the funder. */
 export function mostUrgent(items: readonly CampaignListItem[], now: Date): string | null {
   let best: { id: string; rank: number } | null = null;
   for (const g of groupByStage(items, now)) {
     for (const item of g.items) {
-      const rank = URGENCY[nextStep(g.stage, item.campaign, item.counts, now).kind];
+      const step = nextStep(g.stage, item.campaign, item.counts, now);
+      const rank = foundersStep(step, item.campaign) ? undefined : URGENCY[step.kind];
       if (rank !== undefined && (best === null || rank < best.rank)) best = { id: item.campaign.id, rank };
     }
   }
@@ -58,9 +59,18 @@ export function leftOf(budget: string, paid: string): string {
   return fromStroops(left > 0n ? left : 0n);
 }
 
-/** The meter's stretches for one campaign, from its submission counts. */
-export function slotParts(c: Pick<Campaign, "budget" | "rewardAmount">, counts: SubmissionCounts): { total: number; parts: Slots[] } {
+/**
+ * The meter's stretches for one campaign, from its submission counts. Given
+ * `now`, a campaign past its deadline or closed calls its empty slots unused:
+ * no submission can fill them any more.
+ */
+export function slotParts(
+  c: Pick<Campaign, "budget" | "rewardAmount"> & Partial<Pick<Campaign, "deadlineAt" | "closedAt">>,
+  counts: SubmissionCounts,
+  now?: Date,
+): { total: number; parts: Slots[] } {
   const total = slotCount(c.budget, c.rewardAmount);
+  const ended = (c.closedAt ?? null) !== null || (now !== undefined && c.deadlineAt !== undefined && deadlinePassed({ deadlineAt: c.deadlineAt }, now));
   const taken = counts.paid + counts.awaitingSignature + counts.readyToPay + counts.inReview;
   return {
     total,
@@ -69,7 +79,7 @@ export function slotParts(c: Pick<Campaign, "budget" | "rewardAmount">, counts: 
       { key: "signature", n: counts.awaitingSignature, label: "to release" },
       { key: "ready", n: counts.readyToPay, label: "to approve" },
       { key: "review", n: counts.inReview, label: "in review" },
-      { key: "left", n: Math.max(0, total - taken), label: "free" },
+      { key: "left", n: Math.max(0, total - taken), label: ended ? "unused" : "free" },
     ],
   };
 }
@@ -102,8 +112,8 @@ export function CampaignList({ items, now, urgent = null, viewer = null }: { ite
 function CampaignRow({ item, stage, now, urgent, viewer }: { item: CampaignListItem; stage: CampaignStage; now: Date; urgent: boolean; viewer: string | null }) {
   const { campaign: c, counts } = item;
   const step = nextStep(stage, c, counts, now);
-  const wallet = step.owner === "funder" ? c.funderPubkey : step.owner === "resolver" ? c.disputeResolverPubkey : null;
-  const yours = viewer !== null && wallet === viewer;
+  const owner = stepOwner(step, c);
+  const yours = viewer !== null && owner !== null && owner.wallet === viewer;
   const { title } = describeStep(step, c);
   const funded = c.fundedAt !== null;
   const tally = [
@@ -120,7 +130,7 @@ function CampaignRow({ item, stage, now, urgent, viewer }: { item: CampaignListI
     : c.closedAt
       ? { value: figure(counts.paidAmount), label: "USDC paid out" }
       : { value: figure(leftOf(c.budget, counts.paidAmount)), label: `USDC left of ${figure(c.budget)}` };
-  const meter = slotParts(c, counts);
+  const meter = slotParts(c, counts, now);
 
   return (
     <Link
@@ -201,16 +211,16 @@ function CampaignRow({ item, stage, now, urgent, viewer }: { item: CampaignListI
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
           </span>
-          {step.owner ? (
+          {owner ? (
             <span className={cx("order-first font-mono text-[10.5px] uppercase tracking-[0.16em]", yours ? "text-text" : "text-white/55")}>
               {/* "Waits on" is drawn by CSS (with empty alt text) so the row still reads "Next: Release 2 · Funder". */}
               <span className="sr-only">·</span>{" "}
               {yours ? (
                 <span className="before:content-['Waits_on_you'_/_'']">
-                  <span className="sr-only">{OWNER_LABEL[step.owner]}</span>
+                  <span className="sr-only">{owner.label}</span>
                 </span>
               ) : (
-                <span className="before:content-['Waits_on_'_/_'']">{OWNER_LABEL[step.owner]}</span>
+                <span className="before:content-['Waits_on_'_/_'']">{owner.label}</span>
               )}
             </span>
           ) : null}

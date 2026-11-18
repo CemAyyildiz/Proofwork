@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { AdminAccess } from "@/components/admin-access";
 import { SignedOut } from "@/components/signed-out";
 import { HashChip } from "@/components/ui/hash-chip";
-import { OWNER_LABEL, StagePill } from "@/components/workspace/campaign-phase";
+import { StagePill, stepOwner } from "@/components/workspace/campaign-phase";
 import { slotParts } from "@/components/workspace/campaign-list";
 import { ax, figure, figureAxes, Label, SlotMeter } from "@/components/workspace/kit";
 import { CountUp } from "@/components/workspace/motion-bits";
@@ -57,7 +57,7 @@ export default async function AdminPage() {
       {ops ? (
         // Waiting requests lead when there are any; with none, the campaigns do and the requests are one quiet line.
         access.pending.length > 0 ? (
-          <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+          <div className="flex flex-wrap items-end gap-x-16 gap-y-8">
             <Figure hero value={access.pending.length} label={access.pendingCut ? "requests shown, more waiting" : "requests waiting"} />
             <dl className="grid grid-cols-3 gap-x-8 sm:gap-x-12">
               <Figure value={awaiting.length} label="remainders to return" />
@@ -67,7 +67,7 @@ export default async function AdminPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+            <div className="flex flex-wrap items-end gap-x-16 gap-y-8">
               <Figure hero value={overview.length} label="campaigns" />
               <dl className="grid grid-cols-2 gap-x-8 sm:gap-x-12">
                 <Figure value={awaiting.length} label="remainders to return" />
@@ -104,7 +104,7 @@ export default async function AdminPage() {
 
       {overview ? (
         <Section id="campaigns" title="Campaigns" count={overview.length} description="Every campaign, its stage and whose step it waits on.">
-          {overview.length === 0 ? <p className="rounded-[22px] border border-dashed border-white/12 px-5 py-8 text-sm text-white/60">No campaigns yet.</p> : <CampaignsTable rows={overview} />}
+          {overview.length === 0 ? <p className="rounded-[22px] border border-dashed border-white/12 px-5 py-8 text-sm text-white/60">No campaigns yet.</p> : <CampaignsTable rows={overview} now={now} />}
         </Section>
       ) : null}
 
@@ -210,8 +210,8 @@ function AwaitingRow({ campaign: c }: { campaign: Campaign }) {
 }
 
 /** The campaign's escrow as slots, one per reward: paid, waiting, in review, free; a dashed run until it is funded. */
-function EscrowLine({ campaign: c, counts }: { campaign: Campaign; counts: CampaignOverviewRow["counts"] }) {
-  const meter = slotParts(c, counts);
+function EscrowLine({ campaign: c, counts, now }: { campaign: Campaign; counts: CampaignOverviewRow["counts"]; now: Date }) {
+  const meter = slotParts(c, counts, now);
   const funded = c.fundedAt !== null;
   return (
     <div className="mt-3 max-w-[300px]">
@@ -228,14 +228,15 @@ function EscrowLine({ campaign: c, counts }: { campaign: Campaign; counts: Campa
 }
 
 const th = "whitespace-nowrap px-4 py-3 text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-white/60 first:pl-6";
-const td = "whitespace-nowrap px-4 py-4 align-top first:pl-6";
+// Below sm a row is a card: the campaign across the top, then the other cells two by two, each under its label (drawn from data-label); from sm up, the table.
+const td = "align-top sm:whitespace-nowrap sm:px-4 sm:py-4 sm:first:pl-6 max-sm:flex max-sm:min-w-0 max-sm:flex-col max-sm:items-start max-sm:gap-1.5 max-sm:before:font-mono max-sm:before:text-[10px] max-sm:before:uppercase max-sm:before:tracking-[0.16em] max-sm:before:text-white/55 max-sm:before:content-[attr(data-label)]";
 
-/** Every campaign. A narrow screen scrolls the table sideways rather than wrapping wallets and pills. */
-function CampaignsTable({ rows }: { rows: CampaignOverviewRow[] }) {
+/** Every campaign: a table from sm up, one card per campaign on a phone. */
+function CampaignsTable({ rows, now }: { rows: CampaignOverviewRow[]; now: Date }) {
   return (
     <div className="relative overflow-x-auto rounded-[24px] border border-white/[0.07] bg-[#0d0d0d] [&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-white/[0.02]">
-      <table className="w-full text-sm">
-        <thead>
+      <table className="w-full text-sm max-sm:block">
+        <thead className="max-sm:hidden">
           <tr>
             <th scope="col" className={th}>Campaign</th>
             <th scope="col" className={th}>Funder</th>
@@ -244,33 +245,40 @@ function CampaignsTable({ rows }: { rows: CampaignOverviewRow[] }) {
             <th scope="col" className={th}>Waits on</th>
           </tr>
         </thead>
-        <tbody>
-          {rows.map(({ campaign: c, counts, stage, step }) => (
-            <tr key={c.id} className="border-t border-line">
-              <td className="min-w-[16rem] py-4 pl-6 pr-4 align-top">
-                <p className="font-semibold [overflow-wrap:anywhere]">{c.title}</p>
-                <p className="mt-0.5 font-mono text-[11.5px] text-white/60">{c.slug}</p>
-                <EscrowLine campaign={c} counts={counts} />
-              </td>
-              <td className={td}>
-                <Wallet pubkey={c.funderPubkey} />
-              </td>
-              <td className={td}>
-                <StagePill stage={stage} />
-              </td>
-              <td className={`${td} font-mono text-[12px] text-white/60`}>{formatDateShort(c.deadlineAt)}</td>
-              <td className={td}>
-                {step.owner ? (
-                  <span className="flex items-center gap-2">
-                    <span className="font-medium">{OWNER_LABEL[step.owner]}</span>
-                    {step.owner === "resolver" ? <Wallet pubkey={c.disputeResolverPubkey} /> : null}
-                  </span>
-                ) : (
-                  <span className="text-white/25">—</span>
-                )}
-              </td>
-            </tr>
-          ))}
+        {/* The row markup stays the plain table row; the phone card layout is set from here. */}
+        <tbody className="max-sm:block max-sm:[&>tr]:grid max-sm:[&>tr]:grid-cols-2 max-sm:[&>tr]:gap-x-4 max-sm:[&>tr]:gap-y-4 max-sm:[&>tr]:px-5 max-sm:[&>tr]:py-5 max-sm:[&>tr:first-child]:border-t-0">
+          {rows.map(({ campaign: c, counts, stage, step }) => {
+            const owner = stepOwner(step, c);
+            return (
+              <tr key={c.id} className="border-t border-line">
+                <td className="align-top max-sm:col-span-2 max-sm:block sm:min-w-[16rem] sm:py-4 sm:pl-6 sm:pr-4">
+                  <p className="font-semibold [overflow-wrap:anywhere]">{c.title}</p>
+                  <p className="mt-0.5 font-mono text-[11.5px] text-white/60 [overflow-wrap:anywhere]">{c.slug}</p>
+                  <EscrowLine campaign={c} counts={counts} now={now} />
+                </td>
+                <td className={`${td} max-sm:order-2`} data-label="Funder">
+                  <Wallet pubkey={c.funderPubkey} />
+                </td>
+                {/* On a phone the stage sits right under the title, across the card, so a long stage name never clips. */}
+                <td className={`${td} max-sm:order-1 max-sm:col-span-2`} data-label="Stage">
+                  <StagePill stage={stage} />
+                </td>
+                <td className={`${td} font-mono text-[12px] text-white/60 max-sm:order-2`} data-label="Deadline">
+                  {formatDateShort(c.deadlineAt)}
+                </td>
+                <td className={`${td} max-sm:order-2`} data-label="Waits on">
+                  {owner ? (
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{owner.label}</span>
+                      {owner.wallet && owner.wallet !== c.funderPubkey ? <Wallet pubkey={owner.wallet} /> : null}
+                    </span>
+                  ) : (
+                    <span className="text-white/25">—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

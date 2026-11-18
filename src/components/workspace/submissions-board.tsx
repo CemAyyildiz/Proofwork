@@ -15,6 +15,7 @@ import { reasonLabel } from "@/domain/rubric";
 import { signTransaction } from "@/wallet/kit";
 import { plural } from "./campaign-phase";
 import { payoutsCall } from "./funder-api";
+import { slotCount } from "./kit";
 
 export interface BoardRow {
   submissionId: string;
@@ -45,11 +46,58 @@ const TABS: Array<{ id: Tab; label: string; count: (c: SubmissionCounts) => numb
   { id: "rejected", label: "Rejected", count: (c) => c.rejected, match: (r) => r.status === "rejected" },
 ];
 
-/** The rows the bar can act on: passes to approve and approved payouts to release. Nothing once the campaign is closed. */
-function actionable(rows: readonly BoardRow[], closed: boolean): { eligible: BoardRow[]; releasable: BoardRow[] } {
+/** Who may approve and release on a founder-sealed campaign, for a viewer who is not that wallet. */
+export interface PayLock {
+  /** The campaign's release signer, the only wallet the payouts route accepts for rewards; null when none is set. */
+  founder: string | null;
+  /** The sealed review page, when the feature is on. */
+  sealedHref: string | null;
+}
+
+/** The escrow's shape as the page knows it: the budget funded into it and the reward each milestone pays. Decimal strings. */
+export interface EscrowShape {
+  budget: string;
+  reward: string;
+}
+
+/**
+ * The rows the bar can act on: passes to approve and approved payouts to
+ * release. Nothing once the campaign is closed, and nothing for a viewer the
+ * payouts route would refuse (`locked`: a founder-sealed campaign seen by
+ * anyone but its founder wallet).
+ */
+function actionable(rows: readonly BoardRow[], closed: boolean, locked: boolean): { eligible: BoardRow[]; releasable: BoardRow[] } {
   // A stuck or failed payout can be selected again: the server resumes it from chain state.
-  if (closed) return { eligible: [], releasable: [] };
+  if (closed || locked) return { eligible: [], releasable: [] };
   return { eligible: rows.filter((r) => isReadyToPay(r) && r.outcome === "PASS"), releasable: rows.filter((r) => r.payoutStatus === "approved") };
+}
+
+/**
+ * How many more rewards the escrow can take on, mirroring the approve guard in
+ * services/payout.ts: the balance (budget less what was released) must cover
+ * the milestones already on chain and not released, plus one reward per new
+ * milestone. Every payout row has its milestone on chain; a pass without a
+ * payout row needs a new one. All of it is whole rewards, so it is a count of
+ * slots. The server reads the chain again and stays the judge.
+ */
+function freeSlots(rows: readonly BoardRow[], escrow: EscrowShape): number {
+  let taken = 0;
+  for (const r of rows) if (r.payoutStatus !== null) taken += 1;
+  return Math.max(0, slotCount(escrow.budget, escrow.reward) - taken);
+}
+
+/** A pass that needs a new milestone on chain: no payout run has started for it. */
+const needsMilestone = (r: BoardRow) => r.payoutStatus === null;
+
+/**
+ * The passes to tick for "Select the N ready": every one whose milestone is
+ * already on chain (resuming it costs no room), then new ones oldest first
+ * while the escrow has room. Rows arrive oldest first.
+ */
+function approvePick(eligible: readonly BoardRow[], free: number): string[] {
+  const resumed = eligible.filter((r) => !needsMilestone(r));
+  const fresh = eligible.filter(needsMilestone).slice(0, free);
+  return [...resumed, ...fresh].map((r) => r.submissionId);
 }
 
 interface Selection {
@@ -57,27 +105,52 @@ interface Selection {
   setTab: (t: Tab) => void;
   selected: ReadonlySet<string>;
   setSelected: (next: ReadonlySet<string>) => void;
-  eligible: string[];
+  /** What "Select the N ready" ticks: capped at what the escrow covers. */
+  pick: string[];
+  /** Every pass ready to approve, covered or not. */
+  eligible: number;
   releasable: string[];
 }
 
 const SelectionContext = createContext<Selection | null>(null);
 
-/** The id the Next step panel scrolls to. */
+/** The id of the board, for aria-controls. */
 const BOARD_ID = "submissions";
+/** The board section's heading, which the Next step panel scrolls to and focuses. The page puts it on the section's h2. */
+export const BOARD_HEADING_ID = "submissions-heading";
 
 /**
  * Holds the board's filter and ticked rows, so the Next step panel above the
  * board can set them: its one button filters the board and ticks the rows the
  * step is about. Selection only, client-side; nothing is sent.
  */
-export function BoardSelection({ rows, closed, children }: { rows: BoardRow[]; closed: boolean; children: ReactNode }) {
+export function BoardSelection({
+  rows,
+  closed,
+  escrow,
+  payLock = null,
+  children,
+}: {
+  rows: BoardRow[];
+  closed: boolean;
+  escrow: EscrowShape;
+  payLock?: PayLock | null;
+  children: ReactNode;
+}) {
   const [tab, setTab] = useState<Tab>("all");
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const { eligible, releasable } = actionable(rows, closed);
+  const { eligible, releasable } = actionable(rows, closed, payLock !== null);
   return (
     <SelectionContext
-      value={{ tab, setTab, selected, setSelected, eligible: eligible.map((r) => r.submissionId), releasable: releasable.map((r) => r.submissionId) }}
+      value={{
+        tab,
+        setTab,
+        selected,
+        setSelected,
+        pick: approvePick(eligible, freeSlots(rows, escrow)),
+        eligible: eligible.length,
+        releasable: releasable.map((r) => r.submissionId),
+      }}
     >
       {children}
     </SelectionContext>
@@ -87,29 +160,40 @@ export function BoardSelection({ rows, closed, children }: { rows: BoardRow[]; c
 /**
  * The Next step panel's control for Approve and Release: filters the board to
  * the rows the step is about and ticks them, so the bar under the board is
- * live. It only selects; Approve and Release stay the board's own buttons.
+ * live. Approve ticks only as many passes as the escrow can cover, oldest
+ * first. It only selects; Approve and Release stay the board's own buttons.
  */
 export function SelectForStep({ kind }: { kind: "approve" | "release" }) {
   const ctx = useContext(SelectionContext);
   if (!ctx) return null;
-  const ids = kind === "approve" ? ctx.eligible : ctx.releasable;
+  const ids = kind === "approve" ? ctx.pick : ctx.releasable;
+  if (kind === "approve" && ids.length === 0 && ctx.eligible > 0) {
+    return <p className="text-[14px] text-white/70">The escrow has no room left for another reward, so these passes can&apos;t be approved.</p>;
+  }
   if (ids.length === 0) return null;
   const tab: Tab = kind === "approve" ? "ready" : "signature";
   const done = ctx.tab === tab && ids.every((id) => ctx.selected.has(id)) && ctx.selected.size === ids.length;
+  const capped = kind === "approve" && ids.length < ctx.eligible;
   const go = () => {
     ctx.setTab(tab);
     ctx.setSelected(new Set(ids));
-    const board = document.getElementById(BOARD_ID);
-    if (board) {
-      board.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-      board.focus({ preventScroll: true });
+    // The section heading takes focus, so a screen reader lands on the board; its scroll margin clears the sticky phone header.
+    const heading = document.getElementById(BOARD_HEADING_ID);
+    if (heading) {
+      heading.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+      heading.focus({ preventScroll: true });
     }
   };
   const what = kind === "approve" ? "ready" : "approved";
   return (
-    <Button variant={done ? "secondary" : "primary"} onClick={go} aria-controls={BOARD_ID}>
-      {done ? `${ids.length} selected · go to the bar ↓` : `Select the ${ids.length} ${what}`}
-    </Button>
+    <div className="space-y-2.5">
+      <Button variant={done ? "secondary" : "primary"} onClick={go} aria-controls={BOARD_ID}>
+        {done ? `${ids.length} selected · go to the bar ↓` : capped ? `Select the first ${ids.length} of ${ctx.eligible}` : `Select the ${ids.length} ${what}`}
+      </Button>
+      {capped ? (
+        <p className="text-[13px] text-white/60">{`The escrow covers ${plural(ids.length, "more reward", "more rewards")}, so the oldest passes come first.`}</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -150,12 +234,17 @@ export function SubmissionsBoard({
   rows,
   counts,
   closed,
+  escrow,
+  payLock = null,
 }: {
   campaignId: string;
   funderPubkey: string;
   rows: BoardRow[];
   counts: SubmissionCounts;
   closed: boolean;
+  escrow: EscrowShape;
+  /** Set on a founder-sealed campaign the viewer may not pay out: the rows are read-only and the bar is a note. */
+  payLock?: PayLock | null;
 }) {
   const router = useRouter();
   const shared = useContext(SelectionContext);
@@ -170,15 +259,21 @@ export function SubmissionsBoard({
   const [notice, setNotice] = useState<{ tone: "pass" | "fail"; text: string } | null>(null);
   const [outcome, setOutcome] = useState<{ result: ReleaseResult; total: number } | null>(null);
 
-  const { eligible, releasable } = actionable(rows, closed);
+  const { eligible, releasable } = actionable(rows, closed, payLock !== null);
   const selectable = new Set([...eligible, ...releasable].map((r) => r.submissionId));
-  const toApprove = eligible.filter((r) => selected.has(r.submissionId)).map((r) => r.submissionId);
+  const toApprove = eligible.filter((r) => selected.has(r.submissionId));
   const toRelease = releasable.filter((r) => selected.has(r.submissionId)).map((r) => r.submissionId);
-  const match = TABS.find((t) => t.id === tab)?.match ?? (() => true);
-  const visible = rows.filter(match);
+  const matchOf = (t: Tab) => TABS.find((x) => x.id === t)?.match ?? (() => true);
+  const visible = rows.filter(matchOf(tab));
+
+  // The approve guard refuses the whole batch when the escrow can't cover its new milestones; say so before the click.
+  const free = freeSlots(rows, escrow);
+  const fresh = toApprove.filter(needsMilestone).length;
+  const overBy = Math.max(0, fresh - free);
 
   const anySelectable = visible.some((r) => selectable.has(r.submissionId));
   const announce = toApprove.length + toRelease.length;
+  const idle = busy === null && announce === 0;
 
   function toggle(id: string) {
     const next = new Set(selected);
@@ -187,19 +282,28 @@ export function SubmissionsBoard({
     setSelected(next);
   }
 
+  // A filter shows only its rows, so a tick the new filter hides is dropped: the bar never acts on rows out of sight.
+  function changeTab(t: Tab) {
+    setTab(t);
+    const shown = new Set(rows.filter(matchOf(t)).map((r) => r.submissionId));
+    const kept = [...selected].filter((id) => shown.has(id));
+    if (kept.length !== selected.size) setSelected(new Set(kept));
+  }
+
   function reset() {
     setNotice(null);
     setOutcome(null);
   }
 
-  // The approved rows stay selected, so the next click releases them.
+  // The approved rows stay selected and the board moves to the signature filter, so the next click releases them.
   async function approve() {
-    const ids = [...toApprove];
+    const ids = toApprove.map((r) => r.submissionId);
     reset();
     setBusy("approve");
     try {
       await payoutsCall(campaignId, { action: "approve", submissionIds: ids });
       setNotice({ tone: "pass", text: `${plural(ids.length, "payout", "payouts")} approved on chain; no money moved. Release to pay.` });
+      setTab("signature");
     } catch (e) {
       setNotice({ tone: "fail", text: e instanceof Error ? e.message : "approve failed" });
     } finally {
@@ -231,8 +335,11 @@ export function SubmissionsBoard({
     }
   }
 
+  const status =
+    busy !== null ? "" : overBy > 0 ? `${announce} selected · the escrow covers ${plural(free, "new reward", "new rewards")}; untick ${overBy}` : announce > 0 ? `${announce} selected` : "Tick rows to act on them";
+
   return (
-    <div id={BOARD_ID} tabIndex={-1} className="scroll-mt-28 space-y-4 outline-none">
+    <div id={BOARD_ID} className="space-y-4">
       <div role="group" aria-label="Filter submissions" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
         {TABS.map((t) => {
           const active = t.id === tab;
@@ -241,7 +348,7 @@ export function SubmissionsBoard({
               key={t.id}
               type="button"
               aria-pressed={active}
-              onClick={() => setTab(t.id)}
+              onClick={() => changeTab(t.id)}
               className={cx(
                 "inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-4 text-[13.5px] font-semibold transition-colors duration-200",
                 active ? "bg-paper text-paper-ink" : "border border-white/10 text-white/55 hover:border-white/25 hover:text-text",
@@ -264,11 +371,11 @@ export function SubmissionsBoard({
             <thead className="hidden border-b border-white/[0.07] md:table-header-group">
               <tr className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/55">
                 {anySelectable ? (
-                  <th scope="col" className="w-11 py-3 pl-5 pr-0">
+                  <th scope="col" className="w-10 py-3 pl-5 pr-0">
                     <span className="sr-only">Select</span>
                   </th>
                 ) : null}
-                <th scope="col" className="py-3 pl-5 pr-3 font-medium">Submission</th>
+                <th scope="col" className={cx("py-3 pr-3 font-medium", anySelectable ? "pl-3" : "pl-5")}>Submission</th>
                 <th scope="col" className="px-3 py-3 font-medium">Review</th>
                 <th scope="col" className="py-3 pl-3 pr-5 font-medium">Payout</th>
               </tr>
@@ -290,18 +397,50 @@ export function SubmissionsBoard({
         </div>
       )}
 
-      {!closed ? (
+      {!closed && payLock ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[22px] border border-white/[0.07] bg-white/[0.03] px-5 py-4 text-[14px] leading-relaxed text-white/70">
+          {payLock.founder ? (
+            <>
+              <span>Founder-sealed review: the founder wallet</span>
+              <HashChip value={payLock.founder} head={4} tail={4} href={publicEnv.explorerAccountUrl(payLock.founder)} />
+              <span>approves and releases these payouts. They are read-only here.</span>
+            </>
+          ) : (
+            <span>Founder-sealed review, but this campaign has no founder wallet set, so its payouts can&apos;t be approved.</span>
+          )}
+          {payLock.sealedHref ? (
+            <Link className="font-semibold text-text underline decoration-white/30 underline-offset-4 hover:decoration-white" href={payLock.sealedHref}>
+              Open sealed reviews →
+            </Link>
+          ) : null}
+        </div>
+      ) : !closed ? (
         // A solid strip under the bar, so rows never show through it and the last row can scroll clear of it.
-        <div className="sticky bottom-0 z-10 -mx-1 bg-[linear-gradient(to_top,var(--color-canvas)_70%,transparent)] px-1 pb-4 pt-6">
+        // On a phone the bar shows only once a row is ticked; its status line stays in the accessibility tree, so the first tick is announced.
+        <div className={cx("sticky bottom-0 z-10 -mx-1 bg-[linear-gradient(to_top,var(--color-canvas)_70%,transparent)] px-1 pb-4 pt-6", idle && "max-sm:sr-only")}>
           <div className="flex flex-wrap items-center gap-2 rounded-[26px] border border-white/12 bg-[#151515] p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] sm:gap-3 sm:rounded-full sm:pr-5">
-            <Button size="sm" className="flex-1 sm:flex-none" disabled={busy !== null || toApprove.length === 0} busy={busy === "approve"} busyLabel="Adding milestones…" onClick={() => void approve()}>
+            <Button
+              size="sm"
+              className="flex-1 sm:flex-none"
+              disabled={busy !== null || toApprove.length === 0 || overBy > 0}
+              busy={busy === "approve"}
+              busyLabel="Adding milestones…"
+              onClick={() => void approve()}
+            >
               {`Approve ${toApprove.length} for payout`}
             </Button>
             <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" disabled={busy !== null || toRelease.length === 0} busy={busy === "release"} busyLabel={progress ?? "Preparing…"} onClick={() => void release()}>
               {`Release ${plural(toRelease.length, "payout", "payouts")}`}
             </Button>
-            <span role="status" className={cx("font-mono", busy === null && announce > 0 ? "w-full pb-1 text-center text-[12px] text-text sm:w-auto sm:pb-0" : "hidden text-[11px] uppercase tracking-[0.14em] text-white/55 sm:inline")}>
-              {busy === null && announce > 0 ? `${announce} selected` : "Tick rows to act on them"}
+            <span
+              role="status"
+              className={cx(
+                "font-mono",
+                idle ? "text-[11px] uppercase tracking-[0.14em] text-white/55" : "w-full pb-1 text-center text-[12px] sm:w-auto sm:pb-0",
+                overBy > 0 ? "text-fail" : !idle && "text-text",
+              )}
+            >
+              {status}
             </span>
           </div>
         </div>
@@ -313,7 +452,7 @@ export function SubmissionsBoard({
           <Link className="text-text underline decoration-white/30 underline-offset-4 hover:decoration-white" href="/review">
             review page
           </Link>
-          , then approve the passes here.
+          {payLock ? "." : ", then approve the passes here."}
         </p>
       ) : null}
 
@@ -386,8 +525,10 @@ function ReviewChip({ r }: { r: BoardRow }) {
 
 /**
  * One submission. Desktop: a table row of when and who, the review chip, the
- * payout and a reason toggle. Phone: the same cells wrap into a short card,
- * the checkbox only on rows it can act on. The reviewer's reason opens on demand.
+ * payout and a reason toggle. Phone: the same cells wrap into a short card:
+ * when and who on top, then the review and payout chips on one wrapping line;
+ * the checkbox, only on rows it can act on, sits in the card's top corner so
+ * every card keeps the same left edge. The reviewer's reason opens on demand.
  */
 function Row({
   r,
@@ -416,25 +557,28 @@ function Row({
     <>
       <tr
         className={cx(
-          "flex flex-wrap items-center gap-x-2 gap-y-2.5 border-t border-white/[0.06] px-4 py-3.5 align-middle transition-colors duration-200 first:border-t-0 md:table-row md:p-0",
+          "relative flex flex-wrap items-center gap-x-2 gap-y-2.5 border-t border-white/[0.06] px-4 py-3.5 align-middle transition-colors duration-200 first:border-t-0 md:table-row md:p-0",
           selected ? "bg-accent/[0.06]" : "hover:bg-white/[0.02]",
         )}
       >
         {gutter ? (
-          <td className={cx("w-7 shrink-0 md:w-11 md:py-3 md:pl-5 md:pr-0", !selectable && "hidden md:table-cell")}>
+          <td className={cx("absolute right-1.5 top-1.5 md:static md:w-10 md:py-3 md:pl-5 md:pr-0", !selectable && "hidden md:table-cell")}>
             {selectable ? (
-              <input
-                type="checkbox"
-                aria-label={`Select ${r.shortId}`}
-                checked={selected}
-                disabled={disabled}
-                onChange={() => onToggle(r.submissionId)}
-                className="size-[18px] cursor-pointer align-middle accent-[var(--color-accent)]"
-              />
+              // A 44px target on a phone; the box itself stays 18px.
+              <label className="grid size-11 cursor-pointer place-items-center md:block md:size-auto">
+                <input
+                  type="checkbox"
+                  aria-label={`Select ${r.shortId}`}
+                  checked={selected}
+                  disabled={disabled}
+                  onChange={() => onToggle(r.submissionId)}
+                  className="size-[18px] cursor-pointer align-middle accent-[var(--color-accent)]"
+                />
+              </label>
             ) : null}
           </td>
         ) : null}
-        <td className="min-w-0 flex-1 basis-[calc(100%-2.25rem)] md:w-[1%] md:py-3 md:pl-5 md:pr-3">
+        <td className={cx("min-w-0 basis-full md:w-[1%] md:py-3 md:pr-3", gutter ? "md:pl-3" : "md:pl-5", selectable && "pr-10")}>
           {/* When it came in leads, on one line; the id (the link to the post) and the wallet sit under it. */}
           <p className="whitespace-nowrap text-[13px] font-medium leading-snug text-text">{r.submitted}</p>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 md:flex-nowrap">
@@ -445,9 +589,10 @@ function Row({
             <HashChip value={r.contributor} head={4} tail={4} href={publicEnv.explorerAccountUrl(r.contributor)} />
           </div>
         </td>
-        <td className="md:px-3 md:py-3">
+        {/* On a phone this cell and the payout cell dissolve into the card's flex row, so their chips share one wrapping line. */}
+        <td className="max-md:contents md:px-3 md:py-3">
           {/* The outcome links to its proof; the reviewer's reason opens beside it. */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 max-md:contents">
             <ReviewChip r={r} />
             {why ? (
               <button
@@ -466,8 +611,8 @@ function Row({
             ) : null}
           </div>
         </td>
-        <td className="md:py-3 md:pl-3 md:pr-5">
-          <div className="flex flex-wrap items-center gap-2">
+        <td className="max-md:contents md:py-3 md:pl-3 md:pr-5">
+          <div className="flex flex-wrap items-center gap-2 max-md:contents">
             {payout ? <Pill tone={payout.tone}>{payout.label}</Pill> : <span className="hidden text-[12px] text-white/25 md:inline">—</span>}
             {r.releaseTxHash ? <HashChip value={r.releaseTxHash} head={4} tail={4} href={publicEnv.explorerTxUrl(r.releaseTxHash)} /> : null}
           </div>
@@ -476,7 +621,7 @@ function Row({
       {why ? (
         <tr id={detailId} className={cx(open ? "block md:table-row" : "hidden", selected ? "bg-accent/[0.06]" : undefined)}>
           <td colSpan={cols} className="block px-4 pb-4 md:table-cell md:pb-4 md:pl-5 md:pr-5 md:pt-0">
-            <div className={cx("rounded-[14px] bg-white/[0.03] px-4 py-3 text-[13px] leading-relaxed", gutter && "md:ml-11")}>
+            <div className={cx("rounded-[14px] bg-white/[0.03] px-4 py-3 text-[13px] leading-relaxed", gutter && "md:ml-8")}>
               {reason ? <p className="font-mono text-[11.5px] text-white/60">{reason}</p> : null}
               {note ? <p className={cx("text-white/75 [overflow-wrap:anywhere]", reason && "mt-1")}>{note}</p> : null}
             </div>

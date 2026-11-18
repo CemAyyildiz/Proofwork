@@ -39,7 +39,8 @@ function missingTitle(m: MissingItem): string {
 /**
  * The one checklist between a draft and its next escrow step: the funder
  * limits it breaks (from the page) and what the wallet lacks, numbered, with a
- * single red count. The first unmet item is open; the rest open on a click.
+ * single red count. The first unmet item is open, and the first wallet item
+ * with it; the rest open on a click.
  * Says whether the funder's wallet can pay for the escrow transaction it
  * signs next, from the server's read of the wallet when the page was
  * rendered. Every missing item is listed at once. Check again asks the
@@ -177,7 +178,8 @@ export function FundingReadinessPanel({
       <ol className="mt-4 grid gap-2">
         {items.map((it, i) => (
           <li key={it.key}>
-            <details open={i === 0} className="group rounded-[16px] border border-white/[0.07] bg-[#0b0b0b] open:border-white/15">
+            {/* The first item opens, and so does the first wallet item: a limit can't be fixed here, the wallet's buttons can. */}
+            <details open={i === 0 || i === limits.length} className="group rounded-[16px] border border-white/[0.07] bg-[#0b0b0b] open:border-white/15">
               <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-4 py-2.5 text-[13.5px] font-semibold text-text [&::-webkit-details-marker]:hidden">
                 <span aria-hidden="true" className="grid size-5 shrink-0 place-items-center rounded-full border border-white/25 font-mono text-[10px] font-medium text-white/70">
                   {i + 1}

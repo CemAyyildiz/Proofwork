@@ -52,7 +52,8 @@ export function Lifecycle({ nodes }: { nodes: LifecycleNode[] }) {
   return (
     <div className="rounded-[28px] border border-white/[0.07] bg-[#0d0d0d] p-5 md:p-7">
       <ol
-        className={cx("relative grid grid-cols-[minmax(0,1fr)] gap-x-3 gap-y-5", nodes.length > 3 ? "lg:grid-cols-6" : "lg:grid-cols-3")}
+        // From lg up, one column per node, each as wide as its own text needs while the row has room, so a date or a key stays on one line; the slack is shared out.
+        className={cx("relative grid grid-cols-[minmax(0,1fr)] gap-x-3 gap-y-5", nodes.length > 3 ? "lg:grid-cols-[repeat(6,minmax(0,auto))]" : "lg:grid-cols-[repeat(3,minmax(0,auto))]")}
         aria-label="Campaign lifecycle"
       >
         {nodes.map((n, i) => {
@@ -127,9 +128,9 @@ export function ActivityLog({ ops }: { ops: readonly EscrowOp[] }) {
           <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 text-sm">
             <span className="min-w-0 font-medium sm:min-w-[180px]">{OP_LABEL[o.kind]}</span>
             <span className={cx("font-mono text-[12px]", s.className)}>{s.label}</span>
-            {/* Log rows read to the second, as in the admin access log; every other workspace date is the short form. */}
-            <time dateTime={o.updatedAt.toISOString()} className="whitespace-nowrap font-mono text-[12px] text-white/60">
-              {formatTimestamp(o.updatedAt)}
+            {/* The short form every other date on the page uses; the second is in the tooltip and the datetime. */}
+            <time dateTime={o.updatedAt.toISOString()} title={formatTimestamp(o.updatedAt)} className="whitespace-nowrap font-mono text-[12px] text-white/60">
+              {formatDateShort(o.updatedAt)}
             </time>
             <span className="min-w-0 sm:ml-auto">
               {o.txHash ? (

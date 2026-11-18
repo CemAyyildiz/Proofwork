@@ -52,6 +52,30 @@ export const OWNER_LABEL: Record<StepOwner, string> = {
   resolver: "Resolver",
 };
 
+/**
+ * True when the step is a reward approval or release on a founder-sealed
+ * campaign: the payouts route accepts those only from the campaign's release
+ * signer (the founder wallet), never from the funder who created it.
+ */
+export function foundersStep(step: NextStep, c: Pick<Campaign, "founderSealedReview">): boolean {
+  return c.founderSealedReview && (step.kind === "approve" || step.kind === "release");
+}
+
+/**
+ * Who a step waits on, as a name and a wallet: the funder's or the resolver's
+ * wallet, and on a founder-sealed campaign's payout steps the founder wallet.
+ * Null when the step waits on nobody.
+ */
+export function stepOwner(
+  step: NextStep,
+  c: Pick<Campaign, "funderPubkey" | "disputeResolverPubkey" | "founderSealedReview" | "releaseSignerPubkey">,
+): { label: string; wallet: string | null } | null {
+  if (!step.owner) return null;
+  if (foundersStep(step, c)) return { label: "Founder", wallet: c.releaseSignerPubkey };
+  const wallet = step.owner === "funder" ? c.funderPubkey : step.owner === "resolver" ? c.disputeResolverPubkey : null;
+  return { label: OWNER_LABEL[step.owner], wallet };
+}
+
 /** "1 payout", "3 payouts". */
 export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 

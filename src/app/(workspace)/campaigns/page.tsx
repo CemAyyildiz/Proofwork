@@ -131,7 +131,7 @@ function Totals({ items }: { items: readonly CampaignListItem[] }) {
   ];
   const hero = figure(left);
   return (
-    <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+    <div className="flex flex-wrap items-end gap-x-16 gap-y-8">
       <div className="min-w-0">
         <p
           className={`font-display text-[clamp(4.5rem,11vw,8.75rem)] leading-[0.8] ${isZero(hero) ? "text-white/60" : "text-text"}`}
