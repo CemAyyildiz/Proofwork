@@ -27,14 +27,14 @@ export default async function SealedReviewPage() {
           Your sealed reviews
         </h2>
         {rounds.size === 0 ? (
-          <p className="mt-4 rounded-[22px] border border-dashed border-white/12 px-5 py-8 text-sm text-white/45">No sealed review is assigned or managed by this wallet.</p>
+          <p className="mt-4 rounded-[22px] border border-dashed border-white/12 px-5 py-8 text-sm text-white/60">No sealed review is assigned or managed by this wallet.</p>
         ) : (
           <ul className="mt-4 divide-y divide-white/[0.06] overflow-hidden rounded-[24px] border border-white/[0.07] bg-[#0d0d0d]">
             {[...rounds.values()].map((round) => (
               <li key={round.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
                 <div className="min-w-0">
                   <p className="text-[15px] font-semibold">{round.campaign}</p>
-                  <p className="mt-1 font-mono text-[11.5px] uppercase tracking-[0.12em] text-white/45">{`${round.shortId} · ${round.status}`}</p>
+                  <p className="mt-1 font-mono text-[11.5px] uppercase tracking-[0.12em] text-white/60">{`${round.shortId} · ${round.status}`}</p>
                 </div>
                 <Link href={`/review/sealed/${encodeURIComponent(round.id)}`} className="inline-flex min-h-10 items-center rounded-full border border-white/15 px-4 text-sm font-semibold transition-colors hover:border-white/40">
                   Open →

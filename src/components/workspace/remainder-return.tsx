@@ -167,7 +167,7 @@ export function RemainderReturn({ campaignId, resolver }: { campaignId: string; 
             <span className="font-display text-[44px] leading-none text-accent" style={{ fontVariationSettings: `"wdth" 62, "wght" 900` }}>
               {formatUsdc(prepared.amount)}
             </span>
-            <span aria-hidden="true" className="text-white/40">
+            <span aria-hidden="true" className="text-white/60">
               →
             </span>
             <span className="sr-only">to</span>
@@ -202,7 +202,7 @@ export function RemainderReturn({ campaignId, resolver }: { campaignId: string; 
         </Button>
       )}
       {notice ? (
-        <p role={notice.tone === "fail" ? "alert" : "status"} className={notice.tone === "fail" ? "text-sm text-fail" : "text-sm text-white/50"}>
+        <p role={notice.tone === "fail" ? "alert" : "status"} className={notice.tone === "fail" ? "text-sm text-fail" : "text-sm text-white/60"}>
           {notice.text}
         </p>
       ) : null}

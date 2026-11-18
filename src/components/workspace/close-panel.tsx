@@ -111,7 +111,7 @@ export function ClosePanel({
 
       {blocked ? (
         <div className="mt-5 rounded-[20px] bg-white/[0.03] p-4">
-          <p className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/50">Close is off until these clear</p>
+          <p className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/60">Close is off until these clear</p>
           <ul className="mt-3 space-y-2 text-[13.5px] text-white/75">
             {reasons.map((r) => (
               <li key={r} className="flex gap-2">

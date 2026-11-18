@@ -10,7 +10,8 @@ import { HashChip } from "@/components/ui/hash-chip";
 import { dateLine, describeStep, OWNER_LABEL, StagePill } from "@/components/workspace/campaign-phase";
 import { leftOf, slotParts } from "@/components/workspace/campaign-list";
 import { ClosePanel } from "@/components/workspace/close-panel";
-import { ax, figure, Label, RiseWords, SlotLegend, SlotMeter } from "@/components/workspace/kit";
+import { LimitMeter } from "@/components/workspace/limit-meter";
+import { ax, figure, figureAxes, isZero, Label, Pieces, RiseWords, SlotLegend, SlotMeter } from "@/components/workspace/kit";
 import { ActivityLog, confirmedTx, Lifecycle, lifecycleNodes } from "@/components/workspace/lifecycle";
 import { CountUp } from "@/components/workspace/motion-bits";
 import { SubmissionsBoard, type BoardRow } from "@/components/workspace/submissions-board";
@@ -69,7 +70,8 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
   const walletStep = !offerStep ? null : escrowStage === "draft" ? "deploy" : escrowStage === "deployed" ? "fund" : null;
   const readiness = walletStep ? await fundingReadiness(user.pubkey, c.budget, walletStep, horizonFunderAccountReader(READINESS_TIMEOUT_MS)) : null;
   // A draft that does not fit under the funder's limits is refused at deploy; say so here, before the click.
-  const overLimit = walletStep === "deploy" ? ((await limitRefusal(user.pubkey, c.budget, funderLimits()))?.message ?? null) : null;
+  const refusal = walletStep === "deploy" ? await limitRefusal(user.pubkey, c.budget, funderLimits()) : null;
+  const overLimit = refusal ? { message: refusal.message, caps: capsOf(refusal.details) } : null;
   const canAbandon = escrowStage === "deployed" && !fundSent;
   const open = stage === "open" || stage === "reviewing_and_paying" || stage === "ready_to_close";
 
@@ -78,7 +80,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
 
   return (
     <div className="space-y-10">
-      <Link href="/campaigns" className="inline-flex min-h-9 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-white/50 transition-colors hover:text-text">
+      <Link href="/campaigns" className="inline-flex min-h-9 items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-white/60 transition-colors hover:text-text">
         <span aria-hidden="true">←</span>&nbsp;Campaigns
       </Link>
 
@@ -91,7 +93,9 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
           <RiseWords text={c.title} />
         </h1>
         <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
-          <p className="font-mono text-[12px] text-white/50">{dateLine(c, stage, now)}</p>
+          <p className="font-mono text-[12px] text-white/60">
+            <Pieces text={dateLine(c, stage, now)} />
+          </p>
           <p className="flex flex-wrap items-center gap-2 text-[13px] text-white/55">
             <span>Signed in with</span>
             <HashChip value={user.pubkey} head={4} tail={4} href={publicEnv.explorerAccountUrl(user.pubkey)} />
@@ -126,7 +130,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
                   <HashChip value={c.escrowContractId} href={publicEnv.explorerContractUrl(c.escrowContractId)} />
                 </p>
               ) : (
-                <p className="text-sm text-white/50">Not deployed yet.</p>
+                <p className="text-sm text-white/60">Not deployed yet.</p>
               )}
               {expired && !c.closedAt && !fundSent ? (
                 <p className="max-w-[640px] text-sm text-white/65">
@@ -134,11 +138,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
                   {canAbandon ? "; you can abandon it instead" : ""}.
                 </p>
               ) : null}
-              {overLimit ? (
-                <p role="alert" className="max-w-[640px] rounded-2xl border border-fail-line bg-fail-soft px-4 py-3 text-sm text-fail">
-                  This campaign can&apos;t be deployed while a limit is reached: {overLimit}. Deploy stays off until it fits.
-                </p>
-              ) : null}
+              {overLimit ? <OverLimit message={overLimit.message} caps={overLimit.caps} budget={c.budget} /> : null}
               {walletStep && readiness ? <FundingReadinessPanel address={user.pubkey} step={walletStep} readiness={readiness} fundSent={fundSent} /> : null}
               {(escrowStage === "draft" || escrowStage === "deployed") && (offerStep || canAbandon) ? (
                 <EscrowActions
@@ -214,16 +214,81 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
             <div className="mt-3">
               <CopyLink path={`/c/${c.slug}`} />
             </div>
-            <p className="mt-2.5 text-[12.5px] leading-relaxed text-white/45">Share after funding. Submissions open only while the escrow holds the budget.</p>
+            <p className="mt-2.5 text-[12.5px] leading-relaxed text-white/60">Share after funding. Submissions open only while the escrow holds the budget.</p>
           </div>
 
-          <div className="rounded-[28px] bg-paper p-6 text-paper-ink">
-            <Label className="text-black/50">Brief</Label>
+          <div data-surface="paper" className="rounded-[28px] bg-paper p-6 text-paper-ink">
+            <Label className="text-black/60">Brief</Label>
             <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed [overflow-wrap:anywhere]">{c.brief}</p>
           </div>
         </aside>
       </div>
     </div>
+  );
+}
+
+interface Cap {
+  cap: "open_campaigns" | "open_budget";
+  limit: string;
+  used: string;
+}
+
+/** The refused caps from a limit refusal's details, as the service wrote them; anything else is dropped. */
+function capsOf(details: Record<string, unknown> | undefined): Cap[] {
+  const list = details?.caps;
+  if (!Array.isArray(list)) return [];
+  return list.flatMap((x: unknown): Cap[] => {
+    if (typeof x !== "object" || x === null) return [];
+    const { cap, limit, used } = x as Record<string, unknown>;
+    if ((cap !== "open_campaigns" && cap !== "open_budget") || typeof limit !== "string" || typeof used !== "string") return [];
+    return [{ cap, limit, used }];
+  });
+}
+
+/**
+ * A draft that does not fit under the funder's limits: one row per limit it
+ * breaks, each with a meter that runs red past the cap. One limit is said in
+ * the service's own words; two get a row each instead of one joined line.
+ */
+function OverLimit({ message, caps, budget }: { message: string; caps: Cap[]; budget: string }) {
+  const parts = message.split("; ");
+  return (
+    <section role="alert" aria-label="Limits" className="rounded-[22px] bg-white/[0.03] p-4 sm:p-5">
+      <p className="text-[14px] leading-relaxed text-white/75">
+        {parts.length === 1
+          ? `This campaign can't be deployed while a limit is reached: ${message}. Deploy stays off until it fits.`
+          : "This campaign can't be deployed while these limits are reached. Deploy stays off until it fits."}
+      </p>
+      {caps.length > 0 ? (
+        <dl className="mt-4 space-y-4">
+          {caps.map((k) =>
+            k.cap === "open_campaigns" ? (
+              <LimitMeter
+                key={k.cap}
+                label="Open campaigns"
+                value={`${k.used} of ${k.limit} in use`}
+                used={Number(k.used)}
+                max={Number(k.limit)}
+                adding={1}
+                over
+                note={parts.length > 1 ? "Close one first." : undefined}
+              />
+            ) : (
+              <LimitMeter
+                key={k.cap}
+                label="Open budget"
+                value={`${formatUsdc(k.used)} of ${formatUsdc(k.limit)} in use, plus ${formatUsdc(budget)} here`}
+                used={Number(k.used)}
+                max={Number(k.limit)}
+                adding={Number(budget)}
+                over
+                note={parts.length > 1 ? `No room for this ${formatUsdc(budget)} campaign.` : undefined}
+              />
+            ),
+          )}
+        </dl>
+      ) : null}
+    </section>
   );
 }
 
@@ -244,7 +309,7 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-      <dt className="text-white/45">{label}</dt>
+      <dt className="text-white/60">{label}</dt>
       <dd className="text-right font-medium">{children}</dd>
     </div>
   );
@@ -257,38 +322,41 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
  */
 function MoneyHero({ campaign: c, counts, meter, toPay, children }: { campaign: Campaign; counts: SubmissionCounts; meter: ReturnType<typeof slotParts>; toPay: number; children: ReactNode }) {
   const funded = c.fundedAt !== null;
-  const big = "block font-display text-[clamp(3.6rem,8vw,6.5rem)] leading-[0.8]";
+  const hero = figure(funded ? (c.closedAt ? counts.paidAmount : leftOf(c.budget, counts.paidAmount)) : c.budget);
+  const small = "block font-display text-[clamp(2.5rem,4.6vw,3.75rem)] leading-[0.82]";
   return (
     <section aria-label="Money" className="rounded-[30px] border border-white/[0.07] bg-[#0d0d0d] p-5 md:p-8">
-      <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 sm:gap-x-10">
-        <div className="col-span-2 min-w-0 sm:col-span-1">
+      <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+        <div className="min-w-0">
           <Label>{funded ? (c.closedAt ? "Paid out" : "Left of budget") : "Budget"}</Label>
           <p className="mt-3">
-            <span className={big} style={{ fontVariationSettings: ax(62, 900) }}>
-              <CountUp value={figure(funded ? (c.closedAt ? counts.paidAmount : leftOf(c.budget, counts.paidAmount)) : c.budget)} />
+            <span className={cx("block font-display text-[clamp(4rem,9.5vw,7.5rem)] leading-[0.8]", isZero(hero) && "text-white/60")} style={{ fontVariationSettings: figureAxes(hero) }}>
+              <CountUp value={hero} />
             </span>
-            <span className="mt-2 block text-[13px] text-white/50">
+            <span className="mt-2 block text-[13px] text-white/60">
               {funded ? (c.closedAt ? "USDC released to contributors" : `USDC of ${figure(c.budget)} not yet paid out`) : "USDC, not in escrow yet"}
             </span>
           </p>
         </div>
-        <div className="min-w-0">
-          <Label>Ready to pay</Label>
-          <p className="mt-3">
-            <span className={cx(big, toPay > 0 ? "text-accent" : "text-white/20")} style={{ fontVariationSettings: ax(62, 900) }}>
-              <CountUp value={String(toPay)} />
-            </span>
-            <span className="mt-2 block text-[13px] text-white/50">{`${counts.readyToPay} to approve · ${counts.awaitingSignature} to release`}</span>
-          </p>
-        </div>
-        <div className="min-w-0">
-          <Label>Reward</Label>
-          <p className="mt-3">
-            <span className={big} style={{ fontVariationSettings: ax(62, 900) }}>
-              {figure(c.rewardAmount)}
-            </span>
-            <span className="mt-2 block text-[13px] text-white/50">USDC for every approved post</span>
-          </p>
+        <div className="grid grid-cols-2 gap-x-10 gap-y-6 sm:gap-x-14">
+          <div className="min-w-0">
+            <Label>Ready to pay</Label>
+            <p className="mt-3">
+              <span className={cx(small, toPay > 0 ? "text-text" : "text-white/60")} style={{ fontVariationSettings: figureAxes(String(toPay), 64, 900) }}>
+                <CountUp value={String(toPay)} />
+              </span>
+              <span className="mt-2 block text-[13px] text-white/60">{`${counts.readyToPay} to approve · ${counts.awaitingSignature} to release`}</span>
+            </p>
+          </div>
+          <div className="min-w-0">
+            <Label>Reward</Label>
+            <p className="mt-3">
+              <span className={small} style={{ fontVariationSettings: figureAxes(figure(c.rewardAmount), 64, 900) }}>
+                {figure(c.rewardAmount)}
+              </span>
+              <span className="mt-2 block text-[13px] text-white/60">USDC for every approved post</span>
+            </p>
+          </div>
         </div>
       </div>
       <div className="mt-9">
@@ -305,7 +373,7 @@ function MoneyHero({ campaign: c, counts, meter, toPay, children }: { campaign: 
           {funded ? (
             <SlotLegend parts={meter.parts} />
           ) : (
-            <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/45">{`${meter.total} rewards once the budget is in escrow`}</p>
+            <p className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/55">{`${meter.total} rewards once the budget is in escrow`}</p>
           )}
           {children}
         </div>
@@ -365,17 +433,17 @@ function MoneyStory({ campaign: c, ops, rows, paidAmount }: { campaign: Campaign
   const fundTx = confirmedTx(ops, "fund");
   const releases = rows.filter((r): r is BoardRow & { releaseTxHash: string } => r.releaseTxHash !== null);
   return (
-    <section aria-label="Money" className="rounded-[30px] bg-accent p-6 text-accent-ink md:p-9">
+    <section aria-label="Money" data-surface="yellow" className="rounded-[30px] bg-accent p-6 text-accent-ink md:p-9">
       <Label className="text-black/60">Money</Label>
       <p className="mt-2 font-display text-[clamp(2.6rem,6vw,4.75rem)] leading-[0.86]" style={{ fontVariationSettings: ax(110, 900) }}>
         {c.remainderTxHash ? "Settled." : "Closed."}
       </p>
       <dl className="mt-8 border-t-2 border-black">
         <MoneyRow label="Funded" amount={formatUsdc(c.budget)}>
-          {fundTx ? <TxLink hash={fundTx} /> : <span className="text-black/55">No fund tx recorded</span>}
+          {fundTx ? <TxLink hash={fundTx} /> : <span className="text-black/65">No fund tx recorded</span>}
         </MoneyRow>
         <MoneyRow label="Paid" amount={`${formatUsdc(paidAmount)} in ${releases.length} ${releases.length === 1 ? "payout" : "payouts"}`}>
-          {releases.length === 0 ? <span className="text-black/55">None</span> : releases.map((r) => <TxLink key={r.submissionId} hash={r.releaseTxHash} />)}
+          {releases.length === 0 ? <span className="text-black/65">None</span> : releases.map((r) => <TxLink key={r.submissionId} hash={r.releaseTxHash} />)}
         </MoneyRow>
         <MoneyRow label="Returned" amount={c.remainderTxHash ? "Remainder to the funder" : "Awaiting the resolver"}>
           {c.remainderTxHash ? (
@@ -391,10 +459,10 @@ function MoneyStory({ campaign: c, ops, rows, paidAmount }: { campaign: Campaign
   );
 }
 
-/** A transaction on yellow: a black chip, as in the public payouts list. */
+/** A transaction on yellow: a black chip, as in the public payouts list. Its focus ring sits on the yellow, so it stays ink (not `.bg-black`, which would turn it yellow). */
 function TxLink({ hash }: { hash: string }) {
   return (
-    <span className="inline-flex rounded-full bg-black [&>span]:border-0 [&>span]:bg-transparent [&>span]:text-white [&>span:hover]:text-accent">
+    <span className="inline-flex rounded-full bg-[#000] [&>span]:border-0 [&>span]:bg-transparent [&>span]:text-white [&>span:hover]:text-accent">
       <HashChip value={hash} href={publicEnv.explorerTxUrl(hash)} />
     </span>
   );

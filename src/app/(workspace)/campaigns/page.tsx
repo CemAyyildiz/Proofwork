@@ -1,11 +1,10 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { AccessRequestForm } from "@/components/access-request-form";
 import { SignedOut } from "@/components/signed-out";
 import { buttonClasses } from "@/components/ui/button";
 import { HashChip } from "@/components/ui/hash-chip";
 import { CampaignList, leftOf, mostUrgent, type CampaignListItem } from "@/components/workspace/campaign-list";
-import { ax, figure, Label, Panel } from "@/components/workspace/kit";
+import { ax, figure, figureAxes, isZero, Label, Panel } from "@/components/workspace/kit";
 import { CountUp } from "@/components/workspace/motion-bits";
 import { PageHeader } from "@/components/workspace/page-header";
 import { publicEnv } from "@/config/public-env";
@@ -14,7 +13,7 @@ import type { Campaign, FunderRequest } from "@/db/schema";
 import { NO_SUBMISSIONS } from "@/domain/campaign-status";
 import { addAmounts } from "@/escrow/amount";
 import { currentUser } from "@/lib/current-user";
-import { formatDate, shortKey } from "@/lib/format";
+import { formatDateShort, shortKey } from "@/lib/format";
 import { canManageCampaign, funderAccessState, type FunderAccessState } from "@/services/access";
 import { listCampaignsForFunder, submissionCountsFor } from "@/services/campaign";
 
@@ -116,8 +115,8 @@ async function withCounts(list: Campaign[]): Promise<CampaignListItem[]> {
 
 /**
  * The four figures a funder opens this page for, summed over the campaigns on
- * it: what is left of the funded budgets, what is ready to pay, what is in
- * review and what has been paid. Read from the same counts as the rows.
+ * it: what is left of the funded budgets leads, huge; what is ready to pay, in
+ * review and paid sit beside it, smaller. Read from the same counts as the rows.
  */
 function Totals({ items }: { items: readonly CampaignListItem[] }) {
   const live = items.filter((i) => i.campaign.fundedAt !== null && i.campaign.closedAt === null);
@@ -125,27 +124,38 @@ function Totals({ items }: { items: readonly CampaignListItem[] }) {
   const paid = items.reduce((s, i) => addAmounts(s, i.counts.paidAmount), "0");
   const toPay = items.reduce((s, i) => s + i.counts.readyToPay + i.counts.awaitingSignature, 0);
   const review = items.reduce((s, i) => s + i.counts.inReview, 0);
-  const cells: Array<{ value: string; label: ReactNode; yellow?: boolean }> = [
-    { value: figure(left), label: "USDC left in funded budgets" },
-    { value: String(toPay), label: toPay === 1 ? "post ready to pay" : "posts ready to pay", yellow: toPay > 0 },
+  const side: Array<{ value: string; label: string }> = [
+    { value: String(toPay), label: toPay === 1 ? "post ready to pay" : "posts ready to pay" },
     { value: String(review), label: "in review" },
     { value: figure(paid), label: "USDC paid out" },
   ];
+  const hero = figure(left);
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-8 border-y border-white/[0.07] py-7 md:grid-cols-4">
-      {cells.map((c, i) => (
-        <div key={i} className="min-w-0">
-          <p
-            className={`font-display text-[clamp(2.75rem,5.5vw,4.5rem)] leading-[0.8] ${c.yellow ? "text-accent" : "text-text"}`}
-            style={{ fontVariationSettings: ax(62, 900) }}
-          >
-            <CountUp value={c.value} />
-          </p>
-          <Label as="p" className="mt-3 tracking-[0.14em]">
-            {c.label}
-          </Label>
-        </div>
-      ))}
+    <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+      <div className="min-w-0">
+        <p
+          className={`font-display text-[clamp(4.5rem,11vw,8.75rem)] leading-[0.8] ${isZero(hero) ? "text-white/60" : "text-text"}`}
+          style={{ fontVariationSettings: figureAxes(hero, 60, 900) }}
+        >
+          <CountUp value={hero} />
+        </p>
+        <Label as="p" className="mt-3 tracking-[0.14em]">
+          USDC left in funded budgets
+        </Label>
+      </div>
+      <dl className="grid grid-cols-3 gap-x-8 sm:gap-x-12">
+        {side.map((c) => (
+          <div key={c.label} className="flex min-w-0 flex-col-reverse justify-end">
+            <dt className="mt-2.5 font-mono text-[11px] uppercase leading-snug tracking-[0.12em] text-white/55">{c.label}</dt>
+            <dd
+              className={`font-display text-[clamp(2.25rem,3.6vw,3rem)] leading-[0.85] ${isZero(c.value) ? "text-white/60" : "text-text"}`}
+              style={{ fontVariationSettings: figureAxes(c.value, 64, 900) }}
+            >
+              <CountUp value={c.value} />
+            </dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }
@@ -162,7 +172,7 @@ function FunderAccess({ state, request }: { state: FunderAccessState; request: F
           <Pending>Pending</Pending>
         </div>
         <p className="mt-4 text-sm leading-relaxed text-white/60">
-          Sent {formatDate(request.createdAt)} for <span className="font-medium text-text">{request.team}</span>. The operator
+          Sent {formatDateShort(request.createdAt)} for <span className="font-medium text-text">{request.team}</span>. The operator
           reads every request and decides by hand. Come back to this page for the answer: once approved, you can create a
           campaign here without signing in again.
         </p>
@@ -182,7 +192,7 @@ function FunderAccess({ state, request }: { state: FunderAccessState; request: F
               </span>
             </div>
             <p className="mt-4 text-[15px] leading-relaxed text-white/60">
-              Your request from {formatDate(request.createdAt)} for <span className="font-medium text-text">{request.team}</span>{" "}
+              Your request from {formatDateShort(request.createdAt)} for <span className="font-medium text-text">{request.team}</span>{" "}
               was not approved. You can send a new one.
             </p>
           </>

@@ -36,11 +36,12 @@ export interface AccessLogRow {
 
 type Mutation = { action: "approve" | "reject"; requestId: string } | { action: "revoke"; pubkey: string };
 
-const th = "whitespace-nowrap px-4 py-3 text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-white/40 first:pl-6";
+const th = "whitespace-nowrap px-4 py-3 text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-white/60 first:pl-6";
 const tdWrap = "px-4 py-4 align-top first:pl-6";
-const table = "overflow-x-auto rounded-[24px] border border-white/[0.07] bg-[#0d0d0d] [&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-white/[0.02]";
+// `relative` keeps absolutely placed children (the sr-only Revoke header) inside the scroller, so a phone does not scroll the page sideways.
+const table = "relative overflow-x-auto rounded-[24px] border border-white/[0.07] bg-[#0d0d0d] [&_tbody_tr]:transition-colors [&_tbody_tr:hover]:bg-white/[0.02]";
 const h3 = "font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-white/55";
-const empty = "rounded-[22px] border border-dashed border-white/12 px-5 py-7 text-sm text-white/45";
+const empty = "rounded-[22px] border border-dashed border-white/12 px-5 py-7 text-sm text-white/60";
 /** Wallets, times and one-word values stay on one line; a narrow screen scrolls the table sideways instead. */
 const td = `${tdWrap} whitespace-nowrap`;
 
@@ -105,17 +106,17 @@ export function AdminAccess({
         ) : (
           <ul className="grid gap-4 lg:grid-cols-2">
             {pending.map((r) => (
-              <li key={r.id} className="flex flex-col rounded-[28px] bg-paper p-6 text-paper-ink">
+              <li key={r.id} data-surface="paper" className="flex flex-col rounded-[28px] bg-paper p-6 text-paper-ink">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <p className="font-display text-[26px] leading-[0.95] [overflow-wrap:anywhere]" style={{ fontVariationSettings: `"wdth" 88, "wght" 820` }}>
                     {r.team}
                   </p>
-                  <span className="rounded-full bg-black [&>span]:border-0 [&>span]:bg-transparent [&>span]:text-white">
+                  <span className="rounded-full bg-[#000] [&>span]:border-0 [&>span]:bg-transparent [&>span]:text-white">
                     <Wallet pubkey={r.pubkey} />
                   </span>
                 </div>
                 <p className="mt-4 whitespace-pre-wrap break-words text-[15px] leading-relaxed">{r.note}</p>
-                <p className="mt-3 font-mono text-[11.5px] text-black/50">Requested {r.requestedAt}</p>
+                <p className="mt-3 font-mono text-[11.5px] text-black/65">Requested {r.requestedAt}</p>
                 <div className="mt-auto flex flex-wrap gap-2.5 pt-5 [&>button:last-child]:border-black/25 [&>button:last-child]:bg-transparent [&>button:last-child]:text-paper-ink [&>button:last-child:hover]:bg-black/5">
                   <Button
                     size="sm"
@@ -142,7 +143,7 @@ export function AdminAccess({
           </ul>
         )}
         {pendingCut !== null ? (
-          <p className="text-[12.5px] text-white/45">Showing the {pendingCut} oldest pending requests. More are waiting and appear as these are decided.</p>
+          <p className="text-[12.5px] text-white/60">Showing the {pendingCut} oldest pending requests. More are waiting and appear as these are decided.</p>
         ) : null}
       </section>
 
@@ -169,7 +170,7 @@ export function AdminAccess({
                     <td className={td}>
                       <Wallet pubkey={f.pubkey} />
                     </td>
-                    <td className={`${tdWrap} min-w-[10rem] font-semibold`}>{f.team ?? <span className="font-normal text-white/45">granted with the script</span>}</td>
+                    <td className={`${tdWrap} min-w-[10rem] font-semibold`}>{f.team ?? <span className="font-normal text-white/60">granted with the script</span>}</td>
                     <td className={td}>{f.grantedAt}</td>
                     <td className="px-4 py-4 pr-6 text-right align-top">
                       {confirming === f.pubkey ? (
@@ -200,7 +201,7 @@ export function AdminAccess({
             </table>
           </div>
         )}
-        <p className="text-[12.5px] leading-relaxed text-white/45">
+        <p className="text-[12.5px] leading-relaxed text-white/60">
           A revoked wallet can no longer create, deploy or fund a campaign. It keeps final approval, release and close on
           campaigns it already funded.
         </p>
@@ -231,7 +232,7 @@ export function AdminAccess({
                     </td>
                     <td className={td}>
                       {e.role}
-                      {e.campaignId ? <span className="text-white/45"> · campaign {e.campaignId}</span> : null}
+                      {e.campaignId ? <span className="text-white/60"> · campaign {e.campaignId}</span> : null}
                     </td>
                     <td className={td}>
                       <Pill tone={e.action === "grant" ? "pass" : "fail"}>{e.action}</Pill>
@@ -244,7 +245,7 @@ export function AdminAccess({
           </div>
         )}
         {logCut !== null ? (
-          <p className="text-[12.5px] text-white/45">Showing the {logCut} newest entries. Older entries stay in the access log table.</p>
+          <p className="text-[12.5px] text-white/60">Showing the {logCut} newest entries. Older entries stay in the access log table.</p>
         ) : null}
       </section>
     </div>

@@ -4,7 +4,7 @@ import type { Campaign } from "@/db/schema";
 import { campaignStage, nextStep, type CampaignStage, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
 import { fromStroops, toStroops } from "@/escrow/amount";
 import { dateLine, describeStep, OWNER_LABEL, stageLabel, StagePill } from "./campaign-phase";
-import { ax, figure, Label, SlotLegend, SlotMeter, slotCount, type Slots } from "./kit";
+import { ax, figure, figureAxes, isZero, Label, Pieces, SlotLegend, SlotMeter, slotCount, type Slots } from "./kit";
 import { CountUp, Reveal } from "./motion-bits";
 
 export interface CampaignListItem {
@@ -124,7 +124,7 @@ function CampaignRow({ item, stage, now, urgent }: { item: CampaignListItem; sta
       href={`/campaigns/${c.slug}`}
       className={cx(
         "group relative block overflow-hidden rounded-[28px] border bg-[#0d0d0d] p-5 transition-[border-color,transform,background-color] duration-300 ease-expo hover:-translate-y-0.5 hover:bg-[#111] md:p-7",
-        urgent ? "border-accent/40" : "border-white/[0.07] hover:border-white/20",
+        urgent ? "border-white/25 hover:border-white/40" : "border-white/[0.07] hover:border-white/20",
       )}
     >
       <div className="grid gap-x-10 gap-y-6 md:grid-cols-[minmax(0,1fr)_auto]">
@@ -136,17 +136,20 @@ function CampaignRow({ item, stage, now, urgent }: { item: CampaignListItem; sta
           >
             {c.title}
           </h3>
-          <p className="mt-2.5 font-mono text-[11.5px] text-white/45">{dateLine(c, stage, now)}</p>
+          <p className="mt-2.5 font-mono text-[11.5px] text-white/55"><Pieces text={dateLine(c, stage, now)} /></p>
         </div>
 
         <dl className="flex items-end gap-8 md:justify-end">
           <div>
             <dt className="sr-only">Amount</dt>
             <dd>
-              <span className="block font-display text-[clamp(3.2rem,6vw,4.75rem)] leading-[0.8]" style={{ fontVariationSettings: ax(62, 900) }}>
+              <span
+                className={cx("block font-display text-[clamp(3.2rem,6vw,4.75rem)] leading-[0.8]", isZero(main.value) && "text-white/60")}
+                style={{ fontVariationSettings: figureAxes(main.value) }}
+              >
                 <CountUp value={main.value} />
               </span>
-              <span className="mt-2 block text-[12.5px] text-white/50">{main.label}</span>
+              <span className="mt-2 block text-[12.5px] text-white/60">{main.label}</span>
             </dd>
           </div>
           {funded && !c.closedAt ? (
@@ -154,12 +157,12 @@ function CampaignRow({ item, stage, now, urgent }: { item: CampaignListItem; sta
               <dt className="sr-only">Ready to pay</dt>
               <dd>
                 <span
-                  className={cx("block font-display text-[clamp(3.2rem,6vw,4.75rem)] leading-[0.8]", toPay > 0 ? "text-accent" : "text-white/20")}
-                  style={{ fontVariationSettings: ax(62, 900) }}
+                  className={cx("block font-display text-[clamp(2rem,3.4vw,2.75rem)] leading-[0.8]", toPay > 0 ? "text-text" : "text-white/60")}
+                  style={{ fontVariationSettings: figureAxes(String(toPay), 64, 900) }}
                 >
                   <CountUp value={String(toPay)} />
                 </span>
-                <span className="mt-2 block text-[12.5px] text-white/50">ready to pay</span>
+                <span className="mt-2 block text-[12.5px] text-white/60">ready to pay</span>
               </dd>
             </div>
           ) : null}
@@ -176,22 +179,31 @@ function CampaignRow({ item, stage, now, urgent }: { item: CampaignListItem; sta
             ))}
           </div>
         )}
-        {funded ? <SlotLegend parts={meter.parts} className="mt-2.5" /> : <p className="mt-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-white/40">{`${meter.total} rewards once funded`}</p>}
+        {funded ? <SlotLegend parts={meter.parts} className="mt-2.5" /> : <p className="mt-2.5 font-mono text-[11px] uppercase tracking-[0.12em] text-white/55">{`${meter.total} rewards once funded`}</p>}
       </div>
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t border-white/[0.06] pt-4">
-        <p className="min-w-0 text-[13px] text-white/50">{funded ? tally.join(" · ") : null}</p>
-        <p
-          className={cx(
-            "inline-flex min-h-10 items-center gap-1.5 rounded-full px-4 text-[13.5px] transition-colors duration-200",
-            urgent ? "bg-accent font-semibold text-accent-ink" : "border border-white/15 text-white/70 group-hover:border-white/40 group-hover:text-text",
-          )}
-        >
-          <span className={urgent ? "text-accent-ink/60" : "text-white/40"}>Next:</span> <span className="font-semibold">{title}</span>
-          {step.owner ? <span className={urgent ? "text-accent-ink/60" : "text-white/40"}> · {OWNER_LABEL[step.owner]}</span> : null}
-          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="ml-1 transition-transform duration-200 group-hover:translate-x-0.5">
-            <path d="M5 12h14M13 6l6 6-6 6" />
-          </svg>
+        <p className="min-w-0 text-[13px] text-white/60">{funded ? tally.join(" · ") : null}</p>
+        {/* Read in order as "Next: Release 2 · Funder"; shown as the button with whose step it is in small print beside it. */}
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="sr-only">Next:</span>
+          <span
+            className={cx(
+              "inline-flex min-h-10 items-center gap-1.5 rounded-full px-4 text-[13.5px] font-semibold transition-colors duration-200",
+              urgent ? "bg-accent text-accent-ink" : "border border-white/15 text-white/80 group-hover:border-white/40 group-hover:text-text",
+            )}
+          >
+            {title}
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className="ml-1 transition-transform duration-200 group-hover:translate-x-0.5">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </span>
+          {step.owner ? (
+            <span className="order-first font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/55">
+              {/* "Waits on" is drawn by CSS so the row still reads "Next: Release 2 · Funder". */}
+              <span className="sr-only">·</span> <span className="before:content-['Waits_on_']">{OWNER_LABEL[step.owner]}</span>
+            </span>
+          ) : null}
         </p>
       </div>
     </Link>

@@ -178,7 +178,7 @@ export function ReviewQueue({ items, now }: { items: ReviewItem[]; now: number }
                 {counts.position}
                 <span className="text-white/25">/{counts.total}</span>
               </p>
-              <p className="pb-0.5 font-mono text-[11.5px] uppercase tracking-[0.14em] text-white/45" aria-live="polite">
+              <p className="pb-0.5 font-mono text-[11.5px] uppercase tracking-[0.14em] text-white/60" aria-live="polite">
                 <span className="text-text">{`${counts.position} of ${counts.total}`}</span>
                 {` · ${counts.waiting} waiting · Blind review · order randomised`}
               </p>
@@ -221,7 +221,7 @@ export function EmptyQueue() {
       <p className="font-display text-[clamp(2.8rem,6vw,4.75rem)] leading-[0.88]" style={{ fontVariationSettings: ax(84, 850) }}>
         Nothing to review.
       </p>
-      <p className="mt-4 text-[15px] text-white/50">New submissions appear here in random order.</p>
+      <p className="mt-4 text-[15px] text-white/60">New submissions appear here in random order.</p>
     </div>
   );
 }
@@ -269,8 +269,8 @@ export function ReceiptCard({ receipt, hasNext, onNext, advanceMs }: { receipt: 
         if (!(e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget))) setFocusInside(false);
       }}
     >
-      <div role="status" className="relative overflow-hidden rounded-[30px] bg-paper p-6 text-paper-ink md:p-10">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-black/55">{receipt.txHash ? "Recorded on-chain" : "Recorded"}</p>
+      <div role="status" data-surface="paper" className="relative overflow-hidden rounded-[30px] bg-paper p-6 text-paper-ink md:p-10">
+        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-black/65">{receipt.txHash ? "Recorded on-chain" : "Recorded"}</p>
         <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-6">
           <span
             className={cx(

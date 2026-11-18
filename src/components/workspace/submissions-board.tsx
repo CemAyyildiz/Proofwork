@@ -14,6 +14,7 @@ import { isReadyToPay, type SubmissionCounts } from "@/domain/campaign-status";
 import { reasonLabel } from "@/domain/rubric";
 import { signTransaction } from "@/wallet/kit";
 import { plural } from "./campaign-phase";
+import { Pieces } from "./kit";
 import { payoutsCall } from "./funder-api";
 
 export interface BoardRow {
@@ -50,7 +51,8 @@ function payoutPill(r: BoardRow): { tone: PillTone; label: string } | null {
     case "released":
       return { tone: "chain", label: "Paid" };
     case "approved":
-      return { tone: "chain", label: "Awaiting your signature" };
+      // Approved on chain, not paid yet: yellow is kept for money that moved.
+      return { tone: "wait", label: "Awaiting your signature" };
     case "milestone_added":
     case "delivered":
       return { tone: "wait", label: "Started · approve again" };
@@ -175,21 +177,21 @@ export function SubmissionsBoard({
               )}
             >
               {t.label}
-              <span className={cx("font-mono text-[11px]", active ? "text-black/55" : "text-white/35")}>{t.count(counts)}</span>
+              <span className={cx("font-mono text-[11px]", active ? "text-black/60" : "text-white/55")}>{t.count(counts)}</span>
             </button>
           );
         })}
       </div>
 
       {visible.length === 0 ? (
-        <p className="rounded-[22px] border border-dashed border-white/12 px-5 py-10 text-center text-sm text-white/45">
+        <p className="rounded-[22px] border border-dashed border-white/12 px-5 py-10 text-center text-sm text-white/60">
           {rows.length === 0 ? "No submissions yet." : "Nothing in this view."}
         </p>
       ) : (
-        <div className="overflow-hidden rounded-[24px] border border-white/[0.07] bg-[#0d0d0d]">
+        <div className="relative overflow-hidden rounded-[24px] border border-white/[0.07] bg-[#0d0d0d]">
           <table className="w-full text-left text-sm">
             <thead className="hidden border-b border-white/[0.07] md:table-header-group">
-              <tr className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/40">
+              <tr className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/55">
                 <th scope="col" className="w-12 py-3 pl-5 pr-2">
                   <span className="sr-only">Select</span>
                 </th>
@@ -209,8 +211,9 @@ export function SubmissionsBoard({
       )}
 
       {!closed ? (
-        <div className="sticky bottom-4 z-10 space-y-2">
-          <div className="flex flex-wrap items-center gap-2 rounded-[26px] border border-white/12 bg-[#151515]/95 p-2 shadow sm:gap-3 sm:rounded-full sm:pr-5-[0_20px_60px_-20px_rgba(0,0,0,0.9)] backdrop-blur-xl">
+        // A solid strip under the bar, so rows never show through it and the last row can scroll clear of it.
+        <div className="sticky bottom-0 z-10 -mx-1 bg-[linear-gradient(to_top,var(--color-canvas)_70%,transparent)] px-1 pb-4 pt-6">
+          <div className="flex flex-wrap items-center gap-2 rounded-[26px] border border-white/12 bg-[#151515] p-2 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.9)] sm:gap-3 sm:rounded-full sm:pr-5">
             <Button size="sm" className="flex-1 sm:flex-none" disabled={busy !== null || toApprove.length === 0} busy={busy === "approve"} busyLabel="Adding milestones…" onClick={() => void approve()}>
               {`Approve ${toApprove.length} for payout`}
             </Button>
@@ -218,16 +221,16 @@ export function SubmissionsBoard({
               {`Release ${plural(toRelease.length, "payout", "payouts")}`}
             </Button>
             {busy === null && toApprove.length + toRelease.length > 0 ? (
-              <span className="w-full pb-1 text-center font-mono text-[12px] text-accent sm:w-auto sm:pb-0">{`${toApprove.length + toRelease.length} selected`}</span>
+              <span className="w-full pb-1 text-center font-mono text-[12px] text-text sm:w-auto sm:pb-0">{`${toApprove.length + toRelease.length} selected`}</span>
             ) : (
-              <span className="hidden font-mono text-[11px] uppercase tracking-[0.14em] text-white/35 sm:inline">Tick rows to act on them</span>
+              <span className="hidden font-mono text-[11px] uppercase tracking-[0.14em] text-white/55 sm:inline">Tick rows to act on them</span>
             )}
           </div>
         </div>
       ) : null}
-      {!closed && releasable.length > 0 && toRelease.length === 0 ? <p className="text-sm text-white/50">Tick the approved rows to release them.</p> : null}
+      {!closed && releasable.length > 0 && toRelease.length === 0 ? <p className="text-sm text-white/60">Tick the approved rows to release them.</p> : null}
       {!closed && counts.inReview > 0 ? (
-        <p className="text-sm text-white/50">
+        <p className="text-sm text-white/60">
           {plural(counts.inReview, "submission", "submissions")} awaiting review. Score them on the{" "}
           <Link className="text-text underline decoration-white/30 underline-offset-4 hover:decoration-white" href="/review">
             review page
@@ -246,7 +249,7 @@ export function SubmissionsBoard({
   );
 }
 
-const TONE = { ok: "text-accent", muted: "text-white/50", fail: "text-fail" } as const;
+const TONE = { ok: "text-accent", muted: "text-white/60", fail: "text-fail" } as const;
 
 /** What a release run did: every payout released with its tx link, then what was not sent and why. */
 function ReleaseOutcomeLine({ result, total, rows }: { result: ReleaseResult; total: number; rows: BoardRow[] }) {
@@ -297,11 +300,14 @@ function Row({ r, selectable, selected, onToggle, disabled }: { r: BoardRow; sel
         ) : null}
       </td>
       <td className="px-3 pt-3.5 md:py-3.5">
-        <a href={r.workUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-mono text-[13px] font-semibold text-text hover:text-accent">
-          {r.shortId} <span aria-hidden="true" className="text-white/35">↗</span>
+        {/* When it came in leads; the id is the link to the post, set small beside it. */}
+        <p className="text-[13px] font-medium leading-snug text-text">
+          <Pieces text={r.submitted} />
+        </p>
+        <a href={r.workUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex min-h-6 items-center gap-1.5 font-mono text-[12px] text-white/60 hover:text-text">
+          {r.shortId} <span aria-hidden="true">↗</span>
           <span className="sr-only">(opens the post on X)</span>
         </a>
-        <p className="mt-0.5 text-[12px] text-white/40">{r.submitted}</p>
       </td>
       <td className="px-3 pt-2 md:py-3.5">
         <HashChip value={r.contributor} head={4} tail={4} href={publicEnv.explorerAccountUrl(r.contributor)} />
@@ -316,7 +322,7 @@ function Row({ r, selectable, selected, onToggle, disabled }: { r: BoardRow; sel
             </Link>
           ) : null}
         </div>
-        {r.note && r.status !== "pending" ? <p className="mt-1 line-clamp-1 text-[12.5px] leading-snug text-white/40 [overflow-wrap:anywhere]">{r.note}</p> : null}
+        {r.note && r.status !== "pending" ? <p className="mt-1 line-clamp-1 text-[12.5px] leading-snug text-white/60 [overflow-wrap:anywhere]">{r.note}</p> : null}
       </td>
       <td className="px-3 pb-3.5 pt-2 md:py-3.5 md:pr-5">
         <div className="flex flex-wrap items-center gap-2">

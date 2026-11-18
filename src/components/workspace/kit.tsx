@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { cx } from "@/components/ui/cx";
 
 /*
@@ -11,11 +11,20 @@ import { cx } from "@/components/ui/cx";
 /** Anybody's two axes as `font-variation-settings`. Same as `axes()` in components/e/motion, without the client boundary. */
 export const ax = (wdth: number, wght: number): string => `"wdth" ${wdth}, "wght" ${wght}`;
 
+/** True for a figure that reads as nothing: "0", "0.00". */
+export const isZero = (value: string): boolean => Number(value.replace(/,/g, "")) === 0;
+
+/**
+ * Axes for a big figure. Condensed and black for real amounts; a zero is set
+ * wide and lighter, because the heavy condensed "0" reads as a blob.
+ */
+export const figureAxes = (value: string, wdth = 62, wght = 900): string => (isZero(value) ? ax(118, 500) : ax(wdth, wght));
+
 /** Mono uppercase label, the small print above every block. A colour in `className` replaces the default grey. */
 export function Label({ as: Tag = "p", className, children, id }: { as?: "p" | "span" | "h2" | "h3" | "dt" | "div"; className?: string | undefined; children: ReactNode; id?: string }) {
   const coloured = /(^|\s)text-(white|black|accent|text|fail|pass|paper)/.test(className ?? "");
   return (
-    <Tag id={id} className={cx("font-mono text-[11px] font-medium uppercase tracking-[0.18em]", !coloured && "text-white/50", className)}>
+    <Tag id={id} className={cx("font-mono text-[11px] font-medium uppercase tracking-[0.18em]", !coloured && "text-white/55", className)}>
       {children}
     </Tag>
   );
@@ -86,7 +95,13 @@ export function Panel({
   labelledBy?: string;
 }) {
   return (
-    <Tag aria-label={label} aria-labelledby={labelledBy} className={cx("relative rounded-[28px]", PANEL[tone], className)}>
+    <Tag
+      aria-label={label}
+      aria-labelledby={labelledBy}
+      // Light panels turn the focus ring to ink (globals.css).
+      data-surface={tone === "paper" || tone === "yellow" ? tone : undefined}
+      className={cx("relative rounded-[28px]", PANEL[tone], className)}
+    >
       {children}
     </Tag>
   );
@@ -166,4 +181,33 @@ export function figure(amount: string | number): string {
   const n = Number(amount);
   if (!Number.isFinite(n)) return String(amount);
   return n.toLocaleString("en-US", { maximumFractionDigits: 7 });
+}
+
+/**
+ * A detail line that never breaks inside a date, a time, a relative span or a
+ * key: each " · " piece stays whole, and a longer piece keeps its last two
+ * words together ("closed 13 Nov", "resolver GDPP…3YYK"), so nothing is orphaned.
+ */
+export function Pieces({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(" · ").map((piece, i) => {
+        const words = piece.split(" ");
+        const tail = words.length > 2 ? words.slice(-2).join(" ") : piece;
+        const head = words.length > 2 ? words.slice(0, -2).join(" ") : "";
+        return (
+          <Fragment key={i}>
+            {i > 0 ? "\u00a0· " : null}
+            {piece.length <= 18 || head === "" ? (
+              <span className="whitespace-nowrap">{piece}</span>
+            ) : (
+              <>
+                {head} <span className="whitespace-nowrap">{tail}</span>
+              </>
+            )}
+          </Fragment>
+        );
+      })}
+    </>
+  );
 }

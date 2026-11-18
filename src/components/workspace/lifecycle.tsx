@@ -4,6 +4,8 @@ import { publicEnv } from "@/config/public-env";
 import type { Campaign, EscrowOp } from "@/db/schema";
 import { deadlinePassed, type CampaignStage } from "@/domain/campaign-status";
 import { formatDateShort, formatRelative, formatTimestamp, shortKey } from "@/lib/format";
+import { Pieces } from "./kit";
+
 
 export interface LifecycleNode {
   label: string;
@@ -69,17 +71,21 @@ export function Lifecycle({ nodes }: { nodes: LifecycleNode[] }) {
                   "grid size-7 shrink-0 place-items-center rounded-full font-mono text-[11px] font-semibold",
                   state === "done" && "bg-accent text-accent-ink",
                   state === "current" && "bg-canvas text-text shadow-[inset_0_0_0_2px_var(--color-accent)]",
-                  state === "upcoming" && "bg-[#0d0d0d] text-white/35 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)]",
+                  state === "upcoming" && "bg-[#0d0d0d] text-white/60 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)]",
                 )}
               >
                 {state === "done" ? "✓" : i + 1}
               </span>
               <div className="min-w-0">
-                <p className={cx("text-[14px] font-semibold leading-snug", state === "upcoming" ? "text-white/40" : "text-text")}>
+                <p className={cx("text-[14px] font-semibold leading-snug", state === "upcoming" ? "text-white/55" : "text-text")}>
                   {n.label}
                   <span className="sr-only">{state === "done" ? " (done)" : state === "current" ? " (current step)" : " (not yet)"}</span>
                 </p>
-                {n.detail ? <p className="mt-1 font-mono text-[11px] leading-snug text-white/40">{n.detail}</p> : null}
+                {n.detail ? (
+                  <p className="mt-1 font-mono text-[11px] leading-snug text-white/55">
+                    <Pieces text={n.detail} />
+                  </p>
+                ) : null}
                 {n.txHash ? <HashChip className="mt-2" value={n.txHash} head={4} tail={4} href={publicEnv.explorerTxUrl(n.txHash)} /> : null}
               </div>
             </li>
@@ -105,13 +111,13 @@ const OP_LABEL: Record<EscrowOp["kind"], string> = {
 const OP_STATUS: Record<EscrowOp["status"], { label: string; className: string }> = {
   intent: { label: "Prepared", className: "text-muted" },
   submitted: { label: "Sent", className: "text-text-2" },
-  confirmed: { label: "Confirmed", className: "text-accent" },
+  confirmed: { label: "Confirmed", className: "text-pass" },
   failed: { label: "Failed", className: "text-fail" },
 };
 
 /** Every escrow transaction this campaign prepared, newest first. */
 export function ActivityLog({ ops }: { ops: readonly EscrowOp[] }) {
-  if (ops.length === 0) return <p className="rounded-[22px] border border-dashed border-white/10 px-5 py-6 text-sm text-white/45">No on-chain activity yet.</p>;
+  if (ops.length === 0) return <p className="rounded-[22px] border border-dashed border-white/10 px-5 py-6 text-sm text-white/60">No on-chain activity yet.</p>;
   const rows = [...ops].reverse();
   return (
     <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-[22px] border border-white/[0.07] bg-[#0d0d0d]">
@@ -121,7 +127,10 @@ export function ActivityLog({ ops }: { ops: readonly EscrowOp[] }) {
           <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 text-sm">
             <span className="min-w-0 font-medium sm:min-w-[180px]">{OP_LABEL[o.kind]}</span>
             <span className={cx("font-mono text-[12px]", s.className)}>{s.label}</span>
-            <span className="font-mono text-[12px] text-muted">{formatTimestamp(o.updatedAt)}</span>
+            {/* Log rows read to the second, as in the admin access log; every other workspace date is the short form. */}
+            <time dateTime={o.updatedAt.toISOString()} className="whitespace-nowrap font-mono text-[12px] text-white/60">
+              {formatTimestamp(o.updatedAt)}
+            </time>
             <span className="min-w-0 sm:ml-auto">
               {o.txHash ? (
                 <HashChip value={o.txHash} href={publicEnv.explorerTxUrl(o.txHash)} />

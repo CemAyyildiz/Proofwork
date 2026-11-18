@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Pill } from "@/components/ui/pill";
 import { ax } from "@/components/workspace/kit";
 import { publicEnv } from "@/config/public-env";
+import { formatDateShort } from "@/lib/format";
 import { evaluate, SIGNALS, type ReasonCode, type Signals } from "@/domain/rubric";
 import { assessmentOutcome, assessmentsAgree, sealedAssessmentJson, type SealedAssessment } from "@/domain/sealed-review";
 import { signAuthEntry, signTransaction } from "@/wallet/kit";
@@ -226,13 +227,13 @@ export function SealedReviewWorkspace({ view, address }: { view: View; address: 
           </div>
           <Pill tone={view.round.receiptVerified ? "pass" : "wait"}>{view.round.status}</Pill>
         </div>
-        <p className="mt-5 whitespace-pre-wrap rounded-[20px] bg-paper p-5 text-[15px] leading-relaxed text-paper-ink [overflow-wrap:anywhere]">{view.campaign.brief}</p>
+        <p data-surface="paper" className="mt-5 whitespace-pre-wrap rounded-[20px] bg-paper p-5 text-[15px] leading-relaxed text-paper-ink [overflow-wrap:anywhere]">{view.campaign.brief}</p>
         <a href={view.submission.workUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex h-11 items-center rounded-full border border-white/15 px-5 text-sm font-semibold transition-colors hover:border-white/40">Open submission on X ↗</a>
         <dl className="mt-6 grid gap-4 border-t border-white/[0.07] pt-5 text-[13px] text-white/75 md:grid-cols-2">
-          <div><dt className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/40">Sub Rosa contract</dt><dd className="mt-1 break-all font-mono">{view.round.contractId ?? "Not created"}</dd></div>
-          <div><dt className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/40">Round</dt><dd className="mt-1 font-mono">{view.round.roundId ?? "Not created"}</dd></div>
-          <div><dt className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/40">Commit deadline</dt><dd className="mt-1">{new Date(view.round.commitDeadline).toLocaleString()}</dd></div>
-          <div><dt className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/40">Reveal deadline</dt><dd className="mt-1">{new Date(view.round.revealDeadline).toLocaleString()}</dd></div>
+          <div><dt className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/60">Sub Rosa contract</dt><dd className="mt-1 break-all font-mono">{view.round.contractId ?? "Not created"}</dd></div>
+          <div><dt className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/60">Round</dt><dd className="mt-1 font-mono">{view.round.roundId ?? "Not created"}</dd></div>
+          <div><dt className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/60">Commit deadline</dt><dd className="mt-1">{formatDateShort(new Date(view.round.commitDeadline))}</dd></div>
+          <div><dt className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/60">Reveal deadline</dt><dd className="mt-1">{formatDateShort(new Date(view.round.revealDeadline))}</dd></div>
         </dl>
         {view.manager && view.round.status === "draft" ? <Button className="mt-6" busy={busy === "create"} busyLabel="Creating on Stellar…" onClick={() => void run("create", createRound)}>Create ReceiptOnly round</Button> : null}
       </section>
@@ -242,9 +243,9 @@ export function SealedReviewWorkspace({ view, address }: { view: View; address: 
         <ul className="mt-4 divide-y divide-white/[0.06]">
           {view.assignments.map((assignment) => (
             <li key={assignment.reviewerPubkey} className="grid gap-1 py-3.5 text-[13px] md:grid-cols-[140px_1fr_auto] md:items-center">
-              <span className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/40">{assignment.reviewerPubkey === view.campaign.creatorPubkey ? "Campaign creator" : "Founder"}</span>
+              <span className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/60">{assignment.reviewerPubkey === view.campaign.creatorPubkey ? "Campaign creator" : "Founder"}</span>
               <span className="truncate font-mono text-white/75">{assignment.reviewerPubkey}</span>
-              <span className={assignment.revealTxHash || assignment.commitTxHash ? "font-semibold text-accent" : "text-white/45"}>{assignment.revealTxHash ? "Revealed" : assignment.commitTxHash ? "Sealed" : "Waiting"}</span>
+              <span className={assignment.revealTxHash || assignment.commitTxHash ? "font-semibold text-accent" : "text-white/60"}>{assignment.revealTxHash ? "Revealed" : assignment.commitTxHash ? "Sealed" : "Waiting"}</span>
             </li>
           ))}
         </ul>
@@ -268,13 +269,13 @@ export function SealedReviewWorkspace({ view, address }: { view: View; address: 
             ))}
           </div>
           {outcome === "FAIL" ? (
-            <label className="mt-5 block font-mono text-[11px] uppercase tracking-[0.16em] text-white/50">Primary failed signal
+            <label className="mt-5 block font-mono text-[11px] uppercase tracking-[0.16em] text-white/60">Primary failed signal
               <select value={reason} onChange={(event) => setReason(event.target.value as ReasonCode)} className="mt-2 h-12 w-full rounded-[16px] border border-white/10 bg-white/[0.03] px-4 font-sans text-[15px] normal-case tracking-normal text-text">
                 {SIGNALS.filter((signal) => !signals[signal.id]).map((signal) => <option key={signal.failCode} value={signal.failCode}>{signal.label}</option>)}
               </select>
             </label>
           ) : null}
-          <label className="mt-5 block font-mono text-[11px] uppercase tracking-[0.16em] text-white/50">Note to contributor
+          <label className="mt-5 block font-mono text-[11px] uppercase tracking-[0.16em] text-white/60">Note to contributor
             <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={3} className="mt-2 w-full rounded-[16px] border border-white/10 bg-white/[0.03] px-4 py-3 font-sans text-[15px] normal-case tracking-normal text-text outline-none focus-visible:border-accent" />
           </label>
           <Button className="mt-5" busy={busy === "commit"} busyLabel="Sealing on Stellar…" onClick={() => void run("commit", commit)}>Seal {outcome}</Button>
@@ -301,18 +302,18 @@ export function SealedReviewWorkspace({ view, address }: { view: View; address: 
               {assessmentsAgree(assessments[0]!.review, assessments[1]!.review) ? "Agree" : "Disagree"}
             </Pill>
           </div>
-          <p className="mt-3 break-all font-mono text-[11.5px] text-white/45">Receipt SHA-256 · {view.round.receiptSha256}</p>
+          <p className="mt-3 break-all font-mono text-[11.5px] text-white/60">Receipt SHA-256 · {view.round.receiptSha256}</p>
           <div className="mt-5 grid gap-3 md:grid-cols-2">
             {assessments.map(({ reviewer, review }, index) => (
-              <div key={reviewer} className="rounded-[22px] bg-paper p-5 text-paper-ink">
-                <p className="font-mono text-[11px] text-black/50">{`Reviewer ${index + 1} · ${reviewer.slice(0, 8)}…${reviewer.slice(-6)}`}</p>
+              <div key={reviewer} data-surface="paper" className="rounded-[22px] bg-paper p-5 text-paper-ink">
+                <p className="font-mono text-[11px] text-black/65">{`Reviewer ${index + 1} · ${reviewer.slice(0, 8)}…${reviewer.slice(-6)}`}</p>
                 <p className="mt-3 inline-block -rotate-3 rounded-lg border-[3px] border-black px-3 font-display text-[30px] leading-tight" style={{ fontVariationSettings: ax(70, 900) }}>{assessmentOutcome(review)}</p>
                 <p className="mt-3 text-[15px] leading-relaxed">{review.note}</p>
                 {view.admin && view.round.status === "cleared" ? <Button className="mt-4" size="sm" busy={busy === `final-${reviewer}`} busyLabel="Recording…" onClick={() => void run(`final-${reviewer}`, () => finalize(reviewer))}>Use as founder decision</Button> : null}
               </div>
             ))}
           </div>
-          <p className="mt-4 text-[12.5px] text-white/45">Only the configured founder wallet can write Proofwork&apos;s final decision ledger record.</p>
+          <p className="mt-4 text-[12.5px] text-white/60">Only the configured founder wallet can write Proofwork&apos;s final decision ledger record.</p>
         </section>
       ) : null}
 

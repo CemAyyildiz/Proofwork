@@ -16,9 +16,10 @@ const STAGE: Record<CampaignStage, { tone: StageTone; label: string }> = {
   abandoned: { tone: "idle", label: "Abandoned" },
 };
 
+// Yellow is kept for money that moved and the page's one action, so a stage is never yellow.
 const TONE: Record<StageTone, string> = {
-  live: "bg-accent text-accent-ink",
-  money: "border border-accent/60 text-accent",
+  live: "border border-white/30 text-text",
+  money: "bg-white/[0.12] text-text",
   done: "border border-pass-line text-pass",
   idle: "bg-white/[0.08] text-white/70",
 };

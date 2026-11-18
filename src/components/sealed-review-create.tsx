@@ -46,7 +46,7 @@ export function SealedReviewCreate({ candidates }: { candidates: Candidate[] }) 
       <p className="mt-3 max-w-[640px] text-[14px] leading-relaxed text-white/55">Choose a pending submission. Reviewers are immutable: Proofwork&apos;s configured founder wallet and this campaign&apos;s original creator.</p>
       <div className="mt-5 grid gap-3">
         <label>
-          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/50">Submission</span>
+          <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/60">Submission</span>
           <select value={submissionId} onChange={(event) => setSubmissionId(event.target.value)} className="mt-2 h-12 w-full rounded-[16px] border border-white/10 bg-white/[0.03] px-4 text-[15px] text-text">
             {candidates.map((candidate) => (
               <option key={candidate.submissionId} value={candidate.submissionId}>{`${candidate.shortId} · ${candidate.campaignTitle}`}</option>

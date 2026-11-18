@@ -113,7 +113,7 @@ export function FundingReadinessPanel({
           <ol className="mt-4 grid gap-3">
             {readiness.missing.map((m, i) => (
               <li key={m.item} className="relative rounded-[16px] border border-white/[0.07] bg-[#0b0b0b] py-3.5 pl-12 pr-4 text-[13.5px] leading-relaxed text-text">
-                <span aria-hidden="true" className="absolute left-4 top-3.5 grid size-5 place-items-center rounded-full border border-fail-line font-mono text-[10px] text-fail">
+                <span aria-hidden="true" className="absolute left-4 top-3.5 grid size-5 place-items-center rounded-full border border-white/25 font-mono text-[10px] text-white/70">
                   {i + 1}
                 </span>
                 {describeMissing(m, publicEnv.network)}
@@ -127,6 +127,8 @@ export function FundingReadinessPanel({
                   <div className="mt-2.5">
                     <Button
                       size="sm"
+                      // Activation comes first: until then this is not the next thing to press, so it is not yellow.
+                      variant={noAccount ? "secondary" : "primary"}
                       busy={busy === "trustline"}
                       busyLabel="Awaiting your signature…"
                       disabled={locked || noAccount}
@@ -155,7 +157,7 @@ export function FundingReadinessPanel({
           wallet may read as short of USDC.
         </p>
       ) : null}
-      {cancelled ? <p className="mt-3 text-[12.5px] text-white/50">Signature cancelled in your wallet. Nothing was sent.</p> : null}
+      {cancelled ? <p className="mt-3 text-[12.5px] text-white/60">Signature cancelled in your wallet. Nothing was sent.</p> : null}
       {error ? (
         <p role="alert" className="mt-3 text-[12.5px] text-fail">
           {error}

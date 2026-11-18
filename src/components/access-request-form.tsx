@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 /** Set on paper: black ink, white wells. */
 const field =
   "mt-2 w-full rounded-[16px] border border-black/15 bg-white px-4 py-3 text-[15px] text-paper-ink placeholder:text-black/35 focus-visible:border-black focus-visible:outline-black";
-const label = "block font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-black/55";
+const label = "block font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-black/65";
 
 /**
  * Asks the operator for funder access: a team name and a note, nothing else.
@@ -62,7 +62,7 @@ export function AccessRequestForm() {
         className={field}
         placeholder="The campaign you have in mind, roughly how many contributors and what budget."
       />
-      <p className="mt-2 text-[12.5px] text-black/50">No email or other contact details. The operator answers on this page.</p>
+      <p className="mt-2 text-[12.5px] text-black/65">No email or other contact details. The operator answers on this page.</p>
       {error ? (
         <p role="alert" className="mt-2 text-[13px] font-medium text-[#b42318]">
           {error}

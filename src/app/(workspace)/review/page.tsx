@@ -33,7 +33,7 @@ export default async function ReviewPage() {
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-[24px] border border-white/[0.07] bg-[#0d0d0d] px-5 py-4">
           <div>
             <p className="text-[15px] font-semibold">Experimental sealed dual review</p>
-            <p className="mt-1 text-[13px] text-white/50">Two independent rubric assessments, hidden until a shared timed reveal.</p>
+            <p className="mt-1 text-[13px] text-white/60">Two independent rubric assessments, hidden until a shared timed reveal.</p>
           </div>
           <Link href="/review/sealed" className={buttonClasses("secondary", "sm")}>
             Open sealed reviews
@@ -75,7 +75,7 @@ export default async function ReviewPage() {
             <h2 id="review-logs" className="font-display text-[clamp(1.75rem,3vw,2.4rem)] leading-none" style={{ fontVariationSettings: ax(85, 830) }}>
               Review logs
             </h2>
-            <p className="mt-2 text-[14px] text-white/50">Every decision per campaign, re-reviews included, with its on-chain reference.</p>
+            <p className="mt-2 text-[14px] text-white/60">Every decision per campaign, re-reviews included, with its on-chain reference.</p>
           </div>
           <ul className="divide-y divide-white/[0.06] overflow-hidden rounded-[24px] border border-white/[0.07] bg-[#0d0d0d]">
             {logs.map((c) => (

@@ -205,7 +205,7 @@ export function WorkspaceMenu(props: ItemProps) {
         className="absolute inset-x-0 top-full h-[calc(100dvh-4rem)] overflow-y-auto border-t border-white/10 bg-canvas px-5 pb-10 pt-4 md:px-10"
       >
         <Groups workspace={workspace} pub={pub} pathname={pathname} tall />
-        <p className="mt-10 flex items-center gap-2 px-3 font-mono text-[11px] uppercase tracking-[0.16em] text-white/40">
+        <p className="mt-10 flex items-center gap-2 px-3 font-mono text-[11px] uppercase tracking-[0.16em] text-white/60">
           <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
           {publicEnv.isMainnet ? "Stellar mainnet · real USDC" : "Stellar testnet · USDC here is not real money"}
         </p>
@@ -238,7 +238,7 @@ function Groups({ workspace, pub, pathname, tall = false }: { workspace: NavItem
 }
 
 function GroupHeading({ children }: { children: string }) {
-  return <p className="px-3 pb-1.5 pt-5 font-mono text-[10.5px] font-medium uppercase tracking-[0.2em] text-white/35 first:pt-1">{children}</p>;
+  return <p className="px-3 pb-1.5 pt-5 font-mono text-[10.5px] font-medium uppercase tracking-[0.2em] text-white/60 first:pt-1">{children}</p>;
 }
 
 /** Sidebar item: the current page carries the yellow marker. In the phone sheet the items are set in the display face. */
@@ -251,7 +251,7 @@ function SideLink({ item, index, active, tall }: { item: NavItem; index: number;
       className={cx(
         "group/nav relative flex items-center rounded-full transition-colors duration-200",
         tall ? "min-h-14 gap-4 px-3 font-display text-[34px] leading-none" : "gap-3 py-2.5 pl-4 pr-3 text-[14.5px] font-medium",
-        active ? "text-text" : "text-white/50 hover:text-text",
+        active ? "text-text" : "text-white/60 hover:text-text",
         !tall && (active ? "bg-white/[0.06]" : "hover:bg-white/[0.03]"),
       )}
     >
@@ -267,7 +267,7 @@ function SideLink({ item, index, active, tall }: { item: NavItem; index: number;
           {String(index + 1).padStart(2, "0")}
         </span>
       ) : (
-        <span aria-hidden="true" className={cx("transition-colors", active ? "text-accent" : "text-white/35 group-hover/nav:text-white/70")}>
+        <span aria-hidden="true" className={cx("transition-colors", active ? "text-accent" : "text-white/60 group-hover/nav:text-white/70")}>
           {item.icon}
         </span>
       )}
