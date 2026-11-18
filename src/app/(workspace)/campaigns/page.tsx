@@ -60,7 +60,7 @@ export default async function CampaignsPage() {
         ) : (
           <>
             <Totals items={items} />
-            <CampaignList items={items} now={now} urgent={urgent} />
+            <CampaignList items={items} now={now} urgent={urgent} viewer={user.pubkey} />
           </>
         )}
       </div>
@@ -91,7 +91,7 @@ export default async function CampaignsPage() {
           <p className="max-w-[640px] text-sm text-white/60">
             This wallet no longer has funder access. You can still approve payouts, release them and close these campaigns.
           </p>
-          <CampaignList items={kept} now={now} urgent={mostUrgent(kept, now)} />
+          <CampaignList items={kept} now={now} urgent={mostUrgent(kept, now)} viewer={user.pubkey} />
         </section>
       ) : null}
     </div>

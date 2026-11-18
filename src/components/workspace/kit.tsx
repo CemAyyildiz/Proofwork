@@ -1,5 +1,6 @@
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { cx } from "@/components/ui/cx";
+import { fromStroops, toStroops } from "@/escrow/amount";
 
 /*
  * The workspace's share of the E language: Anybody display type, mono labels,
@@ -53,13 +54,17 @@ export function Display({
   );
 }
 
-/** A headline whose words rise from their line, staggered, once on load. */
+/**
+ * A headline whose words rise from their line, staggered, once on load. The
+ * clipping box reaches 0.2em above the line (padding, cancelled by a negative
+ * margin) so a dotted capital such as "İ" keeps its dot.
+ */
 export function RiseWords({ text, delay = 60 }: { text: string; delay?: number }) {
   const words = text.split(/\s+/).filter(Boolean);
   return (
     <>
       {words.map((w, i) => (
-        <span key={i} className="mr-[0.22em] inline-block overflow-y-clip pb-[0.08em] align-top last:mr-0">
+        <span key={i} className="-mt-[0.2em] mr-[0.22em] inline-block overflow-y-clip pb-[0.08em] pt-[0.2em] align-top last:mr-0">
           <span className="inline-block animate-rise" style={{ animationDelay: `${delay + i * 45}ms` }}>
             {w}
           </span>
@@ -128,8 +133,8 @@ export const SLOT_FILL: Record<Slots["key"], string> = {
  * waiting for a signature, passed and ready to approve, in review, still free.
  * Past `cap` slots the run is drawn as proportional bars instead.
  */
-export function SlotMeter({ total, parts, cap = 48, size = "md", stagger = true }: { total: number; parts: Slots[]; cap?: number; size?: "sm" | "md" | "lg"; stagger?: boolean }) {
-  const h = size === "lg" ? "h-10 md:h-14 rounded-md" : size === "md" ? "h-7 rounded-[5px]" : "h-4 rounded-[3px]";
+export function SlotMeter({ total, parts, cap = 48, size = "md", stagger = true }: { total: number; parts: Slots[]; cap?: number; size?: "xs" | "sm" | "md" | "lg"; stagger?: boolean }) {
+  const h = size === "lg" ? "h-10 md:h-14 rounded-md" : size === "md" ? "h-7 rounded-[5px]" : size === "sm" ? "h-4 rounded-[3px]" : "h-2 rounded-[2px]";
   const used = parts.filter((p) => p.key !== "left").reduce((s, p) => s + p.n, 0);
   const slots = Math.max(total, used);
   if (slots === 0) return <div aria-hidden="true" className={cx("w-full border border-dashed border-white/15", h)} />;
@@ -168,16 +173,31 @@ export function SlotLegend({ parts, className }: { parts: Slots[]; className?: s
   );
 }
 
-/** How many rewards a budget pays, from the decimal strings the database holds. */
-export function slotCount(budget: string, reward: string): number {
-  const b = Number(budget);
-  const r = Number(reward);
-  if (!Number.isFinite(b) || !Number.isFinite(r) || r <= 0) return 0;
-  return Math.max(0, Math.floor(b / r + 1e-9));
+/** A well-formed positive USDC decimal string in stroops, or null. Never throws. */
+export function stroopsOf(amount: string): bigint | null {
+  const s = amount.trim();
+  if (!/^\d+(?:\.\d{1,7})?$/.test(s)) return null;
+  const n = toStroops(s);
+  return n > 0n ? n : null;
 }
 
-/** A USDC amount as a bare figure for display type: "1,240.5". */
+/** How many rewards a budget pays, from the decimal strings the database holds: whole stroops, no float. */
+export function slotCount(budget: string, reward: string): number {
+  const b = stroopsOf(budget);
+  const r = stroopsOf(reward);
+  if (b === null || r === null) return 0;
+  return Number(b / r);
+}
+
+/** A USDC amount as a bare figure for display type: "1,240.5". Decimal strings are grouped as text, never through a float. */
 export function figure(amount: string | number): string {
+  const s = typeof amount === "string" ? amount.trim() : "";
+  const m = /^(\d+)(?:\.(\d{1,7}))?$/.exec(s);
+  if (m?.[1] !== undefined) {
+    const exact = fromStroops(toStroops(s));
+    const [whole = "0", frac] = exact.split(".");
+    return `${BigInt(whole).toLocaleString("en-US")}${frac ? `.${frac}` : ""}`;
+  }
   const n = Number(amount);
   if (!Number.isFinite(n)) return String(amount);
   return n.toLocaleString("en-US", { maximumFractionDigits: 7 });
@@ -186,20 +206,27 @@ export function figure(amount: string | number): string {
 /**
  * A detail line that never breaks inside a date, a time, a relative span or a
  * key: each " · " piece stays whole, and a longer piece keeps its last two
- * words together ("closed 13 Nov", "resolver GDPP…3YYK"), so nothing is orphaned.
+ * words together ("closed 13 Nov"), so nothing is orphaned. A piece that ends
+ * in a shortened key ("by the resolver GDPP…3YYK") breaks only before the key.
  */
 export function Pieces({ text }: { text: string }) {
   return (
     <>
       {text.split(" · ").map((piece, i) => {
         const words = piece.split(" ");
-        const tail = words.length > 2 ? words.slice(-2).join(" ") : piece;
-        const head = words.length > 2 ? words.slice(0, -2).join(" ") : "";
+        const keyed = words.length > 1 && (words.at(-1) ?? "").includes("…");
+        const cut = keyed ? -1 : -2;
+        const tail = words.length > -cut ? words.slice(cut).join(" ") : piece;
+        const head = words.length > -cut ? words.slice(0, cut).join(" ") : "";
         return (
           <Fragment key={i}>
             {i > 0 ? "\u00a0· " : null}
             {piece.length <= 18 || head === "" ? (
               <span className="whitespace-nowrap">{piece}</span>
+            ) : keyed ? (
+              <>
+                <span className="whitespace-nowrap">{head}</span> <span className="whitespace-nowrap">{tail}</span>
+              </>
             ) : (
               <>
                 {head} <span className="whitespace-nowrap">{tail}</span>

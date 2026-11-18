@@ -4,7 +4,7 @@ import { Suspense, type ReactNode } from "react";
 import { CopyLink } from "@/components/copy-link";
 import { EscrowActions } from "@/components/escrow-actions";
 import { EscrowBalance, EscrowBalanceLoading } from "@/components/escrow-balance";
-import { FundingReadinessPanel } from "@/components/funding-readiness";
+import { FundingReadinessPanel, type LimitItem } from "@/components/funding-readiness";
 import { cx } from "@/components/ui/cx";
 import { HashChip } from "@/components/ui/hash-chip";
 import { dateLine, describeStep, OWNER_LABEL, StagePill } from "@/components/workspace/campaign-phase";
@@ -14,7 +14,7 @@ import { LimitMeter } from "@/components/workspace/limit-meter";
 import { ax, figure, figureAxes, isZero, Label, Pieces, RiseWords, SlotLegend, SlotMeter } from "@/components/workspace/kit";
 import { ActivityLog, confirmedTx, Lifecycle, lifecycleNodes } from "@/components/workspace/lifecycle";
 import { CountUp } from "@/components/workspace/motion-bits";
-import { SubmissionsBoard, type BoardRow } from "@/components/workspace/submissions-board";
+import { BoardSelection, SelectForStep, SubmissionsBoard, type BoardRow } from "@/components/workspace/submissions-board";
 import { funderLimits } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import type { Campaign, EscrowOp } from "@/db/schema";
@@ -114,6 +114,8 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
         ) : null}
       </MoneyHero>
 
+      {/* The Next step panel can filter and tick the board below it, so both share one selection. */}
+      <BoardSelection rows={rows} closed={c.closedAt !== null}>
       <NextStepStrip campaign={c} step={step} viewer={user.pubkey} reviewer={user.roles.has("reviewer")} />
 
       <Lifecycle nodes={lifecycleNodes(c, stage, ops, now)} />
@@ -138,8 +140,22 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
                   {canAbandon ? "; you can abandon it instead" : ""}.
                 </p>
               ) : null}
-              {overLimit ? <OverLimit message={overLimit.message} caps={overLimit.caps} budget={c.budget} /> : null}
-              {walletStep && readiness ? <FundingReadinessPanel address={user.pubkey} step={walletStep} readiness={readiness} fundSent={fundSent} /> : null}
+              {/* One checklist: the limits the draft breaks, then what the wallet lacks. */}
+              {walletStep && readiness ? (
+                <FundingReadinessPanel
+                  address={user.pubkey}
+                  step={walletStep}
+                  readiness={readiness}
+                  fundSent={fundSent}
+                  limits={overLimit ? limitItems(overLimit.message, overLimit.caps, c.budget) : []}
+                />
+              ) : overLimit ? (
+                <section aria-label="Limits" className="max-w-[680px] space-y-4 rounded-[22px] bg-white/[0.03] p-4 sm:p-5">
+                  {limitItems(overLimit.message, overLimit.caps, c.budget).map((it) => (
+                    <div key={it.key}>{it.body}</div>
+                  ))}
+                </section>
+              ) : null}
               {(escrowStage === "draft" || escrowStage === "deployed") && (offerStep || canAbandon) ? (
                 <EscrowActions
                   campaignId={c.id}
@@ -223,6 +239,7 @@ export default async function CampaignPage({ params }: { params: Promise<{ slug:
           </div>
         </aside>
       </div>
+      </BoardSelection>
     </div>
   );
 }
@@ -246,50 +263,51 @@ function capsOf(details: Record<string, unknown> | undefined): Cap[] {
 }
 
 /**
- * A draft that does not fit under the funder's limits: one row per limit it
- * breaks, each with a meter that runs red past the cap. One limit is said in
- * the service's own words; two get a row each instead of one joined line.
+ * A draft that does not fit under the funder's limits, as checklist items:
+ * one per limit it breaks, said in the service's own words, each with a meter
+ * that runs past the cap. Amounts go to the meter as decimal strings.
  */
-function OverLimit({ message, caps, budget }: { message: string; caps: Cap[]; budget: string }) {
+function limitItems(message: string, caps: Cap[], budget: string): LimitItem[] {
   const parts = message.split("; ");
-  return (
-    <section role="alert" aria-label="Limits" className="rounded-[22px] bg-white/[0.03] p-4 sm:p-5">
-      <p className="text-[14px] leading-relaxed text-white/75">
-        {parts.length === 1
-          ? `This campaign can't be deployed while a limit is reached: ${message}. Deploy stays off until it fits.`
-          : "This campaign can't be deployed while these limits are reached. Deploy stays off until it fits."}
-      </p>
-      {caps.length > 0 ? (
-        <dl className="mt-4 space-y-4">
-          {caps.map((k) =>
-            k.cap === "open_campaigns" ? (
-              <LimitMeter
-                key={k.cap}
-                label="Open campaigns"
-                value={`${k.used} of ${k.limit} in use`}
-                used={Number(k.used)}
-                max={Number(k.limit)}
-                adding={1}
-                over
-                note={parts.length > 1 ? "Close one first." : undefined}
-              />
-            ) : (
-              <LimitMeter
-                key={k.cap}
-                label="Open budget"
-                value={`${formatUsdc(k.used)} of ${formatUsdc(k.limit)} in use, plus ${formatUsdc(budget)} here`}
-                used={Number(k.used)}
-                max={Number(k.limit)}
-                adding={Number(budget)}
-                over
-                note={parts.length > 1 ? `No room for this ${formatUsdc(budget)} campaign.` : undefined}
-              />
-            ),
-          )}
-        </dl>
-      ) : null}
-    </section>
+  const said = (prefix: string) => parts.find((p) => p.startsWith(prefix)) ?? (parts.length === 1 ? message : null);
+  const sentence = (part: string | null) =>
+    part ? <p className="text-white/75">{`This campaign can't be deployed while a limit is reached: ${part}. Deploy stays off until it fits.`}</p> : null;
+  const items = caps.map((k): LimitItem =>
+    k.cap === "open_campaigns"
+      ? {
+          key: k.cap,
+          title: `Open campaigns: ${k.used} of ${k.limit} in use`,
+          body: (
+            <div className="space-y-3">
+              {sentence(said("open-campaign"))}
+              <dl>
+                <LimitMeter label="Open campaigns" value={`${k.used} of ${k.limit} in use`} used={Number(k.used)} max={Number(k.limit)} adding={1} over note={parts.length > 1 ? "Close one first." : undefined} />
+              </dl>
+            </div>
+          ),
+        }
+      : {
+          key: k.cap,
+          title: `Open budget: no room for ${formatUsdc(budget)}`,
+          body: (
+            <div className="space-y-3">
+              {sentence(said("open-budget"))}
+              <dl>
+                <LimitMeter
+                  label="Open budget"
+                  value={`${formatUsdc(k.used)} of ${formatUsdc(k.limit)} in use, plus ${formatUsdc(budget)} here`}
+                  used={k.used}
+                  max={k.limit}
+                  adding={budget}
+                  over
+                />
+              </dl>
+            </div>
+          ),
+        },
   );
+  // A refusal whose details carry no caps is still said, as one item.
+  return items.length > 0 ? items : [{ key: "limit", title: "A funder limit is reached", body: sentence(message) }];
 }
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
@@ -403,6 +421,12 @@ function NextStepStrip({ campaign: c, step, viewer, reviewer }: { campaign: Camp
             {title}
           </p>
           <p className="mt-3 text-[15px] leading-relaxed text-white/60">{body}</p>
+          {/* The panel's one control for a payout step: it filters the board and ticks those rows, so the bar under it is live. */}
+          {yours && c.fundedAt && !c.closedAt && (step.kind === "approve" || step.kind === "release") ? (
+            <div className="mt-5">
+              <SelectForStep kind={step.kind} />
+            </div>
+          ) : null}
         </div>
         {step.owner ? (
           <div className="flex flex-wrap items-center gap-2 text-[13px] text-white/60">
@@ -449,7 +473,7 @@ function MoneyStory({ campaign: c, ops, rows, paidAmount }: { campaign: Campaign
           {c.remainderTxHash ? (
             <TxLink hash={c.remainderTxHash} />
           ) : (
-            <span className="rounded-full bg-black/90 [&>span]:border-0 [&>span]:bg-transparent [&>span]:text-white">
+            <span data-surface="dark" className="rounded-full bg-black/90 [&>span]:border-0 [&>span]:bg-transparent [&>span]:text-white">
               <HashChip value={c.disputeResolverPubkey} head={4} tail={4} href={publicEnv.explorerAccountUrl(c.disputeResolverPubkey)} />
             </span>
           )}
@@ -459,10 +483,10 @@ function MoneyStory({ campaign: c, ops, rows, paidAmount }: { campaign: Campaign
   );
 }
 
-/** A transaction on yellow: a black chip, as in the public payouts list. Its focus ring sits on the yellow, so it stays ink (not `.bg-black`, which would turn it yellow). */
+/** A transaction on yellow: a black chip, as in the public payouts list. Marked as a dark surface, so its focus ring is yellow against the black chip (globals.css). */
 function TxLink({ hash }: { hash: string }) {
   return (
-    <span className="inline-flex rounded-full bg-[#000] [&>span]:border-0 [&>span]:bg-transparent [&>span]:text-white [&>span:hover]:text-accent">
+    <span data-surface="dark" className="inline-flex rounded-full bg-[#000] [&>span]:border-0 [&>span]:bg-transparent [&>span]:text-white [&>span:hover]:text-accent">
       <HashChip value={hash} href={publicEnv.explorerTxUrl(hash)} />
     </span>
   );

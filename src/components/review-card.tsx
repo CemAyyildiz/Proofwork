@@ -174,7 +174,7 @@ function SubmissionPanel({ item, now }: { item: ReviewItem; now: Date }) {
       <div className="flex flex-wrap items-center gap-2.5">
         <span className="font-mono text-[13px] font-semibold">{item.shortId}</span>
         {item.status === "appealed" ? (
-          <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-black px-3 font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-accent">
+          <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-black px-3 font-mono text-[11px] font-semibold uppercase tracking-[0.12em] text-white">
             <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
             Re-review
           </span>
@@ -237,7 +237,7 @@ function SubmissionPanel({ item, now }: { item: ReviewItem; now: Date }) {
             <span
               className={cx(
                 "rounded-md border-2 px-2 py-0.5 font-mono text-[11px] font-bold tracking-[0.1em]",
-                item.priorDecision.outcome === "PASS" ? "border-black bg-accent" : "border-[#b42318] text-[#b42318]",
+                item.priorDecision.outcome === "PASS" ? "border-black text-black" : "border-[#b42318] text-[#b42318]",
               )}
             >
               {item.priorDecision.outcome}
@@ -253,7 +253,7 @@ function SubmissionPanel({ item, now }: { item: ReviewItem; now: Date }) {
         <p className="mt-4 text-[13px] text-black/65">Funding source not checked.</p>
       ) : item.sharedFundingCount > 0 ? (
         <p role="note" className="mt-4 rounded-[20px] bg-black p-4 text-[13.5px] leading-relaxed text-white/75">
-          <strong className="text-accent">Shared funding source:</strong>{" "}
+          <strong className="text-white">Shared funding source:</strong>{" "}
           {`${item.sharedFundingCount} other ${item.sharedFundingCount === 1 ? "submission" : "submissions"} in this campaign.`} The wallets were
           first funded by the same account, or one funded the other. Weigh it under the single-account check; no signal has been changed.
         </p>
@@ -285,7 +285,7 @@ function ScoreMeter({ signals, passCount, outcome }: { signals: Draft["signals"]
         <div>
           <h3 className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/60">Yeses</h3>
           <p className="mt-2 font-display text-[clamp(4.5rem,8vw,6rem)] leading-[0.78] tabular-nums" style={{ fontVariationSettings: ax(62, 900) }}>
-            <span className={pass ? "text-accent" : "text-text"}>{passCount}</span>
+            <span className="text-text">{passCount}</span>
             <span className="text-white/25">{` / ${SIGNALS.length}`}</span>
           </p>
         </div>
@@ -295,7 +295,7 @@ function ScoreMeter({ signals, passCount, outcome }: { signals: Draft["signals"]
             key={outcome}
             className={cx(
               "inline-block -rotate-6 animate-pop rounded-lg border-[3px] px-3 py-0.5 font-display text-[28px] leading-tight",
-              pass ? "border-black bg-accent text-black" : "border-fail text-fail",
+              pass ? "border-pass bg-pass-soft text-pass" : "border-fail text-fail",
             )}
             style={{ fontVariationSettings: ax(70, 900) }}
           >
@@ -309,18 +309,25 @@ function ScoreMeter({ signals, passCount, outcome }: { signals: Draft["signals"]
         {SIGNALS.map((s) => (
           <span
             key={s.id}
-            className={cx("h-3 rounded-full transition-colors duration-300", signals[s.id] ? (pass ? "bg-accent" : "bg-paper") : "bg-fail/80")}
+            className={cx("h-3 rounded-full transition-colors duration-300", signals[s.id] ? "bg-paper" : "bg-fail/80")}
           />
         ))}
         {/* The pass line sits after the PASS_THRESHOLD-th cell. */}
         <span
-          className="absolute -bottom-1.5 -top-1.5 w-[2px] rounded-full bg-white/70"
+          className={cx("absolute -bottom-1.5 -top-1.5 w-[2px] rounded-full transition-colors duration-300", pass ? "bg-pass" : "bg-white/70")}
           style={{ left: `calc(${(PASS_THRESHOLD / SIGNALS.length) * 100}% - 4px)` }}
         />
       </div>
-      <p aria-hidden="true" className="relative mt-2 h-4 font-mono text-[10px] uppercase tracking-[0.16em] text-white/55">
-        <span className="absolute -translate-x-1/2" style={{ left: `calc(${(PASS_THRESHOLD / SIGNALS.length) * 100}% - 3px)` }}>
-          pass line
+      {/* Crossing the pass line ticks it green; yellow stays on the Record button. */}
+      <p aria-hidden="true" className={cx("relative mt-2 h-4 font-mono text-[10px] uppercase tracking-[0.16em] transition-colors duration-300", pass ? "text-pass" : "text-white/55")}>
+        <span className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `calc(${(PASS_THRESHOLD / SIGNALS.length) * 100}% - 3px)` }}>
+          {pass ? (
+            <span key="tick" className="inline-block animate-pop">
+              ✓ pass line
+            </span>
+          ) : (
+            "pass line"
+          )}
         </span>
       </p>
     </div>
@@ -407,7 +414,7 @@ function RubricGuide({ id }: { id: SignalId }) {
   return (
     <div className="mt-5 rounded-[22px] bg-white/[0.03] p-5">
       <h3 className="flex items-baseline gap-2.5 font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-white/60">
-        <span className="text-accent">{`Signal ${Math.max(index, 0) + 1}`}</span>
+        <span className="text-text">{`Signal ${Math.max(index, 0) + 1}`}</span>
         <span>{`· ${s.label}`}</span>
       </h3>
       {/* The question is quoted verbatim from the README rubric, where it continues a sentence; only its first letter is raised here. */}

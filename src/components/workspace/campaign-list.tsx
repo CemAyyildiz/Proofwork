@@ -74,21 +74,22 @@ export function slotParts(c: Pick<Campaign, "budget" | "rewardAmount">, counts: 
   };
 }
 
-export function CampaignList({ items, now, urgent = null }: { items: readonly CampaignListItem[]; now: Date; urgent?: string | null }) {
+/**
+ * `viewer` is the signed-in wallet: a step that waits on it reads "Waits on you".
+ */
+export function CampaignList({ items, now, urgent = null, viewer = null }: { items: readonly CampaignListItem[]; now: Date; urgent?: string | null; viewer?: string | null }) {
   return (
     <div className="space-y-12">
       {groupByStage(items, now).map((g) => (
         <section key={g.stage} aria-label={stageLabel(g.stage)}>
-          <h2 className="mb-4 flex items-baseline gap-3">
+          <h2 className="mb-4 flex items-center gap-2.5">
             <Label as="span">{stageLabel(g.stage)}</Label>
-            <span className="font-display text-[22px] leading-none text-white/30" style={{ fontVariationSettings: ax(70, 900) }}>
-              {g.items.length}
-            </span>
+            <span className="rounded-full bg-white/10 px-2.5 py-0.5 font-mono text-[11px] font-medium text-white/70">{g.items.length}</span>
           </h2>
           <ul className="space-y-4">
             {g.items.map((item, i) => (
               <Reveal as="li" key={item.campaign.id} delay={i * 70}>
-                <CampaignRow item={item} stage={g.stage} now={now} urgent={item.campaign.id === urgent} />
+                <CampaignRow item={item} stage={g.stage} now={now} urgent={item.campaign.id === urgent} viewer={viewer} />
               </Reveal>
             ))}
           </ul>
@@ -98,9 +99,11 @@ export function CampaignList({ items, now, urgent = null }: { items: readonly Ca
   );
 }
 
-function CampaignRow({ item, stage, now, urgent }: { item: CampaignListItem; stage: CampaignStage; now: Date; urgent: boolean }) {
+function CampaignRow({ item, stage, now, urgent, viewer }: { item: CampaignListItem; stage: CampaignStage; now: Date; urgent: boolean; viewer: string | null }) {
   const { campaign: c, counts } = item;
   const step = nextStep(stage, c, counts, now);
+  const wallet = step.owner === "funder" ? c.funderPubkey : step.owner === "resolver" ? c.disputeResolverPubkey : null;
+  const yours = viewer !== null && wallet === viewer;
   const { title } = describeStep(step, c);
   const funded = c.fundedAt !== null;
   const tally = [
@@ -199,9 +202,16 @@ function CampaignRow({ item, stage, now, urgent }: { item: CampaignListItem; sta
             </svg>
           </span>
           {step.owner ? (
-            <span className="order-first font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/55">
-              {/* "Waits on" is drawn by CSS so the row still reads "Next: Release 2 · Funder". */}
-              <span className="sr-only">·</span> <span className="before:content-['Waits_on_']">{OWNER_LABEL[step.owner]}</span>
+            <span className={cx("order-first font-mono text-[10.5px] uppercase tracking-[0.16em]", yours ? "text-text" : "text-white/55")}>
+              {/* "Waits on" is drawn by CSS (with empty alt text) so the row still reads "Next: Release 2 · Funder". */}
+              <span className="sr-only">·</span>{" "}
+              {yours ? (
+                <span className="before:content-['Waits_on_you'_/_'']">
+                  <span className="sr-only">{OWNER_LABEL[step.owner]}</span>
+                </span>
+              ) : (
+                <span className="before:content-['Waits_on_'_/_'']">{OWNER_LABEL[step.owner]}</span>
+              )}
             </span>
           ) : null}
         </p>

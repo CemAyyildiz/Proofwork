@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { createContext, useContext, useId, useState, type ReactNode } from "react";
 import { describeRelease, releaseSelected, type PreparedRelease, type ReleasedPayout, type ReleaseResult } from "@/components/release-flow";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
@@ -14,7 +14,6 @@ import { isReadyToPay, type SubmissionCounts } from "@/domain/campaign-status";
 import { reasonLabel } from "@/domain/rubric";
 import { signTransaction } from "@/wallet/kit";
 import { plural } from "./campaign-phase";
-import { Pieces } from "./kit";
 import { payoutsCall } from "./funder-api";
 
 export interface BoardRow {
@@ -45,6 +44,74 @@ const TABS: Array<{ id: Tab; label: string; count: (c: SubmissionCounts) => numb
   { id: "paid", label: "Paid", count: (c) => c.paid, match: (r) => r.payoutStatus === "released" },
   { id: "rejected", label: "Rejected", count: (c) => c.rejected, match: (r) => r.status === "rejected" },
 ];
+
+/** The rows the bar can act on: passes to approve and approved payouts to release. Nothing once the campaign is closed. */
+function actionable(rows: readonly BoardRow[], closed: boolean): { eligible: BoardRow[]; releasable: BoardRow[] } {
+  // A stuck or failed payout can be selected again: the server resumes it from chain state.
+  if (closed) return { eligible: [], releasable: [] };
+  return { eligible: rows.filter((r) => isReadyToPay(r) && r.outcome === "PASS"), releasable: rows.filter((r) => r.payoutStatus === "approved") };
+}
+
+interface Selection {
+  tab: Tab;
+  setTab: (t: Tab) => void;
+  selected: ReadonlySet<string>;
+  setSelected: (next: ReadonlySet<string>) => void;
+  eligible: string[];
+  releasable: string[];
+}
+
+const SelectionContext = createContext<Selection | null>(null);
+
+/** The id the Next step panel scrolls to. */
+const BOARD_ID = "submissions";
+
+/**
+ * Holds the board's filter and ticked rows, so the Next step panel above the
+ * board can set them: its one button filters the board and ticks the rows the
+ * step is about. Selection only, client-side; nothing is sent.
+ */
+export function BoardSelection({ rows, closed, children }: { rows: BoardRow[]; closed: boolean; children: ReactNode }) {
+  const [tab, setTab] = useState<Tab>("all");
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const { eligible, releasable } = actionable(rows, closed);
+  return (
+    <SelectionContext
+      value={{ tab, setTab, selected, setSelected, eligible: eligible.map((r) => r.submissionId), releasable: releasable.map((r) => r.submissionId) }}
+    >
+      {children}
+    </SelectionContext>
+  );
+}
+
+/**
+ * The Next step panel's control for Approve and Release: filters the board to
+ * the rows the step is about and ticks them, so the bar under the board is
+ * live. It only selects; Approve and Release stay the board's own buttons.
+ */
+export function SelectForStep({ kind }: { kind: "approve" | "release" }) {
+  const ctx = useContext(SelectionContext);
+  if (!ctx) return null;
+  const ids = kind === "approve" ? ctx.eligible : ctx.releasable;
+  if (ids.length === 0) return null;
+  const tab: Tab = kind === "approve" ? "ready" : "signature";
+  const done = ctx.tab === tab && ids.every((id) => ctx.selected.has(id)) && ctx.selected.size === ids.length;
+  const go = () => {
+    ctx.setTab(tab);
+    ctx.setSelected(new Set(ids));
+    const board = document.getElementById(BOARD_ID);
+    if (board) {
+      board.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+      board.focus({ preventScroll: true });
+    }
+  };
+  const what = kind === "approve" ? "ready" : "approved";
+  return (
+    <Button variant={done ? "secondary" : "primary"} onClick={go} aria-controls={BOARD_ID}>
+      {done ? `${ids.length} selected · go to the bar ↓` : `Select the ${ids.length} ${what}`}
+    </Button>
+  );
+}
 
 function payoutPill(r: BoardRow): { tone: PillTone; label: string } | null {
   switch (r.payoutStatus) {
@@ -91,29 +158,33 @@ export function SubmissionsBoard({
   closed: boolean;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("all");
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const shared = useContext(SelectionContext);
+  const [ownTab, setOwnTab] = useState<Tab>("all");
+  const [ownSelected, setOwnSelected] = useState<ReadonlySet<string>>(new Set());
+  const tab = shared ? shared.tab : ownTab;
+  const setTab = shared ? shared.setTab : setOwnTab;
+  const selected = shared ? shared.selected : ownSelected;
+  const setSelected = shared ? shared.setSelected : setOwnSelected;
   const [busy, setBusy] = useState<"approve" | "release" | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ tone: "pass" | "fail"; text: string } | null>(null);
   const [outcome, setOutcome] = useState<{ result: ReleaseResult; total: number } | null>(null);
 
-  // A stuck or failed payout can be selected again: the server resumes it from chain state.
-  const eligible = closed ? [] : rows.filter((r) => isReadyToPay(r) && r.outcome === "PASS");
-  const releasable = closed ? [] : rows.filter((r) => r.payoutStatus === "approved");
+  const { eligible, releasable } = actionable(rows, closed);
   const selectable = new Set([...eligible, ...releasable].map((r) => r.submissionId));
   const toApprove = eligible.filter((r) => selected.has(r.submissionId)).map((r) => r.submissionId);
   const toRelease = releasable.filter((r) => selected.has(r.submissionId)).map((r) => r.submissionId);
   const match = TABS.find((t) => t.id === tab)?.match ?? (() => true);
   const visible = rows.filter(match);
 
+  const anySelectable = visible.some((r) => selectable.has(r.submissionId));
+  const announce = toApprove.length + toRelease.length;
+
   function toggle(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
   }
 
   function reset() {
@@ -161,7 +232,7 @@ export function SubmissionsBoard({
   }
 
   return (
-    <div className="space-y-4">
+    <div id={BOARD_ID} tabIndex={-1} className="scroll-mt-28 space-y-4 outline-none">
       <div role="group" aria-label="Filter submissions" className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
         {TABS.map((t) => {
           const active = t.id === tab;
@@ -188,22 +259,31 @@ export function SubmissionsBoard({
           {rows.length === 0 ? "No submissions yet." : "Nothing in this view."}
         </p>
       ) : (
-        <div className="relative overflow-hidden rounded-[24px] border border-white/[0.07] bg-[#0d0d0d]">
+        <div className="relative overflow-x-auto rounded-[24px] border border-white/[0.07] bg-[#0d0d0d]">
           <table className="w-full text-left text-sm">
             <thead className="hidden border-b border-white/[0.07] md:table-header-group">
               <tr className="font-mono text-[10.5px] uppercase tracking-[0.16em] text-white/55">
-                <th scope="col" className="w-12 py-3 pl-5 pr-2">
-                  <span className="sr-only">Select</span>
-                </th>
-                <th scope="col" className="px-3 py-3 font-medium">Submission</th>
-                <th scope="col" className="px-3 py-3 font-medium">Contributor</th>
+                {anySelectable ? (
+                  <th scope="col" className="w-11 py-3 pl-5 pr-0">
+                    <span className="sr-only">Select</span>
+                  </th>
+                ) : null}
+                <th scope="col" className="py-3 pl-5 pr-3 font-medium">Submission</th>
                 <th scope="col" className="px-3 py-3 font-medium">Review</th>
-                <th scope="col" className="px-3 py-3 pr-5 font-medium">Payout</th>
+                <th scope="col" className="py-3 pl-3 pr-5 font-medium">Payout</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((r) => (
-                <Row key={r.submissionId} r={r} selectable={selectable.has(r.submissionId)} selected={selected.has(r.submissionId)} onToggle={toggle} disabled={busy !== null} />
+                <Row
+                  key={r.submissionId}
+                  r={r}
+                  gutter={anySelectable}
+                  selectable={selectable.has(r.submissionId)}
+                  selected={selected.has(r.submissionId)}
+                  onToggle={toggle}
+                  disabled={busy !== null}
+                />
               ))}
             </tbody>
           </table>
@@ -220,11 +300,9 @@ export function SubmissionsBoard({
             <Button variant="secondary" size="sm" className="flex-1 sm:flex-none" disabled={busy !== null || toRelease.length === 0} busy={busy === "release"} busyLabel={progress ?? "Preparing…"} onClick={() => void release()}>
               {`Release ${plural(toRelease.length, "payout", "payouts")}`}
             </Button>
-            {busy === null && toApprove.length + toRelease.length > 0 ? (
-              <span className="w-full pb-1 text-center font-mono text-[12px] text-text sm:w-auto sm:pb-0">{`${toApprove.length + toRelease.length} selected`}</span>
-            ) : (
-              <span className="hidden font-mono text-[11px] uppercase tracking-[0.14em] text-white/55 sm:inline">Tick rows to act on them</span>
-            )}
+            <span role="status" className={cx("font-mono", busy === null && announce > 0 ? "w-full pb-1 text-center text-[12px] text-text sm:w-auto sm:pb-0" : "hidden text-[11px] uppercase tracking-[0.14em] text-white/55 sm:inline")}>
+              {busy === null && announce > 0 ? `${announce} selected` : "Tick rows to act on them"}
+            </span>
           </div>
         </div>
       ) : null}
@@ -275,61 +353,136 @@ function ReleaseOutcomeLine({ result, total, rows }: { result: ReleaseResult; to
   );
 }
 
-function Row({ r, selectable, selected, onToggle, disabled }: { r: BoardRow; selectable: boolean; selected: boolean; onToggle: (id: string) => void; disabled: boolean }) {
-  const review = reviewPill(r);
-  const payout = payoutPill(r);
-  const reason = r.reasonCode && r.reasonCode !== "R00_PASS" ? reasonLabel(r.reasonCode) : null;
+const TONE_CHIP: Record<PillTone, string> = {
+  live: "text-white border-white/30",
+  pass: "text-pass bg-pass-soft border-pass-line hover:border-pass",
+  fail: "text-fail bg-fail-soft border-fail-line hover:border-fail",
+  wait: "text-muted bg-white/3 border-line-strong hover:border-white/40",
+  chain: "text-accent bg-accent-soft border-accent-line",
+};
 
+/** The review outcome, and when a decision is on record, the link to verify it, as one chip. */
+function ReviewChip({ r }: { r: BoardRow }) {
+  const review = reviewPill(r);
+  if (!r.decisionId) return <Pill tone={review.tone}>{review.label}</Pill>;
   return (
-    <tr
+    <Link
+      href={`/verify/${r.decisionId}`}
+      title="Verify decision"
       className={cx(
-        "relative grid grid-cols-[48px_minmax(0,1fr)] border-b border-white/[0.06] align-top transition-colors duration-200 last:border-b-0 md:table-row",
-        selected ? "bg-accent/[0.06]" : "hover:bg-white/[0.02]",
+        "inline-flex h-[26px] items-center gap-[7px] whitespace-nowrap rounded-full border px-[11px] font-mono text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors duration-150",
+        TONE_CHIP[review.tone],
       )}
     >
-      <td className="row-span-4 py-3.5 pl-5 pr-2">
-        {selectable ? (
-          <input
-            type="checkbox"
-            aria-label={`Select ${r.shortId}`}
-            checked={selected}
-            disabled={disabled}
-            onChange={() => onToggle(r.submissionId)}
-            className="size-[18px] cursor-pointer accent-[var(--color-accent)]"
-          />
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-current" />
+      {review.label}
+      <span aria-hidden="true" className="-mr-0.5 font-sans text-[12px] font-medium normal-case tracking-normal opacity-70">
+        verify →
+      </span>
+      <span className="sr-only">, verify decision</span>
+    </Link>
+  );
+}
+
+/**
+ * One submission. Desktop: a table row of when and who, the review chip, the
+ * payout and a reason toggle. Phone: the same cells wrap into a short card,
+ * the checkbox only on rows it can act on. The reviewer's reason opens on demand.
+ */
+function Row({
+  r,
+  gutter,
+  selectable,
+  selected,
+  onToggle,
+  disabled,
+}: {
+  r: BoardRow;
+  gutter: boolean;
+  selectable: boolean;
+  selected: boolean;
+  onToggle: (id: string) => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const detailId = useId();
+  const payout = payoutPill(r);
+  const reason = r.reasonCode && r.reasonCode !== "R00_PASS" ? reasonLabel(r.reasonCode) : null;
+  const note = r.note && r.status !== "pending" ? r.note : null;
+  const why = reason !== null || note !== null;
+  const cols = gutter ? 4 : 3;
+
+  return (
+    <>
+      <tr
+        className={cx(
+          "flex flex-wrap items-center gap-x-2 gap-y-2.5 border-t border-white/[0.06] px-4 py-3.5 align-middle transition-colors duration-200 first:border-t-0 md:table-row md:p-0",
+          selected ? "bg-accent/[0.06]" : "hover:bg-white/[0.02]",
+        )}
+      >
+        {gutter ? (
+          <td className={cx("w-7 shrink-0 md:w-11 md:py-3 md:pl-5 md:pr-0", !selectable && "hidden md:table-cell")}>
+            {selectable ? (
+              <input
+                type="checkbox"
+                aria-label={`Select ${r.shortId}`}
+                checked={selected}
+                disabled={disabled}
+                onChange={() => onToggle(r.submissionId)}
+                className="size-[18px] cursor-pointer align-middle accent-[var(--color-accent)]"
+              />
+            ) : null}
+          </td>
         ) : null}
-      </td>
-      <td className="px-3 pt-3.5 md:py-3.5">
-        {/* When it came in leads; the id is the link to the post, set small beside it. */}
-        <p className="text-[13px] font-medium leading-snug text-text">
-          <Pieces text={r.submitted} />
-        </p>
-        <a href={r.workUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex min-h-6 items-center gap-1.5 font-mono text-[12px] text-white/60 hover:text-text">
-          {r.shortId} <span aria-hidden="true">↗</span>
-          <span className="sr-only">(opens the post on X)</span>
-        </a>
-      </td>
-      <td className="px-3 pt-2 md:py-3.5">
-        <HashChip value={r.contributor} head={4} tail={4} href={publicEnv.explorerAccountUrl(r.contributor)} />
-      </td>
-      <td className="px-3 pt-2 md:max-w-[380px] md:py-3.5">
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-          <Pill tone={review.tone}>{review.label}</Pill>
-          {reason ? <span className="font-mono text-[12px] text-white/60">{reason}</span> : null}
-          {r.decisionId ? (
-            <Link href={`/verify/${r.decisionId}`} className="inline-flex min-h-[26px] items-center text-[12px] font-medium text-white/55 hover:text-text hover:underline">
-              Verify decision →
-            </Link>
-          ) : null}
-        </div>
-        {r.note && r.status !== "pending" ? <p className="mt-1 line-clamp-1 text-[12.5px] leading-snug text-white/60 [overflow-wrap:anywhere]">{r.note}</p> : null}
-      </td>
-      <td className="px-3 pb-3.5 pt-2 md:py-3.5 md:pr-5">
-        <div className="flex flex-wrap items-center gap-2">
-          {payout ? <Pill tone={payout.tone}>{payout.label}</Pill> : <span className="text-[12px] text-white/25">—</span>}
-          {r.releaseTxHash ? <HashChip value={r.releaseTxHash} head={6} tail={4} href={publicEnv.explorerTxUrl(r.releaseTxHash)} /> : null}
-        </div>
-      </td>
-    </tr>
+        <td className="min-w-0 flex-1 basis-[calc(100%-2.25rem)] md:w-[1%] md:py-3 md:pl-5 md:pr-3">
+          {/* When it came in leads, on one line; the id (the link to the post) and the wallet sit under it. */}
+          <p className="whitespace-nowrap text-[13px] font-medium leading-snug text-text">{r.submitted}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 md:flex-nowrap">
+            <a href={r.workUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-6 items-center gap-1 font-mono text-[12px] text-white/60 hover:text-text">
+              {r.shortId} <span aria-hidden="true">↗</span>
+              <span className="sr-only">(opens the post on X)</span>
+            </a>
+            <HashChip value={r.contributor} head={4} tail={4} href={publicEnv.explorerAccountUrl(r.contributor)} />
+          </div>
+        </td>
+        <td className="md:px-3 md:py-3">
+          {/* The outcome links to its proof; the reviewer's reason opens beside it. */}
+          <div className="flex items-center gap-1.5">
+            <ReviewChip r={r} />
+            {why ? (
+              <button
+                type="button"
+                aria-expanded={open}
+                aria-controls={detailId}
+                onClick={() => setOpen((v) => !v)}
+                className="inline-flex h-[26px] items-center gap-1 rounded-full px-2 text-[12px] font-medium text-white/55 transition-colors hover:bg-white/[0.06] hover:text-text"
+              >
+                Why
+                <span aria-hidden="true" className={cx("inline-block text-[10px] transition-transform duration-200", open && "rotate-180")}>
+                  ▾
+                </span>
+                <span className="sr-only">{` ${r.shortId}`}</span>
+              </button>
+            ) : null}
+          </div>
+        </td>
+        <td className="md:py-3 md:pl-3 md:pr-5">
+          <div className="flex flex-wrap items-center gap-2">
+            {payout ? <Pill tone={payout.tone}>{payout.label}</Pill> : <span className="hidden text-[12px] text-white/25 md:inline">—</span>}
+            {r.releaseTxHash ? <HashChip value={r.releaseTxHash} head={4} tail={4} href={publicEnv.explorerTxUrl(r.releaseTxHash)} /> : null}
+          </div>
+        </td>
+      </tr>
+      {why ? (
+        <tr id={detailId} className={cx(open ? "block md:table-row" : "hidden", selected ? "bg-accent/[0.06]" : undefined)}>
+          <td colSpan={cols} className="block px-4 pb-4 md:table-cell md:pb-4 md:pl-5 md:pr-5 md:pt-0">
+            <div className={cx("rounded-[14px] bg-white/[0.03] px-4 py-3 text-[13px] leading-relaxed", gutter && "md:ml-11")}>
+              {reason ? <p className="font-mono text-[11.5px] text-white/60">{reason}</p> : null}
+              {note ? <p className={cx("text-white/75 [overflow-wrap:anywhere]", reason && "mt-1")}>{note}</p> : null}
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
   );
 }

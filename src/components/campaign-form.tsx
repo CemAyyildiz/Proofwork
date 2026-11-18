@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
-import { ax, figure, figureAxes } from "@/components/workspace/kit";
+import { ax, figure, figureAxes, stroopsOf } from "@/components/workspace/kit";
 import { LimitMeter } from "@/components/workspace/limit-meter";
 import { fromStroops, toStroops } from "@/escrow/amount";
 import { formatDateShort, formatUsdc } from "@/lib/format";
@@ -30,12 +30,6 @@ interface Draft {
 }
 
 const DAYS = [3, 7, 14, 30] as const;
-
-/** A positive decimal the preview can draw with, or null. Validation proper is the server's. */
-function amount(s: string): number | null {
-  const n = Number(s.trim());
-  return s.trim() !== "" && Number.isFinite(n) && n > 0 ? n : null;
-}
 
 export function CampaignForm({
   defaultDisputeResolver,
@@ -236,8 +230,8 @@ function Limits({ limits, budgetLeft, blocked }: { limits: FunderLimitsView; bud
         <LimitMeter
           label="Open budget"
           value={`${formatUsdc(limits.openBudget)} of ${formatUsdc(limits.maxOpenBudget)} in use${budgetLeft > 0n ? `, ${formatUsdc(fromStroops(budgetLeft))} left` : ""}`}
-          used={Number(limits.openBudget)}
-          max={Number(limits.maxOpenBudget)}
+          used={limits.openBudget}
+          max={limits.maxOpenBudget}
           over={budgetLeft <= 0n}
         />
       </dl>
@@ -256,10 +250,13 @@ function Limits({ limits, budgetLeft, blocked }: { limits: FunderLimitsView; bud
 
 /** The bounty card contributors will see, drawn from what is typed so far: reward huge, one slot per reward the budget pays. */
 function Preview({ draft, days, closesAt }: { draft: Draft; days: number; closesAt: string }) {
-  const reward = amount(draft.reward);
-  const budget = amount(draft.budget);
-  const slots = reward && budget ? Math.floor(budget / reward + 1e-9) : 0;
-  const spare = reward && budget && slots > 0 ? budget - slots * reward : 0;
+  // Positive decimals the preview can draw with, in stroops; validation proper is the server's.
+  const rewardStroops = stroopsOf(draft.reward);
+  const budgetStroops = stroopsOf(draft.budget);
+  const reward = rewardStroops === null ? null : fromStroops(rewardStroops);
+  const slotsBig = rewardStroops !== null && budgetStroops !== null ? budgetStroops / rewardStroops : 0n;
+  const spare = rewardStroops !== null && budgetStroops !== null && slotsBig > 0n ? budgetStroops - slotsBig * rewardStroops : 0n;
+  const slots = Number(slotsBig);
   const shown = Math.min(slots, 40);
   return (
     <section aria-label="Preview" className="space-y-3">
@@ -298,7 +295,9 @@ function Preview({ draft, days, closesAt }: { draft: Draft; days: number; closes
             <span>{slots > 0 ? `0 of ${slots} paid${slots > shown ? ` (first ${shown} shown)` : ""}` : "Set a reward and a budget"}</span>
             <span className="whitespace-nowrap">{`Closes ${closesAt}`}</span>
           </div>
-          {spare > 1e-7 ? <p className="mt-2 text-xs text-black/65">{`${figure(Number(spare.toFixed(7)))} USDC of the budget is less than one reward; it comes back with the remainder.`}</p> : null}
+          {spare > 0n ? (
+            <p className="mt-2 text-xs text-black/65">{`${figure(fromStroops(spare))} USDC of the budget is less than one reward. It goes back to your wallet with the remainder after the campaign is closed, less the 0.3% fee.`}</p>
+          ) : null}
           <span aria-hidden="true" className="mt-5 flex items-center justify-between rounded-full bg-black px-5 py-3.5 text-sm font-semibold text-white">
             Do this bounty <span>→</span>
           </span>

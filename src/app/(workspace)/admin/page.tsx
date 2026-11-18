@@ -4,7 +4,8 @@ import { AdminAccess } from "@/components/admin-access";
 import { SignedOut } from "@/components/signed-out";
 import { HashChip } from "@/components/ui/hash-chip";
 import { OWNER_LABEL, StagePill } from "@/components/workspace/campaign-phase";
-import { ax, figureAxes, Label } from "@/components/workspace/kit";
+import { slotParts } from "@/components/workspace/campaign-list";
+import { ax, figure, figureAxes, Label, SlotMeter } from "@/components/workspace/kit";
 import { CountUp } from "@/components/workspace/motion-bits";
 import { PageHeader } from "@/components/workspace/page-header";
 import { RemainderReturn } from "@/components/workspace/remainder-return";
@@ -54,14 +55,34 @@ export default async function AdminPage() {
       <PageHeader eyebrow={ops ? "Operator" : "Dispute resolver"} title={ops ? "Admin" : "Remainder returns"} description={wallet} />
 
       {ops ? (
-        <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
-          <Figure hero value={access.pending.length} label={access.pendingCut ? "requests shown, more waiting" : "requests waiting"} />
-          <dl className="grid grid-cols-3 gap-x-8 sm:gap-x-12">
-            <Figure value={awaiting.length} label="remainders to return" />
-            <Figure value={overview.length} label="campaigns" />
-            <Figure value={access.funders.length} label="funders" />
-          </dl>
-        </div>
+        // Waiting requests lead when there are any; with none, the campaigns do and the requests are one quiet line.
+        access.pending.length > 0 ? (
+          <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+            <Figure hero value={access.pending.length} label={access.pendingCut ? "requests shown, more waiting" : "requests waiting"} />
+            <dl className="grid grid-cols-3 gap-x-8 sm:gap-x-12">
+              <Figure value={awaiting.length} label="remainders to return" />
+              <Figure value={overview.length} label="campaigns" />
+              <Figure value={access.funders.length} label="funders" />
+            </dl>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-end justify-between gap-x-12 gap-y-8">
+              <Figure hero value={overview.length} label="campaigns" />
+              <dl className="grid grid-cols-2 gap-x-8 sm:gap-x-12">
+                <Figure value={awaiting.length} label="remainders to return" />
+                <Figure value={access.funders.length} label="funders" />
+              </dl>
+            </div>
+            <p className="flex items-center gap-2.5 text-[14px] text-white/60">
+              <span aria-hidden="true" className="size-1.5 rounded-full bg-pass" />
+              No funder requests waiting.{" "}
+              <a href="#access-heading" className="text-white/75 underline decoration-white/30 underline-offset-4 hover:text-text">
+                Funder access
+              </a>
+            </p>
+          </div>
+        )
       ) : null}
 
       {awaiting.length > 0 ? (
@@ -113,7 +134,11 @@ function Section({ id, title, count, description, children }: { id: string; titl
       <div className="max-w-[760px]">
         <h2 id={headingId} className="flex items-baseline gap-3 font-display text-[clamp(1.9rem,3.4vw,2.75rem)] leading-none" style={{ fontVariationSettings: ax(85, 840) }}>
           {title}
-          {count !== undefined ? <span className="text-white/25">{count}</span> : null}
+          {count !== undefined ? (
+            <span className="self-center rounded-full bg-white/10 px-3 py-1 font-mono text-sm font-medium tracking-normal text-white/75" style={{ fontVariationSettings: "normal" }}>
+              {count}
+            </span>
+          ) : null}
         </h2>
         <p className="mt-3 text-[14.5px] leading-relaxed text-white/55">{description}</p>
       </div>
@@ -184,6 +209,24 @@ function AwaitingRow({ campaign: c }: { campaign: Campaign }) {
   );
 }
 
+/** The campaign's escrow as slots, one per reward: paid, waiting, in review, free; a dashed run until it is funded. */
+function EscrowLine({ campaign: c, counts }: { campaign: Campaign; counts: CampaignOverviewRow["counts"] }) {
+  const meter = slotParts(c, counts);
+  const funded = c.fundedAt !== null;
+  return (
+    <div className="mt-3 max-w-[300px]">
+      {funded ? (
+        <SlotMeter total={meter.total} parts={meter.parts} size="xs" stagger={false} />
+      ) : (
+        <div aria-hidden="true" className="h-2 rounded-[2px] border border-dashed border-white/15" />
+      )}
+      <p className="mt-1.5 font-mono text-[10.5px] uppercase tracking-[0.12em] text-white/55">
+        {funded ? `${counts.paid} of ${meter.total} paid · ${figure(c.budget)} USDC` : `${figure(c.budget)} USDC · not funded`}
+      </p>
+    </div>
+  );
+}
+
 const th = "whitespace-nowrap px-4 py-3 text-left font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-white/60 first:pl-6";
 const td = "whitespace-nowrap px-4 py-4 align-top first:pl-6";
 
@@ -202,11 +245,12 @@ function CampaignsTable({ rows }: { rows: CampaignOverviewRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ campaign: c, stage, step }) => (
+          {rows.map(({ campaign: c, counts, stage, step }) => (
             <tr key={c.id} className="border-t border-line">
-              <td className="min-w-[14rem] py-4 pl-6 pr-4 align-top">
+              <td className="min-w-[16rem] py-4 pl-6 pr-4 align-top">
                 <p className="font-semibold [overflow-wrap:anywhere]">{c.title}</p>
                 <p className="mt-0.5 font-mono text-[11.5px] text-white/60">{c.slug}</p>
+                <EscrowLine campaign={c} counts={counts} />
               </td>
               <td className={td}>
                 <Wallet pubkey={c.funderPubkey} />
