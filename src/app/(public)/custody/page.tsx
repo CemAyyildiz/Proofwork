@@ -24,11 +24,11 @@ const AUDIT_URL = "https://stellarsecurityportal.com";
  */
 export default function CustodyPage() {
   const limits = funderLimits();
-  const figures: Array<[string, string, boolean]> = [
-    [PROTOCOL_FEE, "Trustless Work protocol fee, on every amount that leaves the escrow", false],
-    ["0%", "Proofwork platform fee, fixed on the escrow when you deploy it", true],
-    [String(limits.maxOpenCampaigns), `open ${limits.maxOpenCampaigns === 1 ? "campaign" : "campaigns"} per funder at a time`, false],
-    [String(limits.maxOpenBudget), "USDC of open budget per funder", false],
+  const figures: Array<[string, string]> = [
+    [PROTOCOL_FEE, "Trustless Work protocol fee, on every amount that leaves the escrow"],
+    ["0%", "Proofwork platform fee, fixed on the escrow when you deploy it"],
+    [String(limits.maxOpenCampaigns), `open ${limits.maxOpenCampaigns === 1 ? "campaign" : "campaigns"} per funder at a time`],
+    [String(limits.maxOpenBudget), "USDC of open budget per funder"],
   ];
   return (
     <div className="bg-canvas text-white">
@@ -37,7 +37,7 @@ export default function CustodyPage() {
           <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/55">For teams funding a campaign</p>
           <h1 className={`mt-4 text-[clamp(3.4rem,10vw,8.5rem)] leading-[0.84] ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
             {["Custody", "and", "fees."].map((w, i) => (
-              <span key={w} className="mr-[0.2em] inline-block overflow-y-clip pb-[0.05em] align-top">
+              <span key={w} className="mr-[0.2em] inline-block overflow-y-clip -mt-[0.12em] pt-[0.12em] pb-[0.05em] align-top">
                 <span className={cx("inline-block animate-rise", i === 2 && "text-accent")} style={{ animationDelay: `${80 + i * 80}ms` }}>
                   {w}
                 </span>
@@ -52,11 +52,21 @@ export default function CustodyPage() {
           {/* Who can move the money, drawn. */}
           <MoneyFlow you className="mt-16 animate-reveal [animation-delay:450ms]" />
 
-          <dl className="mt-16 grid grid-cols-2 gap-4 lg:grid-cols-4">
-            {figures.map(([value, label, accent]) => (
-              <div key={label} className="flex flex-col-reverse justify-end rounded-[26px] border border-white/10 p-6">
-                <dt className="mt-3 text-sm leading-snug text-white/55">{label}</dt>
-                <dd className={cx(`text-[clamp(3.2rem,6vw,5rem)] leading-[0.82] ${FONT}`, accent && "text-accent")} style={{ fontVariationSettings: axes(62, 900) }}>
+          {/* The figures as one till-slip line: what it costs and how much one funder can have open. */}
+          <dl className="mt-16 grid grid-cols-2 border-y border-dashed border-white/25 lg:grid-cols-4">
+            {figures.map(([value, label], i) => (
+              <div
+                key={label}
+                className={cx(
+                  "flex flex-col-reverse justify-end gap-2 px-1 py-6 lg:px-6",
+                  i % 2 === 1 && "border-l border-dashed border-white/15 pl-5",
+                  i >= 2 && "border-t border-dashed border-white/15 lg:border-t-0",
+                  i === 2 && "lg:border-l lg:pl-6",
+                  i === 0 && "lg:pl-0",
+                )}
+              >
+                <dt className="text-[13px] leading-snug text-white/60">{label}</dt>
+                <dd className={`text-[clamp(2.2rem,3.6vw,3rem)] leading-[0.85] ${FONT}`} style={{ fontVariationSettings: axes(66, 900) }}>
                   {value}
                 </dd>
               </div>

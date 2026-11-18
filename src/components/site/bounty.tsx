@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { ArrowUpRight, Plus } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { axes, ease, FONT, seg, useClock, useSeen, useTrack } from "@/components/e/motion";
+import { axes, clamp, ease, FONT, useClock, useSeen, useTrack } from "@/components/e/motion";
+import { useReducedMotion } from "@/components/use-reduced-motion";
 import { cx } from "@/components/ui/cx";
 import { SIGNALS } from "@/domain/rubric";
 
@@ -167,17 +168,24 @@ export interface PayoutRowData {
 
 /** Yellow: everything this bounty has paid, one row per release transaction. `fee` says what one reward arrives as. */
 export function Payouts({ payouts, fee }: { payouts: PayoutRowData[]; fee: { gross: string; net: string } }) {
+  const reduced = useReducedMotion();
   const track = useRef<HTMLElement>(null);
   const big = useRef<HTMLHeadingElement>(null);
-  useTrack(track, (p) => {
-    // The headline narrows from wide to condensed as the section passes, the same move as the home hero.
-    if (big.current) big.current.style.fontVariationSettings = axes(125 - ease(seg(p, 0, 0.5)) * 65, 900);
+  useTrack(track, () => {
+    // The headline narrows from wide to condensed as the section comes up the screen, the same move as the home hero.
+    // Progress is how far the section's top has risen, so it also runs when the section is shorter than the screen.
+    // Phones start condensed: wide type there runs past the edge.
+    const sec = track.current;
+    if (!big.current || !sec) return;
+    const from = reduced || window.innerWidth < 640 ? 60 : 125;
+    const p = clamp((window.innerHeight - sec.getBoundingClientRect().top) / (window.innerHeight * 0.8));
+    big.current.style.fontVariationSettings = axes(from - ease(p) * (from - 60), 900);
   });
   return (
     <section ref={track} data-bar-hide aria-labelledby="paid-title" className="overflow-hidden bg-accent px-5 py-24 text-black sm:px-6">
       <div className="mx-auto max-w-6xl">
         <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/65">Released from this escrow</p>
-        <h2 id="paid-title" ref={big} className={`mt-2 whitespace-nowrap text-[clamp(3rem,10vw,8.5rem)] leading-[0.85] ${FONT}`} style={{ fontVariationSettings: axes(125, 900) }}>
+        <h2 id="paid-title" ref={big} className={`mt-2 text-[clamp(3rem,10vw,8.5rem)] leading-[0.85] sm:whitespace-nowrap ${FONT}`} style={{ fontVariationSettings: axes(60, 900) }}>
           {payouts.length === 0 ? "Nobody yet." : `${payouts.length} ${payouts.length === 1 ? "payout" : "payouts"}.`}
         </h2>
         {payouts.length === 0 ? (

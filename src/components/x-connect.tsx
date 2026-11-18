@@ -63,6 +63,7 @@ export function XConnectStep({
   return (
     <StepRow state="current" title="Connect your X account">
       <StepNote>You can submit once it is connected, and only a post written by that account is accepted.</StepNote>
+      <StepNote className="font-semibold text-white/80">One X account per wallet; it can&apos;t be changed later.</StepNote>
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1">
         <a
           href={`/api/x/connect?slug=${encodeURIComponent(campaignSlug)}`}
@@ -76,7 +77,7 @@ export function XConnectStep({
           </summary>
           <p className="mb-1 rounded-2xl bg-white/[0.06] p-4 text-[13px] leading-relaxed text-white/65">
             Sign in with X ties this wallet to the account you post from. X will ask you to let Proofwork read your posts and profile; Proofwork
-            reads only the account&apos;s ID and keeps nothing else. One X account per wallet, and it can&apos;t be changed later.
+            reads only the account&apos;s ID and keeps nothing else.
           </p>
         </details>
       </div>

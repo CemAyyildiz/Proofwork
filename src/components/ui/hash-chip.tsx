@@ -51,7 +51,9 @@ export function HashChip({ value, head = 6, tail = 6, href, className }: HashChi
   );
 
   return (
+    // A near-black chip on any surface: `data-surface="dark"` gives its link and copy button the yellow focus ring even on paper or yellow.
     <span
+      data-surface="dark"
       className={cx(
         "group inline-flex h-8 shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-white/10 bg-[#0b0b0b] pl-3 pr-1 font-mono text-[12px] font-medium text-white/75",
         "transition-colors duration-200 hover:border-white/25 hover:text-white",

@@ -44,7 +44,7 @@ export function EscrowCard({
   const lit = meter ? Math.round((meter.pct / 100) * SEGMENTS) : 0;
 
   return (
-    <div data-surface="dark" className="relative overflow-hidden rounded-[28px] bg-black p-6 text-white shadow-[0_40px_100px_-50px_rgba(0,0,0,0.7)] md:p-8">
+    <div data-surface="dark" className="relative overflow-hidden rounded-[28px] bg-black p-6 text-white shadow-[0_24px_48px_-30px_rgba(0,0,0,0.5)] md:p-8 md:shadow-[0_40px_100px_-50px_rgba(0,0,0,0.7)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/55">Escrow balance</span>
         {balance !== null ? (

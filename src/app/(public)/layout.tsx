@@ -36,16 +36,18 @@ export default async function PublicLayout({ children }: { children: React.React
           <div className={cx("min-w-0 flex-1 justify-center text-white/60 [&_a]:rounded-full", workspace ? "hidden sm:flex" : "flex")}>
             <WorkspaceNav campaigns={campaigns} reviewer={reviewer} admin={admin} variant="top" showPublic={false} />
           </div>
-          {workspace ? (
-            <div className="flex-1 sm:hidden">
-              <WorkspaceMenu campaigns={campaigns} reviewer={reviewer} admin={admin} showPublic={false} />
-            </div>
-          ) : null}
+          {/* Phones: the menu sits at the far right, after the wallet, as in the workspace header. */}
+          {workspace ? <div className="flex-1 sm:hidden" /> : null}
           <div className="flex shrink-0 items-center gap-2">
             <span className="hidden sm:contents">
               <NetworkBadge />
             </span>
             <HeaderAction pubkey={user?.pubkey ?? null} />
+            {workspace ? (
+              <div className="sm:hidden">
+                <WorkspaceMenu campaigns={campaigns} reviewer={reviewer} admin={admin} showPublic={false} />
+              </div>
+            ) : null}
           </div>
         </div>
       </header>

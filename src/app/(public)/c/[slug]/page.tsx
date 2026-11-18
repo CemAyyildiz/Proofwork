@@ -6,7 +6,7 @@ import { ArrowLeft, ArrowRight, ArrowUpRight } from "lucide-react";
 import { stageOf, xNotice, type Stage } from "@/components/contributor-state";
 import { SubmissionPanel } from "@/components/site/submission-panel";
 import { EscrowCard } from "@/components/escrow-card";
-import { amount } from "@/components/site/amount";
+import { amount, netOfFee } from "@/components/site/amount";
 import { Payouts, ReviewQuestions, StickyTicket, SubmitBar, TicketClock } from "@/components/site/bounty";
 import { axes, FONT } from "@/components/site/type";
 import { cx } from "@/components/ui/cx";
@@ -184,12 +184,6 @@ function moneyOf(c: PublicCampaign, stage: Stage, released: readonly string[], p
   };
 }
 
-/** What a contributor receives of `gross` after the escrow's 0.3% protocol fee (README: 1 USDC arrives as 0.997). */
-function netOfFee(gross: string): string {
-  const g = toStroops(gross);
-  return fromStroops(g - (g * 3n) / 1000n);
-}
-
 /** One line on what happened to the rest of a closed budget. */
 function remainderLine(c: PublicCampaign, m: Money): string {
   if (c.remainderTxHash) return "remainder returned to the funder";
@@ -234,10 +228,11 @@ function Hero({
             )}
           >
             <span aria-hidden="true" className={cx("size-1.5 rounded-full bg-current", open && "animate-ping")} />
-            {funded ? STATUS[stage] : STATUS.unfunded}
+            {/* An unfunded draft past its deadline will never open: it says so rather than "not funded yet". */}
+            {funded || stage === "ended" ? STATUS[stage] : STATUS.unfunded}
           </span>
           {team ? (
-            <span>
+            <span className="hidden sm:inline">
               by <span className="font-semibold text-white">{team}</span>
             </span>
           ) : null}
@@ -246,11 +241,11 @@ function Hero({
           </span>
           {paid > 0 ? <span className="text-accent">{paid} paid</span> : null}
           <span>{open ? `closes ${formatRelative(c.deadlineAt, now)}` : stage === "closed" ? `closed ${formatDateShort(c.closedAt ?? c.deadlineAt)}` : `deadline ${formatDateShort(c.deadlineAt)}`}</span>
-          <span>Reviewed by a person</span>
+          <span className="hidden sm:inline">Reviewed by a person</span>
         </div>
         <h1 className={`mt-6 max-w-5xl text-[clamp(2.6rem,7.2vw,6.8rem)] leading-[0.9] [overflow-wrap:anywhere] ${FONT}`} style={{ fontVariationSettings: axes(84, 850) }}>
           {words.map((w, i) => (
-            <span key={i} className="mr-[0.22em] inline-block overflow-y-clip pb-[0.06em] align-top">
+            <span key={i} className="mr-[0.22em] inline-block overflow-y-clip -mt-[0.12em] pt-[0.12em] pb-[0.06em] align-top">
               <span className="inline-block animate-rise" style={{ animationDelay: `${80 + i * 55}ms` }}>
                 {w}
               </span>
@@ -317,9 +312,12 @@ function Hero({
             {!funded ? (
               <>
                 <span>
-                  {total} {total === 1 ? "post" : "posts"} once funded{total > shown ? ` (first ${shown} shown)` : ""}
+                  {total} {total === 1 ? "post" : "posts"} {stage === "ended" ? "budgeted" : "once funded"}
+                  {total > shown ? ` (first ${shown} shown)` : ""}
                 </span>
-                <span>{amount(money.budget)} USDC budget · not in escrow yet</span>
+                <span>
+                  {amount(money.budget)} USDC budget · {stage === "ended" ? "never put in escrow" : "not in escrow yet"}
+                </span>
               </>
             ) : closed ? (
               <>
@@ -354,9 +352,9 @@ function Ticket({ c, stage, money, children }: { c: PublicCampaign; stage: Stage
   const open = stage === "open";
   const over = money.funded && (stage === "closed" || stage === "ended");
   return (
-    <div data-surface="dark" className="rounded-[28px] bg-black p-6 text-white shadow-[0_40px_100px_-40px_rgba(0,0,0,0.6)] sm:p-7">
+    <div data-surface="dark" className="rounded-[28px] bg-black p-6 text-white shadow-[0_24px_48px_-28px_rgba(0,0,0,0.45)] sm:p-7 sm:shadow-[0_40px_100px_-40px_rgba(0,0,0,0.6)]">
       <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.18em] text-white/55">
-        {open ? "Closes in" : !money.funded ? "Opens when funded · closes" : stage === "ended" ? "Ended" : "Closed"}
+        {open ? "Closes in" : stage === "ended" ? "Ended" : !money.funded ? "Opens when funded · closes" : "Closed"}
       </p>
       {open ? (
         <TicketClock deadline={c.deadlineAt.toISOString()} label={formatDateShort(c.deadlineAt)} />

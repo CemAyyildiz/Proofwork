@@ -120,9 +120,17 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
             {expanded ? "Collapse record" : "Show full record"}
           </button>
         </ProofStep>
-        <ProofStep n={2} state={state(2)} title="Hash it with SHA-256">
+        <ProofStep
+          n={2}
+          state={state(2)}
+          title={
+            <>
+              Hash it with <span className="whitespace-nowrap">SHA-256</span>
+            </>
+          }
+        >
           <p className="mt-1 text-[13px] text-white/55">WebCrypto, on your device. Nothing is sent anywhere.</p>
-          <code className={cx("mt-2.5 block min-h-5 break-all font-mono text-[12.5px] leading-[1.6]", done ? (match ? "text-accent" : "text-fail") : "text-white/70")}>
+          <code className={cx("mt-2.5 block min-h-5 break-all font-mono text-[12.5px] leading-[1.6]", done ? (match ? "text-white" : "text-fail") : "text-white/70")}>
             {computed ? computed.slice(0, shown) : step >= 2 ? "computing…" : "—"}
           </code>
         </ProofStep>
@@ -137,7 +145,7 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
               "This decision has no transaction yet, so there is no memo to confirm it against."
             )}
           </p>
-          <code className="mt-2.5 block break-all font-mono text-[12.5px] leading-[1.6] text-accent">{expectedHash}</code>
+          <code className="mt-2.5 block break-all font-mono text-[12.5px] leading-[1.6] text-white">{expectedHash}</code>
         </ProofStep>
       </ol>
 
@@ -160,7 +168,7 @@ export function HashCheck({ canonicalJson, expectedHash, txHash }: { canonicalJs
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2.5">
-        <Button size="sm" onClick={again} busy={step > 0 && !done} busyLabel="Checking…">
+        <Button variant="secondary" size="sm" onClick={again} busy={step > 0 && !done} busyLabel="Checking…">
           Run again
         </Button>
         {txHash ? (
@@ -187,7 +195,7 @@ function ExplorerLink({ txHash }: { txHash: string }) {
   );
 }
 
-function ProofStep({ n, state, title, children }: { n: number; state: "idle" | "run" | "ok" | "fail"; title: string; children: ReactNode }) {
+function ProofStep({ n, state, title, children }: { n: number; state: "idle" | "run" | "ok" | "fail"; title: ReactNode; children: ReactNode }) {
   return (
     <li
       className={cx(
@@ -221,17 +229,17 @@ function Seal({ tone, title, children }: { tone: "pass" | "fail"; title: string;
     <div
       className={cx(
         "mt-4 flex animate-reveal items-center gap-4 rounded-[22px] px-5 py-[18px]",
-        ok ? "bg-accent text-black" : "border border-fail-line bg-fail-soft",
+        ok ? "border border-pass-line bg-pass-soft" : "border border-fail-line bg-fail-soft",
       )}
     >
-      <span aria-hidden="true" className={cx("grid h-12 w-12 shrink-0 animate-pop place-items-center rounded-full", ok ? "bg-black" : "bg-fail")}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={ok ? "stroke-accent" : "stroke-black"}>
+      <span aria-hidden="true" className={cx("grid h-12 w-12 shrink-0 animate-pop place-items-center rounded-full", ok ? "bg-pass" : "bg-fail")}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="stroke-black">
           {ok ? <path d="M5 12l5 5L20 7" /> : <path d="M6 6l12 12M18 6 6 18" />}
         </svg>
       </span>
       <div>
-        <p className={cx("font-display text-[21px] leading-tight", ok ? "text-black" : "text-fail")} style={{ fontVariationSettings: '"wdth" 90, "wght" 800' }}>{title}</p>
-        <p className={cx("mt-0.5 text-[13.5px] [&_a]:text-inherit", ok ? "text-black/70" : "text-white/70")}>{children}</p>
+        <p className={cx("font-display text-[21px] leading-tight", ok ? "text-white" : "text-fail")} style={{ fontVariationSettings: '"wdth" 90, "wght" 800' }}>{title}</p>
+        <p className="mt-0.5 text-[13.5px] text-white/70 [&_a]:text-inherit">{children}</p>
       </div>
     </div>
   );

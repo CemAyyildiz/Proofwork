@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { axes, countdown, FONT, PAPER, Tilt } from "@/components/e/motion";
 import { cx } from "@/components/ui/cx";
+import { toStroops } from "@/escrow/amount";
 
 export interface BountyCardData {
   slug: string;
@@ -26,11 +27,15 @@ export interface BountyCardData {
   dateLabel: string;
 }
 
-/** How many posts the budget pays for at this reward. */
+const PLAIN = /^\d+(\.\d{1,7})?$/;
+
+/** How many posts the budget pays for at this reward: whole posts, counted in stroops, never with float division. Takes display figures ("1,000"). */
 export function slotsOf(budget: string, reward: string): number {
-  const r = Number(reward.replace(/,/g, ""));
-  const b = Number(budget.replace(/,/g, ""));
-  return r > 0 ? Math.max(0, Math.floor(b / r)) : 0;
+  const r = reward.replace(/,/g, "");
+  const b = budget.replace(/,/g, "");
+  if (!PLAIN.test(r) || !PLAIN.test(b)) return 0;
+  const per = toStroops(r);
+  return per > 0n ? Number(toStroops(b) / per) : 0;
 }
 
 /**
@@ -54,10 +59,10 @@ export function BountyCard({ b, now, className }: { b: BountyCardData; now: numb
             {b.open ? (now ? countdown(b.deadline, now) : `closes ${b.distance}`) : b.status}
           </span>
         </div>
-        <h3 className={`relative mt-6 line-clamp-3 text-[clamp(1.8rem,2.6vw,2.4rem)] leading-[0.95] [overflow-wrap:anywhere] ${FONT}`} style={{ fontVariationSettings: axes(85, 800) }}>
+        <h3 className={`relative mt-6 line-clamp-3 pb-[0.06em] text-[clamp(1.8rem,2.6vw,2.4rem)] leading-[1.02] [overflow-wrap:anywhere] ${FONT}`} style={{ fontVariationSettings: axes(85, 800) }}>
           {b.title}
         </h3>
-        <div className="relative mt-auto pt-8">
+        <div className="relative mt-auto pt-7">
           <p className={`text-[clamp(5.5rem,9vw,7.5rem)] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(62, 900) }}>
             {b.reward}
           </p>

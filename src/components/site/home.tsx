@@ -6,12 +6,14 @@ import { useEffect, useRef, useState } from "react";
 import { axes, clamp, ease, FONT, PAPER, seg, useClock, useSeen, useTrack, Y } from "@/components/e/motion";
 import { BountyCard, type BountyCardData } from "./bounty-card";
 import { MoneyFlow } from "./money-flow";
+import { amount, netOfFee } from "./amount";
 import { Odometer } from "./odometer";
 import { EVIDENCE_TXS } from "@/components/landing/evidence";
 import { RubricPlayground } from "@/components/landing/rubric-playground";
 import { VerifyPlayground } from "@/components/landing/verify-playground";
 import { canHoverFine, useMediaQuery, useReducedMotion } from "@/components/use-reduced-motion";
 import { PASS_THRESHOLD, SIGNALS } from "@/domain/rubric";
+import { fromStroops, toStroops } from "@/escrow/amount";
 import { truncateMiddle } from "@/lib/format";
 
 export interface HomePayout {
@@ -92,7 +94,8 @@ function Hero({ data }: { data: HomeData }) {
       cards.current.forEach((card, i) => {
         const f = fly[i];
         if (!card || !f) return;
-        const z = ((((f.z + t * 140 + p * 2600) % SPAN) + SPAN) % SPAN) - 3000;
+        // Less motion asked for: each card holds its starting depth; scrolling does not fly them.
+        const z = ((((f.z + (reduced ? 0 : t * 140 + p * 2600)) % SPAN) + SPAN) % SPAN) - 3000;
         const o = clamp((z + 3000) / 1400) * (1 - clamp((z - 150) / 350));
         card.style.transform = `translate3d(${f.x}vw, ${f.y}vh, ${z}px) rotateY(${f.ry}deg)`;
         card.style.opacity = o.toFixed(3);
@@ -104,17 +107,13 @@ function Hero({ data }: { data: HomeData }) {
       if (visible && !raf) raf = requestAnimationFrame(loop);
     });
     if (track.current) io.observe(track.current);
-    const onScroll = () => {
-      if (reduced && !raf) raf = requestAnimationFrame(loop);
-    };
-    window.addEventListener("pointermove", onPointer, { passive: true });
-    window.addEventListener("scroll", onScroll, { passive: true });
+    // Under reduced motion the loop draws one still frame and stops: no pointer parallax, no frames on scroll.
+    if (!reduced) window.addEventListener("pointermove", onPointer, { passive: true });
     raf = requestAnimationFrame(loop);
     return () => {
       cancelAnimationFrame(raf);
       io.disconnect();
       window.removeEventListener("pointermove", onPointer);
-      window.removeEventListener("scroll", onScroll);
     };
     // `fly` is derived from props that never change after load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -187,7 +186,6 @@ function Hero({ data }: { data: HomeData }) {
 }
 
 function FlyCard({ kind, payout }: { kind: number; payout: HomePayout }) {
-  const amount = payout.amount;
   if (kind === 0)
     return (
       <div className="rounded-2xl p-4 text-black shadow-[0_30px_80px_-20px_rgba(0,0,0,0.8)]" style={{ background: Y }}>
@@ -196,7 +194,7 @@ function FlyCard({ kind, payout }: { kind: number; payout: HomePayout }) {
           <span>{payout.ago}</span>
         </div>
         <p className={`mt-2 text-5xl leading-none ${FONT}`} style={{ fontVariationSettings: axes(80, 900) }}>
-          +{amount}
+          +{payout.amount}
         </p>
         <p className="mt-1 truncate text-xs font-semibold">USDC · {payout.campaign}</p>
         <p className="mt-3 font-mono text-[10px] text-black/60">tx {payout.hash}</p>
@@ -231,6 +229,14 @@ function FlyCard({ kind, payout }: { kind: number; payout: HomePayout }) {
 
 /* ───────────────────────────── 2. the life of one post ───────────────────────────── */
 
+/** A display figure ("1,000.5") split into the escrow's 0.3% fee and what reaches the wallet, in stroops; null for anything that is not a plain amount. */
+function feeSplit(display: string): { fee: string; net: string } | null {
+  const gross = display.replace(/,/g, "");
+  if (!/^\d+(\.\d{1,7})?$/.test(gross)) return null;
+  const net = netOfFee(gross);
+  return { fee: amount(fromStroops(toStroops(gross) - toStroops(net))), net: amount(net) };
+}
+
 const STEPS = [
   { t: "Post it on X.", d: "Pick a bounty, do the work, and post about it from your own account. Paste the link into the bounty." },
   { t: "Machines check the boring part.", d: "A public x.com status link, written by the X account you connected, never submitted before, and sent while the bounty is open." },
@@ -255,7 +261,7 @@ function Story({ data }: { data: HomeData }) {
   const signals = useRef<(HTMLLIElement | null)[]>([]);
   const score = useRef<HTMLSpanElement>(null);
   const stamp = useRef<HTMLDivElement>(null);
-  const amount = useRef<HTMLSpanElement>(null);
+  const figure = useRef<HTMLSpanElement>(null);
   const rail = useRef<HTMLSpanElement>(null);
   const [step, setStep] = useState(0);
 
@@ -263,7 +269,9 @@ function Story({ data }: { data: HomeData }) {
   const first = data.payouts[0];
   const bounty = first?.campaign ?? data.bounties[0]?.title ?? "a bounty";
   const post = `Wrote up how a Soroban escrow actually releases funds, step by step, with the real transactions linked. For the “${bounty}” bounty.`;
-  const reward = Number((first?.amount ?? "10").replace(/,/g, ""));
+  // The count-up target only: the figure shown at rest is the payout's own string. No payout, no receipt side at all.
+  const reward = first ? Number(first.amount.replace(/,/g, "")) : 0;
+  const split = first ? feeSplit(first.amount) : null;
 
   useTrack(track, (p) => {
     setStep(Math.min(4, Math.floor(p * 5)));
@@ -304,11 +312,11 @@ function Story({ data }: { data: HomeData }) {
     if (flood.current && box) flood.current.style.clipPath = `circle(${f * 150}vmax at ${box.left + box.width / 2}px ${box.top + box.height / 2}px)`;
     sticky.current?.setAttribute("data-flood", f > 0.35 ? "1" : "0");
 
-    const fl = ease(seg(p, 0.8, 0.9));
+    const fl = first ? ease(seg(p, 0.8, 0.9)) : 0;
     if (flip.current) flip.current.style.transform = `rotateY(${fl * 180}deg)`;
-    if (amount.current) {
+    if (figure.current && first) {
       const a = seg(p, 0.84, 0.95);
-      amount.current.textContent = a >= 1 ? (first?.amount ?? "10") : String(Math.round(a * reward));
+      figure.current.textContent = a >= 1 ? first.amount : String(Math.round(a * reward));
     }
   });
 
@@ -318,6 +326,7 @@ function Story({ data }: { data: HomeData }) {
   return (
     <section id="how" ref={track} aria-label="How it works" className="relative h-[560vh] scroll-mt-0 bg-canvas">
       {/* The scene below shows one step at a time; a screen reader gets all five, in order. */}
+      <h2 className="sr-only">How it works: the life of one post</h2>
       <ol className="sr-only">
         {STEPS.map((s) => (
           <li key={s.t}>
@@ -328,12 +337,13 @@ function Story({ data }: { data: HomeData }) {
       <div ref={sticky} data-flood="0" className="group sticky top-0 h-screen overflow-hidden text-white transition-colors duration-500 data-[flood=1]:text-black">
         <div ref={flood} className="absolute inset-0 [clip-path:circle(0)]" style={{ background: Y }} />
 
-        <div className="relative mx-auto grid h-full max-w-6xl grid-rows-[auto_1fr] gap-6 px-6 pb-8 pt-28 md:grid-cols-[1fr_1.05fr] md:grid-rows-1 md:items-center md:gap-10 md:pt-0">
+        <div className="relative mx-auto grid h-full max-w-6xl grid-rows-[auto_1fr] gap-4 px-6 pb-6 pt-24 md:grid-cols-[1fr_1.05fr] md:grid-rows-1 md:items-center md:gap-10 md:pb-8 md:pt-0">
           <div className="relative flex gap-6 md:gap-10">
             <div className="relative hidden w-px self-stretch bg-white/15 transition-colors group-data-[flood=1]:bg-black/20 md:block">
               <span ref={rail} className="absolute inset-0 origin-top bg-white transition-colors group-data-[flood=1]:bg-black" />
             </div>
-            <div className="relative min-h-[15rem] flex-1 md:min-h-[22rem]">
+            {/* On a phone the copy gets a fixed band above the card, sized for the longest step, so the card never sits on it. */}
+            <div className="relative min-h-[16.5rem] flex-1 md:min-h-[22rem]">
               {STEPS.map((s, i) => (
                 <div
                   key={s.t}
@@ -341,22 +351,22 @@ function Story({ data }: { data: HomeData }) {
                   className={`absolute inset-0 transition-all duration-700 ease-[cubic-bezier(0.2,0.7,0.1,1)] ${i === step ? "translate-y-0 opacity-100" : i < step ? "-translate-y-8 opacity-0" : "translate-y-8 opacity-0"}`}
                 >
                   <p className="font-mono text-xs uppercase tracking-[0.2em] text-white/60 transition-colors group-data-[flood=1]:text-black/65">Step {i + 1} of 5</p>
-                  <p className={`mt-2 text-[clamp(5rem,12vw,10rem)] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(60, 900) }}>
+                  <p className={`mt-2 text-[clamp(3.6rem,12vw,10rem)] leading-[0.8] ${FONT}`} style={{ fontVariationSettings: axes(60, 900) }}>
                     0{i + 1}
                   </p>
-                  <h2 className={`mt-4 text-balance text-[clamp(2rem,4.2vw,3.6rem)] leading-[0.95] ${FONT}`} style={{ fontVariationSettings: axes(88, 800) }}>
+                  <h2 className={`mt-3 text-balance text-[clamp(1.8rem,4.2vw,3.6rem)] leading-[0.95] md:mt-4 ${FONT}`} style={{ fontVariationSettings: axes(88, 800) }}>
                     {s.t}
                   </h2>
-                  <p className="mt-4 max-w-sm text-[15px] leading-relaxed text-white/65 transition-colors group-data-[flood=1]:text-black/75">{s.d}</p>
+                  <p className="mt-3 max-w-sm text-[14px] leading-relaxed text-white/65 transition-colors group-data-[flood=1]:text-black/75 md:mt-4 md:text-[15px]">{s.d}</p>
                 </div>
               ))}
             </div>
           </div>
 
-          <div className="relative flex items-center justify-center [perspective:1400px]" aria-hidden="true">
-            <div ref={card} className="relative h-[clamp(330px,52vh,460px)] w-[min(360px,78vw)] will-change-transform">
+          <div className="relative flex items-start justify-center [perspective:1400px] md:items-center" aria-hidden="true">
+            <div ref={card} className="relative h-[clamp(290px,calc(100svh-25rem),360px)] w-[min(340px,74vw)] will-change-transform md:h-[clamp(330px,46vh,420px)] md:w-[min(360px,78vw)]">
               <div ref={flip} className="relative size-full transition-transform duration-75 [transform-style:preserve-3d]">
-                <div className="absolute inset-0 flex flex-col rounded-[28px] bg-white p-6 text-black shadow-[0_50px_120px_-30px_rgba(0,0,0,0.7)] [backface-visibility:hidden]">
+                <div className="absolute inset-0 flex flex-col rounded-[28px] bg-white p-5 text-black shadow-[0_30px_60px_-30px_rgba(0,0,0,0.7)] [backface-visibility:hidden] md:p-6 md:shadow-[0_50px_120px_-30px_rgba(0,0,0,0.7)]">
                   <div className="flex items-center gap-3">
                     <span className="size-10 rounded-full bg-[conic-gradient(from_200deg,#fdda24,#111,#f2f0e9,#fdda24)]" />
                     <div className="leading-tight">
@@ -365,7 +375,7 @@ function Story({ data }: { data: HomeData }) {
                     </div>
                     <span className="ml-auto text-xl font-black">X</span>
                   </div>
-                  <p className="mt-5 min-h-[7.5rem] text-[clamp(16px,2.2vh,19px)] leading-snug">
+                  <p className="mt-4 text-[15px] leading-snug md:mt-5 md:min-h-[7.5rem] md:text-[clamp(16px,2.2vh,19px)]">
                     <span ref={typed} />
                     <span className="ml-0.5 inline-block h-[1.1em] w-[2px] translate-y-[3px] animate-blink bg-black" />
                   </p>
@@ -381,40 +391,50 @@ function Story({ data }: { data: HomeData }) {
                     </div>
                   </div>
                 </div>
-                <div className="absolute inset-0 flex flex-col rounded-[28px] bg-black p-6 text-white shadow-[0_50px_120px_-30px_rgba(0,0,0,0.6)] [backface-visibility:hidden] [transform:rotateY(180deg)]">
-                  <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.18em] text-white/55">
-                    <span>Paid from escrow</span>
-                    <span className="text-accent">● on chain</span>
-                  </div>
-                  <p className={`mt-8 text-[clamp(6rem,14vh,9rem)] leading-[0.8] text-accent ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
-                    +<span ref={amount}>0</span>
-                  </p>
-                  <p className="mt-2 text-lg font-semibold">USDC released to your wallet</p>
-                  <p className="mt-1 text-sm text-white/60">less the escrow&rsquo;s 0.3% protocol fee</p>
-                  <dl className="mt-auto space-y-2 border-t border-white/15 pt-4 text-sm">
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-white/50">Bounty</dt>
-                      <dd className="truncate">{first?.campaign ?? bounty}</dd>
+                {first ? (
+                  <div className="absolute inset-0 flex flex-col rounded-[28px] bg-black p-5 text-white shadow-[0_30px_60px_-30px_rgba(0,0,0,0.6)] [backface-visibility:hidden] [transform:rotateY(180deg)] md:p-6 md:shadow-[0_50px_120px_-30px_rgba(0,0,0,0.6)]">
+                    <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-[0.18em] text-white/55">
+                      <span>Paid from escrow</span>
+                      <span className="text-accent">● on chain</span>
                     </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-white/50">Transaction</dt>
-                      <dd className="font-mono">
-                        {first ? (
+                    <p className={`mt-5 text-[clamp(5rem,14vh,9rem)] leading-[0.8] text-accent md:mt-7 ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
+                      +<span ref={figure}>0</span>
+                    </p>
+                    <p className="mt-2 text-base font-semibold md:text-lg">USDC released from escrow</p>
+                    {/* The receipt itself: what the escrow kept and what reached the wallet, then where it came from. */}
+                    <dl className="mt-auto grid gap-1.5 text-[13px] md:gap-2 md:text-sm">
+                      {split ? (
+                        <>
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-white/55">Protocol fee 0.3%</dt>
+                            <dd className="font-mono">&minus;{split.fee}</dd>
+                          </div>
+                          <div className="flex justify-between gap-4 font-semibold">
+                            <dt>To your wallet</dt>
+                            <dd className="font-mono">{split.net} USDC</dd>
+                          </div>
+                        </>
+                      ) : null}
+                      <div className="mt-2 flex justify-between gap-4 border-t border-dashed border-white/25 pt-3 md:mt-3">
+                        <dt className="text-white/55">Bounty</dt>
+                        <dd className="truncate">{first.campaign}</dd>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-white/55">Transaction</dt>
+                        <dd className="font-mono">
                           <a href={first.href} target="_blank" rel="noreferrer" tabIndex={-1} className="underline decoration-white/30 underline-offset-4 hover:decoration-white">
                             {first.hash}
                           </a>
-                        ) : (
-                          "…"
-                        )}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                ) : null}
               </div>
 
-              <div ref={checks} className="absolute -right-4 -top-6 w-64 rounded-2xl border border-white/10 bg-[#161616] p-4 text-white opacity-0 shadow-2xl md:-right-24">
+              <div ref={checks} className="absolute -right-3 top-3 w-56 rounded-2xl border border-white/10 bg-[#161616] p-3.5 text-white opacity-0 shadow-2xl md:-right-24 md:-top-6 md:w-64 md:p-4">
                 <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/55">Automatic checks</p>
-                <ul className="mt-3 space-y-2.5 text-sm">
+                <ul className="mt-3 space-y-2 text-[13px] md:space-y-2.5 md:text-sm">
                   {CHECKS.map((c, i) => (
                     <li
                       key={c}
@@ -432,7 +452,7 @@ function Story({ data }: { data: HomeData }) {
                   ))}
                 </ul>
               </div>
-              <div ref={rubric} className="absolute -bottom-8 -left-4 w-64 rounded-2xl bg-paper p-4 text-black opacity-0 shadow-2xl md:-left-28">
+              <div ref={rubric} className="absolute -bottom-6 -left-3 w-56 rounded-2xl bg-paper p-3.5 text-black opacity-0 shadow-2xl md:-bottom-8 md:-left-28 md:w-64 md:p-4">
                 <div className="flex items-baseline justify-between">
                   <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-black/50">Reviewer · {PASS_THRESHOLD} to pass</p>
                   <p className={`text-3xl leading-none ${FONT}`} style={{ fontVariationSettings: axes(80, 900) }}>
@@ -511,10 +531,10 @@ function StillStory({ first }: { first: HomePayout | undefined }) {
 
 /* ───────────────────────────── 3. the ledger: yellow, loud, real ───────────────────────────── */
 
-/** One release as a black receipt. `copy` marks the marquee's repeats: hidden from screen readers and out of the tab order. */
-function Receipt({ p, copy = false }: { p: HomePayout; copy?: boolean }) {
+/** One release as a black receipt on the moving belt. Decorative for the keyboard and screen readers: the list under the belt carries the same links, standing still. */
+function Receipt({ p }: { p: HomePayout }) {
   return (
-    <a href={p.href} target="_blank" rel="noreferrer" tabIndex={copy ? -1 : undefined} className="group flex shrink-0 items-center gap-4 rounded-2xl bg-black px-5 py-4 text-white transition-transform hover:-translate-y-1">
+    <a href={p.href} target="_blank" rel="noreferrer" tabIndex={-1} className="group flex shrink-0 items-center gap-4 rounded-2xl bg-black px-5 py-4 text-white transition-transform hover:-translate-y-1">
       <span className={`text-4xl leading-none text-accent ${FONT}`} style={{ fontVariationSettings: axes(75, 900) }}>
         +{p.amount}
       </span>
@@ -533,8 +553,11 @@ function Ledger({ data, totals }: { data: HomeData; totals: NonNullable<HomeData
   const [ref, seen] = useSeen<HTMLDivElement>();
   const rows = data.payouts.length > 0 ? [data.payouts, [...data.payouts].reverse()] : [];
   return (
-    <section id="ledger" aria-label="Paid so far" className="relative overflow-hidden bg-accent pb-28 pt-16 text-black">
+    <section id="ledger" aria-labelledby="ledger-title" className="relative overflow-hidden bg-accent pb-28 pt-16 text-black">
       <div ref={ref} className="mx-auto max-w-6xl px-6">
+        <h2 id="ledger-title" className="sr-only">
+          Paid so far
+        </h2>
         <p className="font-mono text-xs uppercase tracking-[0.2em] text-black/65">Released from escrow so far · every one is a transaction</p>
         <p className={`mt-2 flex flex-wrap items-end gap-x-4 text-[clamp(7rem,27vw,24rem)] leading-[0.86] ${FONT}`} style={{ fontVariationSettings: axes(62, 900) }}>
           <Odometer value={totals.paid} seen={seen} />
@@ -560,27 +583,48 @@ function Ledger({ data, totals }: { data: HomeData; totals: NonNullable<HomeData
         </dl>
       </div>
       {rows.length > 0 ? (
-        <div className="mt-20 -rotate-[3deg] space-y-4 [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]">
-          {/* One real link per payout: the first run of the top row. Everything else repeats it for the loop. Focus stops the belt. */}
-          {rows.map((row, r) => (
-            <div
-              key={r}
-              className="flex w-max animate-marquee gap-4 hover:[animation-play-state:paused] focus-within:[animation-play-state:paused]"
-              style={{ animationDirection: r === 1 ? "reverse" : "normal", animationDuration: "55s" }}
-            >
-              <div aria-hidden={r === 1 || undefined} className="flex gap-4">
-                {row.map((p, i) => (
-                  <Receipt key={i} p={p} copy={r === 1} />
+        <>
+          <div aria-hidden="true" className="mt-20 -rotate-[3deg] space-y-4 [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]">
+            {rows.map((row, r) => (
+              <div
+                key={r}
+                className="flex w-max animate-marquee gap-4 hover:[animation-play-state:paused]"
+                style={{ animationDirection: r === 1 ? "reverse" : "normal", animationDuration: "55s" }}
+              >
+                {[0, 1].map((copy) => (
+                  <div key={copy} className="flex gap-4">
+                    {row.map((p, i) => (
+                      <Receipt key={i} p={p} />
+                    ))}
+                  </div>
                 ))}
               </div>
-              <div aria-hidden="true" className="flex gap-4">
-                {row.map((p, i) => (
-                  <Receipt key={i} p={p} copy />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          {/* The same releases, standing still: one real link each, in reading and tab order. */}
+          <div className="mx-auto mt-16 max-w-6xl px-6">
+            <h3 className="font-mono text-xs uppercase tracking-[0.2em] text-black/65">Latest releases</h3>
+            <ul className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-x-10 border-t-2 border-black md:grid-cols-2">
+              {data.payouts.map((p, i) => (
+                <li key={i} className="border-b border-black/15">
+                  <a href={p.href} target="_blank" rel="noreferrer" className="group flex min-h-14 items-center gap-4 py-2.5">
+                    <span className={`min-w-12 shrink-0 text-3xl leading-none ${FONT}`} style={{ fontVariationSettings: axes(75, 900) }}>
+                      +{p.amount}
+                    </span>
+                    <span className="min-w-0 flex-1 leading-tight">
+                      <span className="block truncate text-sm font-semibold">{p.campaign}</span>
+                      <span className="mt-0.5 block font-mono text-[11.5px] text-black/70">
+                        <span className="underline decoration-black/25 underline-offset-4 group-hover:decoration-black">{p.hash}</span> · {p.ago}
+                      </span>
+                    </span>
+                    <ArrowUpRight aria-hidden="true" className="size-4 shrink-0" />
+                    <span className="sr-only">(opens the transaction)</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
       ) : (
         <p className="mx-auto mt-12 max-w-6xl px-6 text-lg">The first payout lands here with its transaction.</p>
       )}
@@ -641,11 +685,14 @@ function OpenRun({ data }: { data: HomeData }) {
       <div className={pin ? "sticky top-0 flex h-screen flex-col justify-center overflow-clip pt-16" : "py-24"}>
         <div className="mx-auto mb-8 flex w-full max-w-6xl flex-wrap items-end justify-between gap-6 px-6">
           <h2 id="open-title" className={`text-[clamp(3.2rem,8vw,7rem)] leading-[0.85] ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
-            Open now<span className="text-accent">.</span>
+            {/* Only "open now" when every card here is open; ended ones sit at the end of the run. */}
+            {open === list.length ? "Open now" : "Bounties"}
+            <span className="text-accent">.</span>
           </h2>
           <div className="mb-2 flex max-w-[18rem] flex-col items-start gap-3 text-sm text-white/60 md:items-end md:text-right">
             <p>
-              {open} open, {list.length - open} ended. Each card is a funded escrow; the slots are the posts it can still pay for.
+              {open === list.length ? `${open} open.` : `${open} open, ${list.length - open} ended.`} On an open card, the slots are the posts its escrow
+              can still pay for.
             </p>
             <Link href="/explore" className="inline-flex items-center gap-1.5 font-semibold text-white underline decoration-white/30 underline-offset-4 hover:decoration-white">
               All bounties <ArrowRight className="size-3.5" />
@@ -661,7 +708,7 @@ function OpenRun({ data }: { data: HomeData }) {
             className={`flex gap-6 px-6 md:pl-[max(1.5rem,calc((100vw-72rem)/2+1.5rem))] ${pin ? "will-change-transform md:pr-[20vw]" : "snap-x snap-mandatory overflow-x-auto pb-4"}`}
           >
             {list.map((b) => (
-              <BountyCard key={b.slug} b={b} now={now} className="w-[min(420px,82vw)] shrink-0 snap-center md:h-[min(560px,68vh)] md:min-h-[440px]" />
+              <BountyCard key={b.slug} b={b} now={now} className="w-[min(420px,82vw)] shrink-0 snap-center md:min-h-[420px]" />
             ))}
           </div>
         )}
@@ -686,7 +733,7 @@ function CheckIt() {
           Try the rubric. Then check the proof.
         </h2>
         <p className="mt-5 max-w-xl text-black/70">
-          Both run the real thing: the same pass rule the reviewer uses, and a live SHA-256 over a decision that is actually on Stellar testnet.
+          Both run the real thing: the same pass rule the reviewer uses, and a live <span className="whitespace-nowrap">SHA-256</span> over a decision that is actually on Stellar testnet.
         </p>
         <div className="mt-12 grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-[30px] bg-white p-6 shadow-[0_30px_80px_-50px_rgba(0,0,0,0.5)] md:p-8">
@@ -698,7 +745,7 @@ function CheckIt() {
           </div>
           <div data-surface="dark" className="rounded-[30px] bg-[#111] p-6 text-white md:p-8">
             <h3 className={`text-2xl ${FONT}`} style={{ fontVariationSettings: axes(90, 800) }}>
-              Don&rsquo;t trust us. <span className="text-accent">Check.</span>
+              Don&rsquo;t trust us. Check.
             </h3>
             <p className="mb-6 mt-2 max-w-md text-[15px] text-white/60">
               A real decision record from the testnet run. Your browser hashes it; compare with the memo on the transaction.
@@ -707,10 +754,10 @@ function CheckIt() {
           </div>
         </div>
       </div>
-      <div aria-label="Transactions from the recorded testnet run" className="mt-16 overflow-hidden [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]">
+      <div className="mt-16 overflow-hidden [mask-image:linear-gradient(90deg,transparent,#000_8%,#000_92%,transparent)]">
         <div className="flex w-max animate-marquee gap-3 hover:[animation-play-state:paused]">
           {[0, 1].map((copy) => (
-            <ul key={copy} aria-hidden={copy === 1 || undefined} className="flex gap-3">
+            <ul key={copy} aria-label={copy === 0 ? "Transactions from the recorded testnet run" : undefined} aria-hidden={copy === 1 || undefined} className="flex gap-3">
               {EVIDENCE_TXS.map((tx) => (
                 <li key={tx.label} className="flex items-center gap-2.5 whitespace-nowrap rounded-full bg-black px-4 py-2 font-mono text-[12px] text-white/65">
                   <span aria-hidden="true" className="size-1.5 rounded-full bg-accent" />
@@ -827,7 +874,7 @@ function Close({ data }: { data: HomeData }) {
           <Link href="/campaigns" className="inline-flex items-center gap-2 rounded-full border border-white/20 px-7 py-4 text-base font-semibold transition-colors hover:bg-white hover:text-black">
             Run a campaign for your team
           </Link>
-          <a href="https://x.com/proofworkapp" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full px-5 py-4 text-base font-semibold text-white/70 transition-colors hover:text-white">
+          <a href="https://x.com/proofworkapp" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full py-4 text-base font-semibold text-white/70 transition-colors hover:text-white sm:px-5">
             Follow @proofworkapp <ArrowUpRight className="size-4" />
           </a>
         </div>

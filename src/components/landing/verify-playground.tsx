@@ -23,9 +23,9 @@ function highlight(json: string): ReactNode[] {
   for (const m of json.matchAll(re)) {
     const at = m.index;
     if (at > last) out.push(json.slice(last, at));
-    if (m[1] !== undefined && m[2] !== undefined) out.push(<span key={at} className="text-white/40">{m[1]}</span>, m[2]);
+    if (m[1] !== undefined && m[2] !== undefined) out.push(<span key={at} className="text-white/55">{m[1]}</span>, m[2]);
     else if (m[1] !== undefined) out.push(<span key={at} className="text-white/85">{m[1]}</span>);
-    else out.push(<span key={at} className="text-accent">{m[0]}</span>);
+    else out.push(<span key={at} className="text-white">{m[0]}</span>);
     last = at + m[0].length;
   }
   if (last < json.length) out.push(json.slice(last));
@@ -110,7 +110,7 @@ export function VerifyPlayground() {
         >
           Open transaction ↗
         </a>
-        <p aria-live="polite" className={cx("flex items-center gap-2 text-[15px] font-semibold", match ? "text-accent" : "text-fail")}>
+        <p aria-live="polite" className={cx("flex items-center gap-2 text-[15px] font-semibold", match ? "text-pass" : "text-fail")}>
           {done ? (
             <>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="animate-pop stroke-current" aria-hidden="true">
@@ -130,14 +130,14 @@ function HashRow({ label, state, children }: { label: ReactNode; state: "idle" |
     <div
       className={cx(
         "rounded-2xl border px-4 py-3.5 transition-colors duration-500",
-        state === "match" ? "border-accent bg-accent text-black" : state === "mismatch" ? "border-fail-line bg-fail-soft" : "border-white/10 bg-transparent",
+        state === "match" ? "border-pass-line bg-white/[0.05]" : state === "mismatch" ? "border-fail-line bg-fail-soft" : "border-white/10 bg-transparent",
       )}
     >
-      <p className={cx("font-mono text-[10.5px] font-medium uppercase tracking-[0.16em]", state === "match" ? "text-black/60" : "text-white/60")}>{label}</p>
+      <p className="font-mono text-[10.5px] font-medium uppercase tracking-[0.16em] text-white/60">{label}</p>
       <code
         className={cx(
           "mt-1.5 block min-h-5 break-all font-mono text-[13px]",
-          state === "match" ? "text-black" : state === "mismatch" ? "text-fail" : "text-white/70",
+          state === "match" ? "text-white" : state === "mismatch" ? "text-fail" : "text-white/70",
         )}
       >
         {children}

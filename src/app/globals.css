@@ -157,8 +157,13 @@
     outline-color: var(--color-accent-ink);
   }
 
-  /* A dark card set on a light surface (the ticket, a receipt) gets the yellow ring back. */
-  :is(.bg-accent, .bg-paper, [data-surface="yellow"], [data-surface="paper"]) :is(.bg-black, .bg-canvas, [data-surface="dark"]) :focus-visible {
+  /*
+   * A dark card or chip set on a light surface (the ticket, a receipt, a hash chip, a black tx pill) gets the yellow ring back.
+   * Hook for any near-black container: `data-surface="dark"`, or the classes bg-black / bg-[#000] / bg-[#0b0b0b] / bg-canvas.
+   */
+  :is(.bg-accent, .bg-paper, [data-surface="yellow"], [data-surface="paper"])
+    :is(.bg-black, .bg-canvas, .bg-\[\#000\], .bg-\[\#0b0b0b\], [data-surface="dark"])
+    :focus-visible {
     outline-color: var(--color-accent);
   }
 }

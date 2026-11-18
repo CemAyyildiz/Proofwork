@@ -68,7 +68,7 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
               </p>
               <h1 className={`mt-4 text-[clamp(4.2rem,13vw,10.5rem)] leading-[0.82] ${FONT}`} style={{ fontVariationSettings: axes(68, 900) }}>
                 {words.map((w, i) => (
-                  <span key={w} className="mr-[0.2em] inline-block overflow-y-clip pb-[0.04em] align-top">
+                  <span key={w} className="mr-[0.2em] inline-block overflow-y-clip -mt-[0.12em] pt-[0.12em] pb-[0.04em] align-top">
                     <span className="inline-block animate-rise" style={{ animationDelay: `${80 + i * 90}ms` }}>
                       {i === 1 ? (
                         <>

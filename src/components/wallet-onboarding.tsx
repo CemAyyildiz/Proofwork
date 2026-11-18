@@ -179,12 +179,35 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
   // X is the open step in front of this one: connect it first.
   const xFirst = x.available && !x.connected;
 
+  // One status line that lives as long as the step does: every branch below is the same StepRow and puts this first,
+  // so the region is never re-created and each new result is read out.
+  const said =
+    view.step === "ready"
+      ? trustTx
+        ? "USDC trustline added. This wallet can receive USDC."
+        : "This wallet can receive USDC."
+      : view.step === "checking"
+        ? `Checking your wallet on ${publicEnv.networkName}.`
+        : view.step === "unreachable"
+          ? `Can't check your wallet on ${publicEnv.networkName} right now.`
+          : xFirst
+            ? "Wallet set-up is next, after X."
+            : view.activate === "current"
+              ? "This wallet can't receive USDC yet. Step 1: activate the account."
+              : "Account active. Next, add the USDC trustline.";
+  const live = (
+    <p role="status" aria-live="polite" className="sr-only">
+      {said}
+    </p>
+  );
+
   return (
     <>
       {view.step === "ready" ? (
         <StepRow state="done" title="Wallet can receive USDC">
+          {live}
           {trustTx ? (
-            <p role="status" className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-white/55">
+            <p className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-white/55">
               <span className="text-pass">USDC trustline added</span>
               <HashChip value={trustTx} href={publicEnv.explorerTxUrl(trustTx)} />
             </p>
@@ -192,9 +215,14 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
           {notes}
         </StepRow>
       ) : view.step === "checking" ? (
-        <StepRow state="pending" title={<span aria-live="polite">Checking your wallet on {publicEnv.networkName}…</span>} />
+        <StepRow state="pending" title={`Checking your wallet on ${publicEnv.networkName}…`}>
+          {/* Children as a list in every branch, so React keeps the one status line in place. */}
+          {live}
+          {null}
+        </StepRow>
       ) : view.step === "unreachable" ? (
         <StepRow state="fail" title={<span className="text-fail">Can&apos;t check your wallet on {publicEnv.networkName} right now.</span>}>
+          {live}
           <Button variant="secondary" size="sm" className="mt-3" onClick={() => void recheck()}>
             Retry
           </Button>
@@ -203,6 +231,7 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
       ) : xFirst ? (
         // One open step at a time: while X is the step in front, this one waits folded, and can still be done now.
         <StepRow state="pending" title="Get this wallet ready for USDC">
+          {live}
           <details className="group/w">
             <summary className="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-1.5 text-[13px] text-white/60 [&::-webkit-details-marker]:hidden">
               Next, after X.
@@ -210,19 +239,16 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
                 Set it up now
               </span>
             </summary>
-            <div aria-live="polite">
-              {setup}
-              {notes}
-            </div>
+            {setup}
+            {notes}
           </details>
         </StepRow>
       ) : (
         <StepRow state="current" title="Get this wallet ready for USDC">
-          <div aria-live="polite">
-            <StepNote>This wallet can&apos;t receive USDC yet. Set it up here in two steps, then submit.</StepNote>
-            {setup}
-            {notes}
-          </div>
+          {live}
+          <StepNote>This wallet can&apos;t receive USDC yet. Set it up here in two steps, then submit.</StepNote>
+          {setup}
+          {notes}
         </StepRow>
       )}
       <SubmitForm campaignSlug={campaignSlug} payTo={address} locked={!view.canSubmit} />

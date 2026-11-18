@@ -10,7 +10,9 @@ export function SiteFooter() {
           <p>
             © 2026 Proofwork · {publicEnv.networkName}
           </p>
-          <p className="mt-1">Stellar Instawards grantee · human-reviewed · escrow-paid</p>
+          <p className="mt-1">
+            Stellar Instawards grantee · <span className="whitespace-nowrap">human-reviewed</span> · <span className="whitespace-nowrap">escrow-paid</span>
+          </p>
         </div>
         <nav aria-label="Footer" className="-my-3 flex flex-wrap gap-x-6 text-sm">
           <Link href="/explore" className="inline-flex min-h-11 items-center rounded-sm transition-colors hover:text-white">

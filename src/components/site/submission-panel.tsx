@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { AppealButton } from "@/components/appeal-button";
 import { timelineView, type Stage, type XNotice } from "@/components/contributor-state";
+import { netOfFee } from "@/components/site/amount";
 import { Stamp } from "@/components/site/stamp";
 import { StepList, StepNote, StepRow } from "@/components/site/steps";
 import { axes, FONT } from "@/components/site/type";
@@ -208,11 +209,11 @@ export function Timeline({ mine, campaignOpen }: { mine: MySubmission; campaignO
           state="done"
           title={
             <>
-              Paid · <span className="text-accent">{formatUsdc(paid.amount)}</span>
+              Paid · <span className="text-accent">{formatUsdc(paid.amount)}</span> released
             </>
           }
         >
-          <StepNote>Released from escrow to your wallet.</StepNote>
+          <StepNote>{formatUsdc(netOfFee(paid.amount))} reached your wallet after the escrow&rsquo;s 0.3% protocol fee.</StepNote>
           <HashChip value={paid.releaseTxHash} href={publicEnv.explorerTxUrl(paid.releaseTxHash)} className="mt-2.5" />
         </StepRow>
       ) : (

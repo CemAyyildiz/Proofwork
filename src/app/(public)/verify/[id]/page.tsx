@@ -47,13 +47,13 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
         <p className="animate-reveal font-mono text-[11px] uppercase tracking-[0.2em] text-white/55">Public decision record · no account needed</p>
         <h1 className={`mt-5 max-w-5xl text-[clamp(3rem,8vw,7rem)] leading-[0.86] ${FONT}`} style={{ fontVariationSettings: axes(78, 900) }}>
           {words.map((w, i) => (
-            <span key={w} className="mr-[0.22em] inline-block overflow-y-clip pb-[0.06em] align-top">
+            <span key={w} className="mr-[0.22em] inline-block overflow-y-clip -mt-[0.12em] pt-[0.12em] pb-[0.06em] align-top">
               <span className="inline-block animate-rise" style={{ animationDelay: `${80 + i * 60}ms` }}>
                 {w}
               </span>
             </span>
           ))}
-          <span className="inline-block overflow-y-clip pb-[0.06em] align-top">
+          <span className="inline-block overflow-y-clip -mt-[0.12em] pt-[0.12em] pb-[0.06em] align-top">
             <span className="inline-block animate-rise text-accent" style={{ animationDelay: "360ms" }}>
               Check it.
             </span>
@@ -76,7 +76,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
               <span>Decision record · {s.shortId}</span>
               <span className="flex flex-wrap gap-2">
                 {d.txHash ? (
-                  <span className="rounded-full bg-black px-2.5 py-1 text-accent">● On Stellar</span>
+                  <span className="rounded-full bg-black px-2.5 py-1 text-white">● On Stellar</span>
                 ) : (
                   <span className="rounded-full border border-black/25 px-2.5 py-1">Not on-chain yet</span>
                 )}
@@ -125,7 +125,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
                     <span
                       className={cx(
                         "rounded-full px-3 py-1 font-mono text-[11px] font-semibold tracking-[0.08em]",
-                        ok ? "bg-black text-accent" : "bg-fail text-black",
+                        ok ? "bg-black text-white" : "bg-fail text-black",
                       )}
                     >
                       {ok ? "YES" : "NO"}
@@ -191,7 +191,7 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
           <section aria-labelledby="proof-title" className="min-w-0 animate-reveal rounded-[28px] border border-white/10 bg-[#111] p-6 [animation-delay:320ms] sm:p-8 lg:sticky lg:top-24">
             <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-white/60">Runs on your device</p>
             <h2 id="proof-title" className={`mt-2 text-[clamp(1.9rem,3vw,2.6rem)] leading-[0.95] ${FONT}`} style={{ fontVariationSettings: axes(85, 850) }}>
-              Proof, <span className="text-accent">rebuilt in your browser.</span>
+              Proof, rebuilt in your browser.
             </h2>
             <HashCheck canonicalJson={d.canonicalJson} expectedHash={d.decisionHash} txHash={d.txHash} />
             <p className="mt-6 border-t border-white/10 pt-5 text-sm text-white/60">
