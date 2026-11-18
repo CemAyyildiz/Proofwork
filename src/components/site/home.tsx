@@ -144,7 +144,8 @@ function Hero({ data }: { data: HomeData }) {
             <span className="size-1.5 animate-ping rounded-full text-accent" style={{ background: Y }} />
             Bounties on {data.network}
           </div>
-          <h1 className="w-full">
+          {/* On a phone the cards fly right through the headline: a dark band keeps a yellow receipt from sitting under "GET PAID.". */}
+          <h1 className="relative isolate w-full before:pointer-events-none before:absolute before:-inset-x-4 before:-inset-y-10 before:-z-10 before:bg-[linear-gradient(to_bottom,transparent,rgba(7,7,7,0.9)_20%,rgba(7,7,7,0.9)_80%,transparent)] md:before:hidden">
             {LINES.map((l, i) => (
               <span key={l} className="block w-full overflow-x-visible overflow-y-clip py-[0.02em]">
                 <span

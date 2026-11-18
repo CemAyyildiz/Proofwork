@@ -150,12 +150,12 @@ export default async function VerifyPage({ params }: { params: Promise<{ id: str
 
             <Tear />
 
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-5">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-5 sm:gap-x-6">
               <Kv label="Submission">
                 <span className="font-mono">{s.shortId}</span>
               </Kv>
               <Kv label="Decided">
-                <span className="font-mono">{formatDateShort(d.decidedAt)}</span>
+                <span className="whitespace-nowrap font-mono text-[13px] sm:text-[14px]">{formatDateShort(d.decidedAt)}</span>
               </Kv>
               <Kv label="Reviewer">
                 <HashChip value={d.reviewerPubkey} head={4} tail={4} href={publicEnv.explorerAccountUrl(d.reviewerPubkey)} className="whitespace-nowrap" />

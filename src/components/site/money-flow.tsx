@@ -20,18 +20,19 @@ function Flow({ label, vertical = false }: { label: string; vertical?: boolean }
     </div>
   );
   return (
-    <div className={cx("relative flex items-center justify-center", vertical ? "h-20 w-full" : "min-w-16 flex-1")}>
+    <div className={cx("relative flex items-center justify-center", vertical ? "h-20 w-full" : "min-w-[9.5rem] flex-1")}>
       {vertical ? <div className="w-20 rotate-90">{strip}</div> : strip}
-      <span className="absolute whitespace-nowrap rounded-full bg-canvas px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white/65">{label}</span>
+      {/* Between lg and xl the gap is narrow: a long label breaks onto two lines rather than run over a box. */}
+      <span className="absolute max-w-full whitespace-nowrap rounded-full bg-canvas text-center lg:whitespace-normal xl:whitespace-nowrap px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white/65">{label}</span>
     </div>
   );
 }
 
 function Node({ kicker, title, body, tone = "dark" }: { kicker: string; title: string; body: string; tone?: "dark" | "yellow" }) {
   return (
-    <div className={cx("w-full rounded-[26px] p-6 md:w-[17rem] md:shrink-0", tone === "yellow" ? "bg-accent text-black" : "border border-white/10 bg-[#111] text-white")}>
+    <div className={cx("w-full rounded-[26px] p-6 lg:min-w-0 lg:max-w-[17rem] lg:flex-[1_1_17rem]", tone === "yellow" ? "bg-accent text-black" : "border border-white/10 bg-[#111] text-white")}>
       <p className={cx("font-mono text-[10.5px] uppercase tracking-[0.18em]", tone === "yellow" ? "text-black/65" : "text-white/55")}>{kicker}</p>
-      <p className={`mt-2 text-[1.7rem] leading-none ${FONT}`} style={{ fontVariationSettings: axes(88, 850) }}>
+      <p className={`mt-2 text-[1.7rem] leading-none lg:text-[1.5rem] xl:text-[1.7rem] ${FONT}`} style={{ fontVariationSettings: axes(88, 850) }}>
         {title}
       </p>
       <p className={cx("mt-3 text-sm leading-relaxed", tone === "yellow" ? "text-black/75" : "text-white/65")}>{body}</p>
@@ -41,11 +42,11 @@ function Node({ kicker, title, body, tone = "dark" }: { kicker: string; title: s
 
 function Both({ label }: { label: string }) {
   return (
-    <div className="flex md:flex-1">
-      <span className="contents md:hidden">
+    <div className="flex lg:flex-1">
+      <span className="contents lg:hidden">
         <Flow label={label} vertical />
       </span>
-      <span className="hidden md:contents">
+      <span className="hidden lg:contents">
         <Flow label={label} />
       </span>
     </div>
@@ -55,7 +56,7 @@ function Both({ label }: { label: string }) {
 export function MoneyFlow({ you = false, className }: { you?: boolean; className?: string }) {
   return (
     <figure className={className} aria-label="How the budget moves">
-      <div className="flex flex-col items-stretch md:flex-row md:items-stretch">
+      <div className="flex flex-col items-stretch lg:flex-row">
         <Node
           kicker="Funder"
           title={you ? "Your wallet" : "The team's wallet"}

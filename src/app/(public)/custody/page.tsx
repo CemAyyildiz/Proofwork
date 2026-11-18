@@ -24,11 +24,11 @@ const AUDIT_URL = "https://stellarsecurityportal.com";
  */
 export default function CustodyPage() {
   const limits = funderLimits();
-  const figures: Array<[string, string]> = [
-    [PROTOCOL_FEE, "Trustless Work protocol fee, on every amount that leaves the escrow"],
-    ["0%", "Proofwork platform fee, fixed on the escrow when you deploy it"],
-    [String(limits.maxOpenCampaigns), `open ${limits.maxOpenCampaigns === 1 ? "campaign" : "campaigns"} per funder at a time`],
-    [String(limits.maxOpenBudget), "USDC of open budget per funder"],
+  const figures: Array<[label: string, value: string, unit?: string]> = [
+    ["Trustless Work protocol fee, on every amount that leaves the escrow", PROTOCOL_FEE],
+    ["Proofwork platform fee, fixed on the escrow when you deploy it", "0%"],
+    [`Open ${limits.maxOpenCampaigns === 1 ? "campaign" : "campaigns"} per funder at a time`, String(limits.maxOpenCampaigns)],
+    ["Open budget per funder", String(limits.maxOpenBudget), "USDC"],
   ];
   return (
     <div className="bg-canvas text-white">
@@ -52,22 +52,15 @@ export default function CustodyPage() {
           {/* Who can move the money, drawn. */}
           <MoneyFlow you className="mt-16 animate-reveal [animation-delay:450ms]" />
 
-          {/* The figures as one till-slip line: what it costs and how much one funder can have open. */}
-          <dl className="mt-16 grid grid-cols-2 border-y border-dashed border-white/25 lg:grid-cols-4">
-            {figures.map(([value, label], i) => (
-              <div
-                key={label}
-                className={cx(
-                  "flex flex-col-reverse justify-end gap-2 px-1 py-6 lg:px-6",
-                  i % 2 === 1 && "border-l border-dashed border-white/15 pl-5",
-                  i >= 2 && "border-t border-dashed border-white/15 lg:border-t-0",
-                  i === 2 && "lg:border-l lg:pl-6",
-                  i === 0 && "lg:pl-0",
-                )}
-              >
-                <dt className="text-[13px] leading-snug text-white/60">{label}</dt>
-                <dd className={`text-[clamp(2.2rem,3.6vw,3rem)] leading-[0.85] ${FONT}`} style={{ fontVariationSettings: axes(66, 900) }}>
+          {/* The figures as till-slip lines: what it costs and how much one funder can have open. */}
+          <dl className="mt-16 max-w-4xl border-y-2 border-dashed border-white/25">
+            {figures.map(([label, value, unit]) => (
+              <div key={label} className="flex items-baseline gap-4 border-b border-dashed border-white/15 py-4 last:border-b-0 sm:py-5">
+                <dt className="min-w-0 flex-1 text-[15px] leading-snug text-white/65 sm:flex-none sm:basis-auto">{label}</dt>
+                <span aria-hidden="true" className="hidden min-w-8 flex-1 border-b border-dotted border-white/25 sm:block" />
+                <dd className={`shrink-0 whitespace-nowrap text-right text-[clamp(1.9rem,3vw,2.5rem)] leading-none ${FONT}`} style={{ fontVariationSettings: axes(66, 900) }}>
                   {value}
+                  {unit ? <span className="ml-1.5 font-sans text-sm font-semibold text-white/65 [font-variation-settings:normal]">{unit}</span> : null}
                 </dd>
               </div>
             ))}

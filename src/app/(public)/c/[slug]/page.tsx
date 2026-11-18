@@ -254,7 +254,8 @@ function Hero({
         </h1>
 
         <div className="mt-12 grid items-end gap-8 md:grid-cols-[1fr_auto] md:gap-10">
-          <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+          {/* On a phone the reward always sits above its words, so a short one ("2") stays as big as a long one. */}
+          <div className="flex flex-col gap-y-3 sm:flex-row sm:flex-wrap sm:items-end sm:gap-x-5">
             {/* Yellow is money in escrow: an unfunded bounty's reward is a promise, set in white. */}
             <p className={cx(`text-[clamp(6.5rem,19vw,15rem)] leading-[0.78] ${FONT}`, funded ? "text-accent" : "text-white")} style={{ fontVariationSettings: axes(62, 900) }}>
               {reward}
@@ -397,7 +398,10 @@ function Ticket({ c, stage, money, children }: { c: PublicCampaign; stage: Stage
             <div className="col-span-2">
               <dt className="font-mono text-[10px] uppercase tracking-wider text-white/55">The rest</dt>
               <dd className="mt-1 font-semibold">
-                {stage === "closed"
+                {/* The escrow takes its 0.3% protocol fee from the remainder return too (README, "The close is manual"). */}
+                {stage === "closed" && c.remainderTxHash && toStroops(money.left) > 0n
+                  ? `${amount(money.left)} USDC returned to the funder, ${amount(netOfFee(money.left))} after the 0.3% fee`
+                  : stage === "closed"
                   ? `${amount(money.left)} USDC · ${remainderLine(c, money)}`
                   : `${amount(money.left)} USDC still in escrow, returned to the funder after they close`}
               </dd>
