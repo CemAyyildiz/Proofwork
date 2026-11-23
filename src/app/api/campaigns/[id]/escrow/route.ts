@@ -3,7 +3,7 @@ import { funderLimits } from "@/config/env";
 import { getEscrow, getPlatformKeys } from "@/escrow";
 import { requireUser } from "@/lib/current-user";
 import { AppError } from "@/lib/errors";
-import { jsonRoute } from "@/lib/http";
+import { jsonRoute, parseRouteId } from "@/lib/http";
 import { enforce, limiters } from "@/lib/ratelimit";
 import { abandonCampaign, confirmDeploy, confirmFund, fundSubmitted, horizonFunderAccountReader, prepareDeploy, prepareFund } from "@/services/campaign";
 
@@ -17,16 +17,19 @@ export const runtime = "nodejs";
  */
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("prepare"), kind: z.enum(["deploy", "fund"]) }),
-  z.object({ action: z.literal("submit"), kind: z.enum(["deploy", "fund"]), opId: z.string().min(1), signedXdr: z.string().min(1) }),
+  z.object({ action: z.literal("submit"), kind: z.enum(["deploy", "fund"]), opId: z.string().min(1).max(64), signedXdr: z.string().min(1).max(20_000) }),
   z.object({ action: z.literal("abandon") }),
 ]);
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(req: Request, ctx: Ctx): Promise<Response> {
-  const { id } = await ctx.params;
+  const { id: rawId } = await ctx.params;
   return jsonRoute(schema, async (input) => {
+    const id = parseRouteId(rawId);
     const user = await requireUser(id);
+    // Every action reads the escrow or Horizon, so each is counted per wallet, under its own key.
+    await enforce(limiters.escrowPrepare, `escrow-${input.action}:${user.pubkey}`);
     // Deploy and a first fund put new money in, so they need the funder role.
     // A fund already sent to the network is different: the budget may be in
     // the escrow with the campaign not yet marked funded, and its owner must
@@ -44,8 +47,6 @@ export async function POST(req: Request, ctx: Ctx): Promise<Response> {
     const keys = getPlatformKeys();
     const actor = { pubkey: user.pubkey, platformAdmin: keys.admin, platformOps: keys.ops };
     if (input.action === "prepare") {
-      // Every prepare can cost a Horizon read, so it is counted per wallet.
-      await enforce(limiters.escrowPrepare, `escrow-prepare:${user.pubkey}`);
       // The caps and the wallet are checked where a transaction is built: a fund that already
       // reached the network is reconciled first and never meets the wallet check.
       const account = horizonFunderAccountReader();

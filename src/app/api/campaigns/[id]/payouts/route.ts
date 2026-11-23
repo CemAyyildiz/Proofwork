@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getEscrow } from "@/escrow";
 import { requireUser } from "@/lib/current-user";
 import { AppError } from "@/lib/errors";
-import { jsonRoute } from "@/lib/http";
+import { jsonRoute, parseRouteId } from "@/lib/http";
 import { enforce, limiters } from "@/lib/ratelimit";
 import { canManageCampaign } from "@/services/access";
 import { getCampaignById } from "@/services/campaign";
@@ -10,7 +10,12 @@ import { approveForPayout, confirmClose, confirmReleaseOp, prepareClose, prepare
 
 export const runtime = "nodejs";
 
-const submissionIds = z.array(z.string().min(1).max(64)).min(1).max(50);
+const submissionIds = z
+  .array(z.string().min(1).max(64))
+  .min(1)
+  .max(50)
+  // A repeated id would be approved or released twice in one request; refuse rather than dedupe.
+  .refine((ids) => new Set(ids).size === ids.length, "duplicate submission id");
 
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve"), submissionIds }),
@@ -19,7 +24,7 @@ const schema = z.discriminatedUnion("action", [
     z.object({ action: z.literal("prepare"), kind: z.literal("release"), submissionIds }),
     z.object({ action: z.literal("prepare"), kind: z.literal("close") }),
   ]),
-  z.object({ action: z.literal("submit"), kind: z.enum(["release", "close"]), opId: z.string().min(1), signedXdr: z.string().min(1) }),
+  z.object({ action: z.literal("submit"), kind: z.enum(["release", "close"]), opId: z.string().min(1).max(64), signedXdr: z.string().min(1).max(20_000) }),
 ]);
 
 /**
@@ -30,8 +35,9 @@ const schema = z.discriminatedUnion("action", [
  * again. Create, deploy and fund keep the role gate.
  */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }): Promise<Response> {
-  const { id } = await ctx.params;
+  const { id: rawId } = await ctx.params;
   return jsonRoute(schema, async (input) => {
+    const id = parseRouteId(rawId);
     const user = await requireUser(id);
     await enforce(limiters.payout, `payout:${user.pubkey}`);
     const c = await getCampaignById(id);

@@ -1,6 +1,6 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import type { z } from "zod";
+import { z } from "zod";
 import { AppError, httpStatus, isAppError } from "./errors";
 import { log } from "./logger";
 
@@ -33,6 +33,18 @@ export function jsonRoute<S extends z.ZodTypeAny>(schema: S, handler: Handler<z.
       return errorResponse(e);
     }
   };
+}
+
+/** A campaign or submission id from the URL path: the shape `newId` produces, bounded. */
+export const routeIdSchema = z.string().min(1).max(64).regex(/^[A-Za-z0-9_-]+$/);
+
+/** Validates an `[id]` path segment; called inside `jsonRoute` so a bad id answers 400 like a bad body. */
+export function parseRouteId(raw: string): string {
+  const parsed = routeIdSchema.safeParse(raw);
+  if (!parsed.success) {
+    throw AppError.validation("invalid request", { issues: parsed.error.issues.map((i) => ({ path: ["id", ...i.path], message: i.message })) });
+  }
+  return parsed.data;
 }
 
 /** Maps a thrown error to a JSON error response; never leaks internals on 500. */
