@@ -168,12 +168,20 @@ function load(): Env {
   // Real money: no override may point a mainnet deployment at a testnet host or at another USDC.
   if (env.STELLAR_NETWORK === "mainnet") {
     if (env.USDC_ISSUER !== facts.usdcIssuer) throw new Error("Invalid environment: USDC_ISSUER must be Circle's mainnet issuer on mainnet");
-    if (env.HORIZON_URL === NETWORKS.testnet.horizonUrl) throw new Error("Invalid environment: HORIZON_URL is the testnet Horizon on mainnet");
-    if (env.TW_BASE_URL === NETWORKS.testnet.twBaseUrl) throw new Error("Invalid environment: TW_BASE_URL is the Trustless Work testnet host on mainnet");
+    // Compared by host, so a trailing slash or another path cannot slip a testnet host through.
+    if (sameHost(env.HORIZON_URL, NETWORKS.testnet.horizonUrl)) throw new Error("Invalid environment: HORIZON_URL is the testnet Horizon on mainnet");
+    if (sameHost(env.TW_BASE_URL, NETWORKS.testnet.twBaseUrl)) throw new Error("Invalid environment: TW_BASE_URL is the Trustless Work testnet host on mainnet");
+    // Custody (AD-3): the remainder goes back through Proofwork's own resolver key, so mainnet pins it.
+    if (!env.DEFAULT_DISPUTE_RESOLVER_PUBKEY) throw new Error("Invalid environment: DEFAULT_DISPUTE_RESOLVER_PUBKEY is required on mainnet");
+    // Founder-sealed review makes the founder wallet the release signer; on mainnet only the funder releases.
+    if (env.SEALED_DUAL_REVIEW_ENABLED) throw new Error("Invalid environment: sealed dual review cannot be enabled on mainnet");
   }
   const seeds = [env.PLATFORM_ADMIN_SECRET, env.PLATFORM_OPS_SECRET, env.DECISION_LEDGER_SECRET];
   if (new Set(seeds).size !== seeds.length) {
     throw new Error("Invalid environment: server signing keys must be distinct");
+  }
+  if (env.DEFAULT_DISPUTE_RESOLVER_PUBKEY && seeds.some((seed) => Keypair.fromSecret(seed).publicKey() === env.DEFAULT_DISPUTE_RESOLVER_PUBKEY)) {
+    throw new Error("Invalid environment: DEFAULT_DISPUTE_RESOLVER_PUBKEY must not be a server key");
   }
   if (env.SEALED_DUAL_REVIEW_ENABLED) {
     if (!env.SEALED_REVIEW_ADMIN_PUBKEY) {
@@ -189,6 +197,18 @@ function load(): Env {
     throw new Error("Invalid environment: set X_CLIENT_ID, X_CLIENT_SECRET, X_REDIRECT_URI and X_BEARER_TOKEN together, or none of them");
   }
   return env;
+}
+
+function sameHost(a: string, b: string): boolean {
+  return new URL(a).host.toLowerCase() === new URL(b).host.toLowerCase();
+}
+
+/**
+ * The dispute resolver every new campaign must use, or null when the
+ * deployment has none (testnet only: `load` requires it on mainnet).
+ */
+export function pinnedDisputeResolver(): string | null {
+  return env.DEFAULT_DISPUTE_RESOLVER_PUBKEY ?? null;
 }
 
 let cached: Env | undefined;

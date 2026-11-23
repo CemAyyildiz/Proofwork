@@ -44,6 +44,8 @@ describe("server environment per network", () => {
     vi.unstubAllEnvs();
   });
 
+  const RESOLVER = Keypair.random().publicKey();
+
   /** The environment is parsed once per module instance, so each case loads its own. */
   async function load(server: string, built: string | undefined, extra: Record<string, string> = {}) {
     vi.resetModules();
@@ -57,6 +59,7 @@ describe("server environment per network", () => {
     vi.stubEnv("PLATFORM_OPS_SECRET", Keypair.random().secret());
     vi.stubEnv("DECISION_LEDGER_SECRET", Keypair.random().secret());
     vi.stubEnv("SESSION_SECRET", "s".repeat(43));
+    vi.stubEnv("DEFAULT_DISPUTE_RESOLVER_PUBKEY", RESOLVER);
     for (const [k, v] of Object.entries(extra)) vi.stubEnv(k, v);
     const mod = await import("@/config/env");
     // The proxy parses on first read.
@@ -87,6 +90,20 @@ describe("server environment per network", () => {
     await expect(load("mainnet", "mainnet", { USDC_ISSUER: NETWORKS.testnet.usdcIssuer })).rejects.toThrow(/USDC_ISSUER/);
     await expect(load("mainnet", "mainnet", { HORIZON_URL: NETWORKS.testnet.horizonUrl })).rejects.toThrow(/HORIZON_URL/);
     await expect(load("mainnet", "mainnet", { TW_BASE_URL: NETWORKS.testnet.twBaseUrl })).rejects.toThrow(/TW_BASE_URL/);
+    // Another spelling of the same host is still the testnet host.
+    await expect(load("mainnet", "mainnet", { HORIZON_URL: `${NETWORKS.testnet.horizonUrl}/` })).rejects.toThrow(/HORIZON_URL/);
+    await expect(load("mainnet", "mainnet", { TW_BASE_URL: `${NETWORKS.testnet.twBaseUrl.toUpperCase()}/v1` })).rejects.toThrow(/TW_BASE_URL/);
+  });
+
+  it("pins Proofwork's resolver and keeps sealed review off on mainnet", async () => {
+    await expect(load("mainnet", "mainnet", { DEFAULT_DISPUTE_RESOLVER_PUBKEY: "" })).rejects.toThrow(/DEFAULT_DISPUTE_RESOLVER_PUBKEY is required/);
+    await expect(
+      load("mainnet", "mainnet", { SEALED_DUAL_REVIEW_ENABLED: "true", SEALED_REVIEW_ADMIN_PUBKEY: Keypair.random().publicKey() }),
+    ).rejects.toThrow(/sealed dual review cannot be enabled on mainnet/);
+    const ops = Keypair.random();
+    await expect(load("testnet", undefined, { PLATFORM_OPS_SECRET: ops.secret(), DEFAULT_DISPUTE_RESOLVER_PUBKEY: ops.publicKey() })).rejects.toThrow(
+      /must not be a server key/,
+    );
   });
 
   it("does not treat Friendbot's address as a public funding source on mainnet", async () => {
