@@ -499,6 +499,20 @@ describe("abandoning a deployed campaign that was never funded", () => {
     expect((await abandonCampaign(c.id, actor, escrow, conn)).closedAt).toBeInstanceOf(Date);
   });
 
+  it("is refused when a fund is sent while the escrow is being read, and the campaign stays open", async () => {
+    const c = await deployed("50");
+    const f = await prepareFund(c.id, actor, escrow, openGate().account, conn);
+    const read = escrow.getEscrow.bind(escrow);
+    // The funder's fund goes out between the app's own checks and its write.
+    vi.spyOn(escrow, "getEscrow").mockImplementation(async (id) => {
+      await conn.update(escrowOps).set({ status: "submitted" }).where(eq(escrowOps.id, f.opId));
+      return read(id);
+    });
+    await expect(abandonCampaign(c.id, actor, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT", message: "campaign changed; reload and try again" });
+    expect((await campaignRow(c.id)).closedAt).toBeNull();
+    expect(await funderUsage(FUNDER, conn)).toEqual({ openCampaigns: 1, openBudget: "50" });
+  });
+
   it("is refused for a draft, and for a wallet that does not own the campaign", async () => {
     const d = await draft("50");
     await expect(abandonCampaign(d.id, actor, escrow, conn)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("not deployed") });

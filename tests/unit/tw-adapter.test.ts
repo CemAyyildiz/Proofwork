@@ -177,6 +177,13 @@ describe("TrustlessWorkAdapter (v1)", () => {
     expect(s.milestones[1]).toMatchObject({ index: 1, amount: "2", status: "completed", approved: true, released: true });
   });
 
+  it("derives the funder from milestone 0's receiver, not from the release signer", async () => {
+    const founder = Keypair.random().publicKey();
+    const read = { ...escrowRead, roles: { ...escrowRead.roles, releaseSigner: founder } };
+    const s = await adapter(() => ({ status: 200, body: [read] })).getEscrow(CONTRACT);
+    expect(s.roles.funder).toBe(funder);
+    expect(s.roles.releaseSigner).toBe(founder);
+  });
 
   it("refuses a read without a balance instead of taking it for an empty escrow", async () => {
     const read: Partial<typeof escrowRead> = { ...escrowRead };
@@ -188,6 +195,31 @@ describe("TrustlessWorkAdapter (v1)", () => {
   });
 });
 
+describe("role separation and platform keys at deploy", () => {
+  const roles = { funder, platformAdmin: admin.publicKey(), platformOps: ops.publicKey(), disputeResolver: resolver };
+  const deploy = (r: Partial<typeof roles> & { releaseSigner?: string; approver?: string }) =>
+    adapter(noCalls).buildDeploy({
+      engagementId: "camp-1",
+      title: "T",
+      description: "D",
+      signer: funder,
+      roles: { ...roles, ...r },
+      closeMilestone: { description: "close", amount: "0.0000001" },
+    });
+
+  it.each([
+    ["the resolver is the ops key", { disputeResolver: ops.publicKey() }, /disputeResolver must not hold any other role/],
+    ["the resolver is the admin key", { disputeResolver: admin.publicKey() }, /disputeResolver must not hold any other role/],
+    ["the resolver is the funder", { disputeResolver: funder }, /disputeResolver must not hold any other role/],
+    ["the release signer is the ops key", { releaseSigner: ops.publicKey() }, /releaseSigner must not be a platform key/],
+    ["the release signer is the admin key", { releaseSigner: admin.publicKey() }, /releaseSigner must not be a platform key/],
+    ["platformAddress is not the configured admin key", { platformAdmin: Keypair.random().publicKey() }, /do not match the configured platform keys/],
+    ["serviceProvider is not the configured ops key", { platformOps: Keypair.random().publicKey() }, /do not match the configured platform keys/],
+  ])("refuses when %s, before any call", async (_name, r, message) => {
+    await expect(deploy(r)).rejects.toMatchObject({ message: expect.stringMatching(message) });
+  });
+});
+
 describe("the contract a deploy creates", () => {
   it("finds no contract id in a deploy that does not single one out, and refuses an unreadable one", () => {
     expect(deployedContractId(contractCall(funder, DEPLOYER), Networks.TESTNET)).toBeNull();
@@ -196,6 +228,34 @@ describe("the contract a deploy creates", () => {
     expect(deployedContractId(contractCall(funder, DEPLOYER, { readWrite: [DEPLOYER, CONTRACT] }), Networks.TESTNET)).toBe(CONTRACT);
     expect(deployedContractId(unsignedXdr(), Networks.TESTNET)).toBeNull();
     expect(() => deployedContractId("AAAA", Networks.TESTNET)).toThrow(/unreadable/);
+  });
+});
+
+describe("appending milestones", () => {
+  /** Reads succeed; any write fails the test. */
+  const readOnly = (read: unknown): Handler => (url) => {
+    if (url.includes("/helper/get-escrow-by-contract-ids")) return { status: 200, body: [read] };
+    throw new Error(`unexpected call to ${url}`);
+  };
+
+  it("refuses the dispute resolver as a receiver before building anything", async () => {
+    await expect(adapter(readOnly(escrowRead)).appendMilestones(CONTRACT, [{ description: "s2", amount: "1", receiver: resolver }])).rejects.toMatchObject({
+      code: "VALIDATION",
+      message: "receiver cannot be the dispute resolver",
+    });
+  });
+
+  it("refuses more than 50 milestones before building anything", async () => {
+    const many = Array.from({ length: 49 }, (_, i) => ({ description: `s${i}`, amount: "1", receiver: Keypair.random().publicKey() }));
+    await expect(adapter(readOnly(escrowRead)).appendMilestones(CONTRACT, many)).rejects.toMatchObject({ message: "escrow cannot exceed 50 milestones" });
+  });
+
+  it("refuses an escrow whose platformAddress is not the configured admin key", async () => {
+    const read = { ...escrowRead, roles: { ...escrowRead.roles, platformAddress: Keypair.random().publicKey() } };
+    await expect(adapter(readOnly(read)).appendMilestones(CONTRACT, [{ description: "s2", amount: "1", receiver: "G_C2" }])).rejects.toMatchObject({
+      code: "ESCROW",
+      message: expect.stringMatching(/platformAddress is not the configured platform admin key/),
+    });
   });
 });
 
