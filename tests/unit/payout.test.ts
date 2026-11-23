@@ -215,6 +215,20 @@ describe("approveForPayout", () => {
     expect(await payoutOf("sub_1")).toMatchObject({ milestoneIndex: 2, status: "approved" });
   });
 
+  it("a budget that is an exact multiple of the reward pays every slot", async () => {
+    // 100 / 10 = 10 slots; the close milestone's stroop must not take the last one.
+    const { ids } = await passed(10);
+    await expect(approve(ids.slice(0, 9))).resolves.toMatchObject({ appended: 9 });
+    await expect(approve(ids.slice(9))).resolves.toMatchObject({ appended: 1 });
+    expect(await payoutOf("sub_10")).toMatchObject({ status: "approved" });
+  });
+
+  it("one reward past an exact-multiple budget is still refused", async () => {
+    const { ids } = await passed(11);
+    await expect(approve(ids.slice(0, 10))).resolves.toMatchObject({ appended: 10 });
+    await expect(approve(ids.slice(10))).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/cannot cover/) });
+  });
+
   it("missing rewards over the free balance are refused before any chain write", async () => {
     const { ids } = await passed(2);
     await conn.update(campaigns).set({ rewardAmount: "60" }).where(eq(campaigns.id, CAMPAIGN));

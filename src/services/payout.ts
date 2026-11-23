@@ -186,7 +186,12 @@ export async function approveForPayout(
     let txHash = "";
     if (missing.length > 0) {
       // Budget check against what is actually still in escrow, for the new rewards only.
-      const committed = state.milestones.filter((m) => !m.released && !m.resolved).reduce((acc, m) => addAmounts(acc, m.amount), "0");
+      // Milestone 0 is the campaign-close milestone (AD-2): it is never released,
+      // only disputed at close, so its stroop is not owed to anyone. Counting it
+      // left the last reward unpayable whenever the budget was an exact multiple.
+      const committed = state.milestones
+        .filter((m, i) => i !== 0 && !m.released && !m.resolved)
+        .reduce((acc, m) => addAmounts(acc, m.amount), "0");
       const needed = missing.reduce((acc) => addAmounts(acc, c.rewardAmount), "0");
       if (toStroops(committed) + toStroops(needed) > toStroops(state.balance)) {
         throw AppError.conflict(`escrow balance ${state.balance} cannot cover ${needed} more in rewards`);
