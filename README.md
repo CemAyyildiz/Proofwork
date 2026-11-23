@@ -376,7 +376,7 @@ pnpm check                    # typecheck + lint + unit tests
 | `pnpm spike` | Runs the full escrow cycle on testnet (deploy, fund, append, deliver, approve, release, dispute, remainder) and one decision record |
 | `pnpm escrow:close <contract>` | Returns a closed campaign's remainder with the resolver key and records it on the campaign. `--no-record` signs only, and `--record <tx>` records a return made elsewhere |
 | `pnpm evidence:dump <slug> [name]` | Writes every on-chain transaction and decision of a campaign, with explorer links, to a local report |
-| `pnpm preflight` | Checks a deployment before it takes a campaign: the server accounts exist and hold XLM, the resolver is not a server key, Trustless Work accepts the API key, X and rate limiting are configured, the database has every migration. Reads only |
+| `pnpm preflight` | Checks a deployment before it takes a campaign: the server accounts exist and hold XLM, the resolver exists and is not a server key, Trustless Work accepts the API key, X and rate limiting are configured, the database has every migration. On mainnet it warns when the database already holds campaigns or `PUBLIC_FUNDING_SOURCES` is empty. Reads only |
 | `pnpm x:check <post id> <account id>` | Sends one post-author lookup to X for a known post, before a campaign takes submissions |
 
 ---
@@ -415,7 +415,7 @@ What a mainnet deployment needs, none of it shared with testnet:
 | Public funding sources | `PUBLIC_FUNDING_SOURCES`: exchange withdrawal wallets, so contributors who withdrew from the same exchange are not flagged as linked |
 | X callback | The mainnet host's `/api/x/callback`, registered on the X app |
 
-`pnpm preflight`, run with the deployment's environment, checks all of this without signing or writing anything.
+`pnpm preflight`, run with the deployment's environment, checks what the server can see of this without signing or writing anything: an empty database (a WARN when it already holds campaigns), the Trustless Work key on the mainnet host, the server accounts and the resolver on chain with their XLM, the funder caps in force, and a WARN when `PUBLIC_FUNDING_SOURCES` is empty. It cannot see the X app, so check there that the callback is registered.
 
 On mainnet there is no Friendbot and no faucet. A new wallet is shown how much XLM to send to itself, and the USDC trustline is still added in the app. `/custody` tells a team where its budget sits, which key can move it, and what it costs.
 

@@ -15,11 +15,11 @@ import { readFunderAccount } from "../src/wallet/onboarding";
  * Reads the same environment the app reads (`.env` here; on a host, run it
  * with that host's values). It signs nothing and writes nothing: it reads the
  * server accounts on Horizon, asks Trustless Work whether the API key is
- * accepted, and counts the migrations in the database. The checks are
+ * accepted, and counts the migrations and campaigns in the database. The checks are
  * `preflight` in src/domain/preflight.ts.
  *
- * Exit codes: 0 every check passed · 1 at least one failed · 2 the
- * environment itself was refused.
+ * Exit codes: 0 every check passed (WARN lines included) · 1 at least one
+ * failed · 2 the environment itself was refused.
  */
 async function main(): Promise<number> {
   let keys;
@@ -37,6 +37,7 @@ async function main(): Promise<number> {
     xConfigured: xConfig() !== null,
     rateLimitConfigured: env.UPSTASH_REDIS_REST_URL !== undefined && env.UPSTASH_REDIS_REST_TOKEN !== undefined,
     limits: funderLimits(),
+    publicFundingSources: env.PUBLIC_FUNDING_SOURCES ?? [],
     spendableXlm: async (pubkey) => {
       const a = await readFunderAccount(pubkey, { horizonUrl: env.HORIZON_URL, usdcIssuer: env.USDC_ISSUER });
       return a.kind === "account" ? a.xlm.spendable : null;
@@ -46,8 +47,12 @@ async function main(): Promise<number> {
       const rows = await db.execute(sql`select count(*)::int as n from drizzle.__drizzle_migrations`);
       return { applied: Number((rows[0] as { n: number } | undefined)?.n ?? 0), expected: journal.entries.length };
     },
+    campaignCount: async () => {
+      const rows = await db.execute(sql`select count(*)::int as n from campaign`);
+      return Number((rows[0] as { n: number } | undefined)?.n ?? 0);
+    },
   });
-  for (const line of lines) process.stdout.write(`${line.ok ? "ok  " : "FAIL"}  ${line.text}\n`);
+  for (const line of lines) process.stdout.write(`${!line.ok ? "FAIL" : line.warn ? "WARN" : "ok  "}  ${line.text}\n`);
   return lines.every((l) => l.ok) ? 0 : 1;
 }
 

@@ -11,9 +11,11 @@ function input(over: Partial<PreflightInput> = {}): PreflightInput {
     xConfigured: true,
     rateLimitConfigured: true,
     limits: { maxOpenCampaigns: 2, maxOpenBudget: "100" },
+    publicFundingSources: ["GEXCHANGE00000000000"],
     spendableXlm: async () => "5",
     trustlessWork: async () => undefined,
     migrations: async () => ({ applied: 11, expected: 11 }),
+    campaignCount: async () => 0,
     ...over,
   };
 }
@@ -23,7 +25,8 @@ const failed = async (over: Partial<PreflightInput>) => (await preflight(input(o
 describe("preflight", () => {
   it("passes when every account exists, the key is accepted and the database is current", async () => {
     const lines = await preflight(input());
-    expect(lines.every((l) => l.ok)).toBe(true);
+    expect(lines.every((l) => l.ok && !l.warn)).toBe(true);
+    expect(lines.map((l) => l.text)).toEqual(expect.arrayContaining(["database holds 0 campaign(s)", "public funding sources: 1 configured"]));
     expect(lines.at(-1)?.text).toMatch(/2 open campaigns and 100 USDC.*real USDC/);
   });
 
@@ -67,5 +70,34 @@ describe("preflight", () => {
     expect(bad[0]).toMatch(/could not be read: Horizon answered 503/);
     expect(bad[4]).toMatch(/database could not be read/);
     for (const l of lines) for (const k of [...Object.values(KEYS), "GRESOLVER00000000000"]) expect(l.text).not.toContain(k);
+  });
+
+  const warned = async (over: Partial<PreflightInput>) => (await preflight(input(over))).filter((l) => l.warn).map((l) => l.text);
+
+  it("warns on mainnet about a database that already holds campaigns and about no exchange funding sources", async () => {
+    const texts = await warned({ campaignCount: async () => 3, publicFundingSources: [] });
+    expect(texts).toHaveLength(2);
+    expect(texts[0]).toMatch(/already holds 3 campaign\(s\).*not a reused testnet one/);
+    expect(texts[1]).toMatch(/PUBLIC_FUNDING_SOURCES is empty/);
+    // A warning is not a failure: the run still passes.
+    expect(await failed({ campaignCount: async () => 3, publicFundingSources: [] })).toEqual([]);
+  });
+
+  it("does not warn on testnet, where an existing database and Friendbot alone are normal", async () => {
+    expect(await warned({ network: "testnet", campaignCount: async () => 3, publicFundingSources: [] })).toEqual([]);
+  });
+
+  it("fails when campaigns cannot be counted", async () => {
+    const texts = await failed({
+      campaignCount: async () => {
+        throw new Error("relation does not exist");
+      },
+    });
+    expect(texts).toEqual(["campaigns could not be counted: relation does not exist"]);
+  });
+
+  it("checks the dispute resolver exists on chain with XLM for its fee", async () => {
+    const texts = await failed({ spendableXlm: async (pubkey) => (pubkey === "GRESOLVER00000000000" ? null : "5") });
+    expect(texts).toEqual([expect.stringMatching(/^dispute resolver GRES…0000 does not exist/)]);
   });
 });

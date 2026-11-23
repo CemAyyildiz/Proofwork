@@ -14,16 +14,22 @@ export interface PreflightInput {
   xConfigured: boolean;
   rateLimitConfigured: boolean;
   limits: { maxOpenCampaigns: number; maxOpenBudget: string };
+  /** Configured PUBLIC_FUNDING_SOURCES (Friendbot not included). */
+  publicFundingSources: readonly string[];
   /** Spendable XLM of an account as a decimal string, or null when the account does not exist. */
   spendableXlm: (pubkey: string) => Promise<string | null>;
   /** Resolves when Trustless Work accepts the API key on the configured host. */
   trustlessWork: () => Promise<void>;
   /** Migrations recorded in the database against those in the repository. */
   migrations: () => Promise<{ applied: number; expected: number }>;
+  /** Campaigns already in the database. */
+  campaignCount: () => Promise<number>;
 }
 
 export interface PreflightLine {
   ok: boolean;
+  /** Passes, but the operator should look: printed as WARN and does not fail the run. */
+  warn?: boolean;
   text: string;
 }
 
@@ -90,6 +96,28 @@ export async function preflight(input: PreflightInput): Promise<PreflightLine[]>
   } catch (e) {
     lines.push({ ok: false, text: `database could not be read: ${reason(e)}` });
   }
+
+  try {
+    const n = await input.campaignCount();
+    lines.push(
+      n > 0 && input.network === "mainnet"
+        ? { ok: true, warn: true, text: `database already holds ${n} campaign(s): a mainnet deployment starts on a new, empty database, not a reused testnet one` }
+        : { ok: true, text: `database holds ${n} campaign(s)` },
+    );
+  } catch (e) {
+    lines.push({ ok: false, text: `campaigns could not be counted: ${reason(e)}` });
+  }
+
+  const sources = input.publicFundingSources.length;
+  lines.push(
+    sources === 0 && input.network === "mainnet"
+      ? {
+          ok: true,
+          warn: true,
+          text: "PUBLIC_FUNDING_SOURCES is empty: contributors who withdrew from the same exchange will be flagged to reviewers as linked",
+        }
+      : { ok: true, text: `public funding sources: ${sources} configured${input.network === "testnet" ? " besides Friendbot" : ""}` },
+  );
 
   lines.push({
     ok: true,
