@@ -10,7 +10,6 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:testnet": "PROOFWORK_TESTNET=1 vitest run tests/testnet",
     "test:sealed-review:testnet": "tsx scripts/sub-rosa-testnet-e2e.mts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
