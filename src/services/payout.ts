@@ -8,7 +8,7 @@ import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { approveKeyParts, deliverKeyParts } from "./op-keys";
-import { campaignOwnedBy, findOp, prepareOp, recordServerOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
+import { campaignOwnedBy, closeInFlight, findOp, prepareOp, recordServerOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
 
 /**
  * Payout pipeline (architecture §3.1), per approved submission:
@@ -156,6 +156,8 @@ export async function approveForPayout(
     const c = await campaignForRewardAuthority(campaignId, actor.pubkey, conn);
     if (!c.escrowContractId || !c.fundedAt) throw AppError.conflict("campaign is not funded");
     if (c.closedAt) throw AppError.conflict("campaign is closed");
+    // A close on its way to the chain would leave a milestone appended now unreleasable, as createSubmission refuses too.
+    if (await closeInFlight(campaignId, conn)) throw AppError.conflict("campaign is closing");
     const contractId = c.escrowContractId;
 
     const rows = await submissionsForFunder(campaignId, conn);

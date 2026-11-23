@@ -5,6 +5,7 @@ import { campaigns, decisions, escrowOps, payouts, sealedReviews, submissions } 
 import { FakeEscrow } from "@/escrow/fake";
 import { confirmDeploy, confirmFund, prepareDeploy, prepareFund, submissionCountsFor } from "@/services/campaign";
 import { approveForPayout, campaignForEscrow, confirmClose, confirmReleaseOp, prepareClose, prepareReleaseOp, recordRemainder } from "@/services/payout";
+import { STALE_SUBMITTED_MS } from "@/services/escrow-ops";
 import { makeTestDb } from "./db";
 import { LIMITS, openGate } from "./funder-wallet";
 
@@ -227,6 +228,16 @@ describe("approveForPayout", () => {
     const { ids } = await passed(11);
     await expect(approve(ids.slice(0, 10))).resolves.toMatchObject({ appended: 10 });
     await expect(approve(ids.slice(10))).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringMatching(/cannot cover/) });
+  });
+
+  it("refused while a close is in flight, before any chain write", async () => {
+    const { ids } = await passed(1);
+    await prepareClose(CAMPAIGN, { pubkey: FUNDER }, escrow, conn);
+    const append = vi.spyOn(escrow, "appendMilestones");
+    await expect(approve(ids)).rejects.toMatchObject({ code: "CONFLICT", message: "campaign is closing" });
+    expect(append).not.toHaveBeenCalled();
+    expect(await payoutOf(ids[0] ?? "")).toBeUndefined();
+    expect((await lease()).token).toBeNull();
   });
 
   it("missing rewards over the free balance are refused before any chain write", async () => {
@@ -518,6 +529,8 @@ describe("prepareClose", () => {
   it("confirm is refused when an approve run left an approved payout after the prepare", async () => {
     const { ids } = await passed(1);
     const op = await closeIt();
+    // A close prepared and left unsigned stops blocking approval once stale.
+    await conn.update(escrowOps).set({ updatedAt: new Date(Date.now() - STALE_SUBMITTED_MS - 1_000) }).where(eq(escrowOps.id, op.opId));
     await approve(ids);
     expect(await payoutOf("sub_1")).toMatchObject({ status: "approved" });
     const submit = vi.spyOn(escrow, "submit");
