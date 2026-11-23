@@ -293,10 +293,12 @@ function echoMilestone(m: TwMilestoneRead): TwMilestoneWrite {
 
 function toState(e: TwEscrowRead): EscrowState {
   const closeReceiver = e.milestones[0]?.receiver;
+  // A missing balance is not an empty escrow: abandon and the remainder checks read "0" as "nothing to return".
+  if (e.balance === undefined) throw new AppError("ESCROW", "escrow read has no balance", { contractId: e.contractId });
   return {
     contractId: e.contractId,
     engagementId: e.engagementId,
-    balance: fromApiAmount(Number(e.balance ?? 0)),
+    balance: fromApiAmount(Number(e.balance)),
     roles: {
       funder: closeReceiver ?? e.roles.releaseSigner,
       releaseSigner: e.roles.releaseSigner,

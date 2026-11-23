@@ -170,6 +170,14 @@ describe("TrustlessWorkAdapter (v1)", () => {
   });
 
 
+  it("refuses a read without a balance instead of taking it for an empty escrow", async () => {
+    const read: Partial<typeof escrowRead> = { ...escrowRead };
+    delete read.balance;
+    await expect(adapter(() => ({ status: 200, body: [read] })).getEscrow(CONTRACT)).rejects.toMatchObject({
+      code: "ESCROW",
+      message: "escrow read has no balance",
+    });
+  });
 });
 
 describe("server keys never sign a provider transaction blindly", () => {
