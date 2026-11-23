@@ -1,4 +1,4 @@
-import { evaluate, SIGNALS, type Outcome, type ReasonCode, type SignalId, type Signals } from "@/domain/rubric";
+import { evaluate, MAX_SIGNAL_SECONDS, SIGNALS, type Outcome, type ReasonCode, type SignalId, type Signals } from "@/domain/rubric";
 
 /** A queue item as the review page hands it to the browser: dates as ISO strings. */
 export interface ReviewItem {
@@ -288,8 +288,10 @@ export class ReviewClock {
   /** Seconds since the last answer (or since the item came on screen), booked to this signal. */
   lap(id: SignalId, now: number): void {
     if (this.since === null) return;
-    // A clock that moved backwards books nothing: the server refuses negative seconds.
-    this.perSignal[id] = (this.perSignal[id] ?? 0) + Math.max(0, Math.round((now - this.lastTick) / 1000));
+    // A clock that moved backwards books nothing: the server refuses negative seconds,
+    // and more than a day on one signal (a card left open overnight).
+    const booked = (this.perSignal[id] ?? 0) + Math.max(0, Math.round((now - this.lastTick) / 1000));
+    this.perSignal[id] = Math.min(MAX_SIGNAL_SECONDS, booked);
     this.lastTick = now;
   }
 

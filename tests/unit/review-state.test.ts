@@ -249,6 +249,13 @@ describe("review clock", () => {
     expect(clock.totalSeconds(25 * 3_600_000)).toBe(86_400);
   });
 
+  it("caps one signal at 24 hours, the most the server accepts per signal", () => {
+    const clock = new ReviewClock();
+    clock.resume(0);
+    clock.lap("task_done", 25 * 3_600_000);
+    expect(clock.perSignal["task_done"]).toBe(86_400);
+  });
+
   it("books nothing when the clock moves backwards", () => {
     const clock = new ReviewClock();
     clock.resume(10_000);
