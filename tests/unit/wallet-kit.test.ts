@@ -48,3 +48,27 @@ describe("the wallet kit loader", () => {
     expect(kit.init).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("the wallet layer's API calls", () => {
+  it("report the status, not a parse error, when the server answers with a non-JSON page", async () => {
+    const fetchMock = vi.fn(async () => new Response("<html>Bad gateway</html>", { status: 502, headers: { "content-type": "text/html" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { logout } = await import("@/wallet/kit");
+      await expect(logout()).rejects.toThrow("request failed (502)");
+      expect(fetchMock).toHaveBeenCalledWith("/api/auth/logout", expect.objectContaining({ method: "POST" }));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("report the server's message when the error body is JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "RATE_LIMITED", message: "too many requests" }, { status: 429 })));
+    try {
+      const { logout } = await import("@/wallet/kit");
+      await expect(logout()).rejects.toThrow("too many requests");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

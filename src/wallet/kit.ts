@@ -130,7 +130,8 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
     credentials: "same-origin",
   });
-  const json = (await res.json()) as T & { message?: string };
-  if (!res.ok) throw new Error(json.message ?? `request failed (${res.status})`);
+  // An error page from a proxy or the platform is not JSON: report the status instead of a parse error.
+  const json = (await res.json().catch(() => null)) as (T & { message?: string }) | null;
+  if (!res.ok || json === null) throw new Error(json?.message ?? `request failed (${res.status})`);
   return json;
 }
