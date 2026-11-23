@@ -12,7 +12,7 @@ import { AppError, isUniqueViolation } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { canManageCampaign } from "./access";
-import { rolesFor } from "./auth";
+import { requireRole, rolesFor } from "./auth";
 import { closeInFlight } from "./escrow-ops";
 
 /**
@@ -202,6 +202,15 @@ export async function decide(
   if (row.c.founderSealedReview) {
     if (!row.c.releaseSignerPubkey || actor.pubkey !== row.c.releaseSignerPubkey || !authority.sealedReviewId) {
       throw AppError.forbidden("founder-sealed submissions must be finalized through their verified sealed round");
+    }
+  } else {
+    // Reviewer for this campaign (or globally), and no stake in the outcome:
+    // not the contributor, not the wallet whose money pays, not the one who
+    // settles disputes over it.
+    await requireRole(actor.pubkey, "reviewer", row.c.id, conn);
+    if (actor.pubkey === row.s.contributorPubkey) throw AppError.forbidden("you cannot review your own submission");
+    if (actor.pubkey === row.c.funderPubkey || actor.pubkey === row.c.disputeResolverPubkey) {
+      throw AppError.forbidden("campaign roles cannot review their own campaign");
     }
   }
 

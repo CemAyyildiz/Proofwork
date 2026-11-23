@@ -10,6 +10,7 @@ import { log } from "@/lib/logger";
 import { hasUsdcTrustline, readFundingSource } from "@/wallet/onboarding";
 import { getX } from "@/x";
 import type { PostAuthor } from "@/x/port";
+import { rolesFor } from "./auth";
 import { closeInFlight } from "./escrow-ops";
 import { xAccountFor } from "./x-account";
 
@@ -146,8 +147,12 @@ export async function createSubmission(
   if (!isOpen(c)) throw AppError.conflict("campaign is not accepting submissions");
   // closeConfirmed rejects every pending submission without a decision.
   if (await closeInFlight(c.id, conn)) throw AppError.conflict("campaign is closing");
-  if (actor.pubkey === c.funderPubkey || actor.pubkey === c.disputeResolverPubkey) {
+  if (actor.pubkey === c.funderPubkey || actor.pubkey === c.disputeResolverPubkey || actor.pubkey === c.releaseSignerPubkey) {
     throw AppError.forbidden("campaign roles cannot submit to their own campaign");
+  }
+  // A reviewer (global, or scoped to this campaign) could decide their own work.
+  if ((await rolesFor(actor.pubkey, c.id, conn)).has("reviewer")) {
+    throw AppError.forbidden("reviewers cannot submit to campaigns they review");
   }
   const parsed = submissionUrlSchema.safeParse(input.workUrl);
   if (!parsed.success) throw AppError.validation(parsed.error.issues[0]?.message ?? "invalid url");

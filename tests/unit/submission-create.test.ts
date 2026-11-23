@@ -1,7 +1,7 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
-import { campaigns, escrowOps, submissions, xAccounts, type EscrowOp } from "@/db/schema";
+import { campaigns, escrowOps, roleGrants, submissions, xAccounts, type EscrowOp } from "@/db/schema";
 import { STALE_SUBMITTED_MS } from "@/services/escrow-ops";
 import { AppError } from "@/lib/errors";
 import { log } from "@/lib/logger";
@@ -230,6 +230,54 @@ describe("createSubmission funding source", () => {
       ),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(asked).toBe(false);
+  });
+});
+
+describe("createSubmission refusals", () => {
+  const submitAs = (pubkey: string) => createSubmission(INPUT, { pubkey }, conn, reader(true), fundedBy(FRIENDBOT), author, async () => ({ xUserId: X_OWN }));
+
+  it.each([
+    ["the funder", "G_FUNDER"],
+    ["the dispute resolver", "G_DR"],
+    ["the release signer", "G_SIGNER"],
+  ])("refuses %s with FORBIDDEN and stores nothing", async (_who, pubkey) => {
+    await conn.update(campaigns).set({ releaseSignerPubkey: "G_SIGNER" });
+    await expect(submitAs(pubkey)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await conn.select().from(submissions)).toHaveLength(0);
+    expect(x.lookedUp).toEqual([]);
+  });
+
+  it("refuses a wallet with a global reviewer role", async () => {
+    await conn.insert(roleGrants).values({ pubkey: CONTRIBUTOR.pubkey, role: "reviewer" });
+    await expect(submitAs(CONTRIBUTOR.pubkey)).rejects.toMatchObject({ code: "FORBIDDEN", message: "reviewers cannot submit to campaigns they review" });
+    expect(await conn.select().from(submissions)).toHaveLength(0);
+  });
+
+  it("refuses a reviewer scoped to this campaign, not one scoped to another", async () => {
+    await addCampaign(2);
+    await conn.insert(roleGrants).values({ pubkey: CONTRIBUTOR.pubkey, role: "reviewer", campaignId: "cmp_2" });
+    await expect(submitAs(CONTRIBUTOR.pubkey)).resolves.toMatchObject({ status: "pending" });
+    await conn.delete(submissions);
+    await conn.insert(roleGrants).values({ pubkey: CONTRIBUTOR.pubkey, role: "reviewer", campaignId: "cmp_1" });
+    await expect(submitAs(CONTRIBUTOR.pubkey)).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("a funder or ops role elsewhere does not block a contributor", async () => {
+    await conn.insert(roleGrants).values([
+      { pubkey: CONTRIBUTOR.pubkey, role: "funder" },
+      { pubkey: CONTRIBUTOR.pubkey, role: "ops" },
+    ]);
+    await expect(submitAs(CONTRIBUTOR.pubkey)).resolves.toMatchObject({ status: "pending" });
+  });
+
+  it.each([
+    ["closed", { closedAt: new Date() }],
+    ["unfunded", { fundedAt: null }],
+    ["past its deadline", { deadlineAt: new Date(Date.now() - 1000) }],
+  ] as const)("refuses a %s campaign with CONFLICT and stores nothing", async (_state, patch) => {
+    await conn.update(campaigns).set(patch);
+    await expect(submitAs(CONTRIBUTOR.pubkey)).rejects.toMatchObject({ code: "CONFLICT", message: "campaign is not accepting submissions" });
+    expect(await conn.select().from(submissions)).toHaveLength(0);
   });
 });
 

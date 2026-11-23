@@ -340,3 +340,26 @@ describe("the decision table holds one first pass and one re-review per submissi
     expect(await conn.select().from(decisions)).toHaveLength(2);
   });
 });
+
+describe("who may decide", () => {
+  it("refuses a wallet without the reviewer role", async () => {
+    await expect(pass({ pubkey: "G_NOBODY" })).rejects.toMatchObject({ code: "FORBIDDEN", message: "requires reviewer role" });
+    expect(await intents()).toEqual([]);
+  });
+
+  it("accepts a reviewer scoped to this campaign", async () => {
+    await conn.insert(roleGrants).values({ pubkey: "G_SCOPED", role: "reviewer", campaignId: "cmp_1" });
+    expect((await pass({ pubkey: "G_SCOPED" })).reviewerPubkey).toBe("G_SCOPED");
+  });
+
+  it.each([
+    ["the contributor", "G_CONTRIB"],
+    ["the funder", "G_FUNDER"],
+    ["the dispute resolver", "G_DR"],
+  ])("refuses %s even with the reviewer role", async (_who, pubkey) => {
+    await conn.insert(roleGrants).values({ pubkey, role: "reviewer" });
+    await expect(pass({ pubkey })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await intents()).toEqual([]);
+    expect(ledger.signed).toEqual([]);
+  });
+});
