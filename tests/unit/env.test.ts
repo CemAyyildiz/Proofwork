@@ -218,3 +218,45 @@ describe("xConfig", () => {
     expect(url.toString()).not.toContain(APP_TOKEN);
   });
 });
+
+describe("server key guards", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** Loads a fresh env module on testnet with the given seeds and extra values, and reads one value to trigger the parse. */
+  async function load(seeds: { admin: string; ops: string; ledger: string }, extra: Record<string, string> = {}): Promise<string> {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@localhost/db");
+    vi.stubEnv("STELLAR_NETWORK", "testnet");
+    vi.stubEnv("TW_API_KEY", "k".repeat(16));
+    vi.stubEnv("PLATFORM_ADMIN_SECRET", seeds.admin);
+    vi.stubEnv("PLATFORM_OPS_SECRET", seeds.ops);
+    vi.stubEnv("DECISION_LEDGER_SECRET", seeds.ledger);
+    vi.stubEnv("SESSION_SECRET", "s".repeat(43));
+    for (const [k, v] of Object.entries(extra)) vi.stubEnv(k, v);
+    return (await import("@/config/env")).env.STELLAR_NETWORK;
+  }
+
+  const fresh = () => ({ admin: Keypair.random().secret(), ops: Keypair.random().secret(), ledger: Keypair.random().secret() });
+
+  it("loads with three distinct seeds", async () => {
+    expect(await load(fresh())).toBe("testnet");
+  });
+
+  it("refuses the same seed for two server keys", async () => {
+    const seeds = fresh();
+    await expect(load({ ...seeds, ledger: seeds.admin })).rejects.toThrow("server signing keys must be distinct");
+  });
+
+  it("refuses sealed dual review enabled without its admin wallet", async () => {
+    await expect(load(fresh(), { SEALED_DUAL_REVIEW_ENABLED: "true" })).rejects.toThrow("SEALED_REVIEW_ADMIN_PUBKEY is required");
+  });
+
+  it("refuses a sealed-review admin that is one of the server keys", async () => {
+    const seeds = fresh();
+    const ops = Keypair.fromSecret(seeds.ops).publicKey();
+    await expect(load(seeds, { SEALED_DUAL_REVIEW_ENABLED: "true", SEALED_REVIEW_ADMIN_PUBKEY: ops })).rejects.toThrow("must be an external wallet");
+  });
+});
