@@ -4,13 +4,14 @@ import { NETWORKS, parseNetwork } from "./src/config/network";
 /**
  * Hosts the browser talks to, for the network this build is for: Horizon for
  * wallet reads and trustlines, the Soroban RPC for sealed reviews. Friendbot
- * exists on testnet only.
+ * exists on testnet only. Trustless Work is called by the server alone, so it
+ * is not here.
  */
 const facts = NETWORKS[parseNetwork(process.env.NEXT_PUBLIC_STELLAR_NETWORK)];
 const STELLAR_HOSTS =
   facts.network === "mainnet"
     ? [facts.horizonUrl, "https://mainnet.sorobanrpc.com"]
-    : [facts.horizonUrl, "https://soroban-testnet.stellar.org", "https://dev.api.trustlesswork.com", "https://friendbot.stellar.org"];
+    : [facts.horizonUrl, "https://soroban-testnet.stellar.org", "https://friendbot.stellar.org"];
 
 const csp = [
   "default-src 'self'",
