@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { evaluate, PASS_THRESHOLD, REASON_LABELS, reasonCodeSchema, reasonLabel, RUBRIC_VERSION, SIGNALS, validateReason, type Signals } from "@/domain/rubric";
+import { evaluate, MAX_SIGNAL_SECONDS, PASS_THRESHOLD, REASON_LABELS, reasonCodeSchema, reasonLabel, RUBRIC_VERSION, secondsPerSignalSchema, SIGNALS, validateReason, type Signals } from "@/domain/rubric";
 import { ledgerKey } from "@/ledger/canonical";
 
 const allPass: Signals = {
@@ -67,5 +67,27 @@ describe("rubric", () => {
     expect(Object.keys(REASON_LABELS).sort()).toEqual([...reasonCodeSchema.options].sort());
     expect(reasonLabel("R03_TASK")).toBe("R03_TASK · Task not done");
     expect(reasonLabel("R99_UNKNOWN")).toBe("R99_UNKNOWN");
+  });
+});
+
+describe("secondsPerSignalSchema", () => {
+  it("accepts rubric signal ids with whole seconds up to a day, and an empty map", () => {
+    expect(secondsPerSignalSchema.parse({})).toEqual({});
+    expect(secondsPerSignalSchema.parse({ account_genuine: 0, not_spam: MAX_SIGNAL_SECONDS })).toEqual({ account_genuine: 0, not_spam: MAX_SIGNAL_SECONDS });
+  });
+
+  it.each([
+    ["an unknown key", { evil_key: 1 }],
+    ["a negative value", { task_done: -1 }],
+    ["a fraction", { task_done: 1.5 }],
+    ["more than a day", { task_done: MAX_SIGNAL_SECONDS + 1 }],
+    ["a string", { task_done: "5" }],
+  ])("refuses %s", (_label, value) => {
+    expect(secondsPerSignalSchema.safeParse(value).success).toBe(false);
+  });
+
+  it("never carries a __proto__ key through to what is stored", () => {
+    const parsed = secondsPerSignalSchema.safeParse(JSON.parse('{"__proto__": 1}'));
+    expect(parsed.success ? Object.keys(parsed.data) : []).toEqual([]);
   });
 });

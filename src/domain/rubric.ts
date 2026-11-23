@@ -81,6 +81,19 @@ export const signalsSchema = z.object(
 );
 export type Signals = z.infer<typeof signalsSchema>;
 
+/** Longest time one signal can plausibly take on a card: a day. */
+export const MAX_SIGNAL_SECONDS = 24 * 3600;
+
+/**
+ * Seconds spent per rubric signal, as the review card posts them. Only the
+ * rubric's own signal ids are accepted, each a whole number of seconds up to
+ * a day; any other key or value is refused, not stored.
+ */
+export const secondsPerSignalSchema = z.partialRecord(
+  z.enum(SIGNALS.map((s) => s.id) as [SignalId, ...SignalId[]]),
+  z.number().int().min(0).max(MAX_SIGNAL_SECONDS),
+);
+
 export const reasonCodeSchema = z.enum([
   "R00_PASS",
   "R01_ACCOUNT",

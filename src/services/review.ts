@@ -5,7 +5,7 @@ import { db, type Db } from "@/db/client";
 import { campaigns, decisionIntents, decisions, payouts, reviewTimes, roleGrants, sealedReviews, submissions, type Decision, type Submission } from "@/db/schema";
 import { publicFundingSources } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
-import { evaluate, reasonCodeSchema, RUBRIC_VERSION, SIGNALS, signalsSchema, validateReason, type SignalId } from "@/domain/rubric";
+import { evaluate, reasonCodeSchema, RUBRIC_VERSION, secondsPerSignalSchema, SIGNALS, signalsSchema, validateReason, type SignalId } from "@/domain/rubric";
 import { DecisionPendingError, DecisionRejectedError, type DecisionLedger, type SignedDecision } from "@/ledger/decision-ledger";
 import { canonicalJson, decisionHash, ledgerKey, rubricVersionOf, type DecisionRecord } from "@/ledger/canonical";
 import { AppError, isUniqueViolation } from "@/lib/errors";
@@ -121,7 +121,7 @@ export const decideSchema = z.object({
   reasonCode: reasonCodeSchema,
   note: z.string().trim().min(3).max(1000),
   secondsTotal: z.number().int().min(0).max(24 * 3600),
-  secondsPerSignal: z.record(z.string(), z.number().int().min(0)).default({}),
+  secondsPerSignal: secondsPerSignalSchema.default({}),
   /** The shared-funding count the card rendered with; null or missing = it showed "not checked". Bounded to fit the column. */
   sharedFundingCount: z.number().int().min(0).max(100_000).nullable().default(null),
 });
