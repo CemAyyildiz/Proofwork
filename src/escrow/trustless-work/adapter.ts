@@ -1,4 +1,4 @@
-import { Address, FeeBumpTransaction, type Keypair, type Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
+import { Address, Asset, FeeBumpTransaction, type Keypair, type Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
 import { AppError } from "@/lib/errors";
 import type {
   DeployInput,
@@ -86,7 +86,14 @@ export class TrustlessWorkAdapter implements EscrowPort {
     return contractId ? { unsignedXdr: res.unsignedTransaction, contractId } : { unsignedXdr: res.unsignedTransaction };
   }
 
+  /**
+   * The funder's budget goes only into an escrow configured the way this
+   * deployment deploys them: the platform keys in their roles, USDC as the
+   * asset and no platform fee. The campaign-specific roles are the caller's
+   * check (`prepareFund`).
+   */
   async buildFund(contractId: string, signer: string, amount: string): Promise<Unsigned> {
+    this.assertPlatformConfig(await this.client.getEscrow(contractId));
     const res = await this.client.fund({ contractId, signer, amount: toApiAmount(amount) });
     return { unsignedXdr: res.unsignedTransaction };
   }
@@ -235,6 +242,23 @@ export class TrustlessWorkAdapter implements EscrowPort {
     const tx = signableCall(unsignedXdr, this.passphrase, signer.publicKey(), contractId);
     tx.sign(signer);
     return this.submit(tx.toXDR());
+  }
+
+  private assertPlatformConfig(e: TwEscrowRead): void {
+    const wrong: string[] = [];
+    if (e.roles.platformAddress !== this.admin.publicKey()) wrong.push("platformAddress");
+    if (e.roles.serviceProvider !== this.ops.publicKey()) wrong.push("serviceProvider");
+    if (e.roles.approver !== this.ops.publicKey()) wrong.push("approver");
+    const usdc = new Asset("USDC", this.usdcIssuer);
+    const trustline = e.trustline?.address;
+    if (trustline !== this.usdcIssuer && trustline !== usdc.contractId(this.passphrase)) wrong.push("trustline");
+    if (e.platformFee === undefined || Number(e.platformFee) !== 0) wrong.push("platformFee");
+    if (wrong.length > 0) {
+      throw new AppError("ESCROW", `escrow is not configured as this deployment deploys it (${wrong.join(", ")}); nothing was built`, {
+        contractId: e.contractId,
+        fields: wrong,
+      });
+    }
   }
 }
 

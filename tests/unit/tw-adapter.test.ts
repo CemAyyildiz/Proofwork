@@ -1,4 +1,4 @@
-import { Account, Address, Keypair, Networks, Operation, SorobanDataBuilder, StrKey, TransactionBuilder, xdr } from "@stellar/stellar-sdk";
+import { Account, Address, Asset, Keypair, Networks, Operation, SorobanDataBuilder, StrKey, TransactionBuilder, xdr } from "@stellar/stellar-sdk";
 import { describe, expect, it } from "vitest";
 import { horizonTxLanded } from "@/escrow/horizon";
 import { deployedContractId, TrustlessWorkAdapter } from "@/escrow/trustless-work/adapter";
@@ -254,6 +254,33 @@ describe("server keys never sign a provider transaction blindly", () => {
     });
     await expect(a.approveMilestones(CONTRACT, [1])).resolves.toHaveLength(1);
     expect(sent).toBe(1);
+  });
+});
+
+describe("funding only an escrow this deployment configured", () => {
+  const funding = (read: unknown) =>
+    adapter((url) => {
+      if (url.includes("/helper/get-escrow-by-contract-ids")) return { status: 200, body: [read] };
+      if (url.endsWith("/escrow/multi-release/fund-escrow")) return { status: 200, body: { unsignedTransaction: "AAAA" } };
+      throw new Error(`unexpected call to ${url}`);
+    }).buildFund(CONTRACT, funder, "100");
+
+  it("builds the fund for the configured roles, USDC and no fee, with the trustline as issuer or as its token contract", async () => {
+    await expect(funding(escrowRead)).resolves.toEqual({ unsignedXdr: "AAAA" });
+    const sac = new Asset("USDC", issuer).contractId(Networks.TESTNET);
+    await expect(funding({ ...escrowRead, trustline: { address: sac } })).resolves.toEqual({ unsignedXdr: "AAAA" });
+  });
+
+  it.each([
+    ["platformAddress", { roles: { ...escrowRead.roles, platformAddress: Keypair.random().publicKey() } }],
+    ["serviceProvider", { roles: { ...escrowRead.roles, serviceProvider: Keypair.random().publicKey() } }],
+    ["approver", { roles: { ...escrowRead.roles, approver: funder } }],
+    ["trustline", { trustline: { address: Keypair.random().publicKey(), symbol: "USDC" } }],
+    ["trustline", { trustline: undefined }],
+    ["platformFee", { platformFee: 1 }],
+    ["platformFee", { platformFee: undefined }],
+  ])("refuses an escrow with another %s, before building", async (field, change) => {
+    await expect(funding({ ...escrowRead, ...change })).rejects.toMatchObject({ code: "ESCROW", details: { fields: [field] } });
   });
 });
 

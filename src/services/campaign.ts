@@ -221,6 +221,30 @@ function fundVisible(escrow: EscrowPort, contractId: string | null, budget: stri
   };
 }
 
+/**
+ * The deployed escrow, read from chain, is the one this campaign asked for
+ * before the budget goes into it: its engagement id, the release signer and
+ * resolver the campaign names, and only the close milestone, paying the
+ * funder. The adapter checks the platform roles, asset and fee itself.
+ */
+async function assertEscrowMatches(escrow: EscrowPort, contractId: string, c: Campaign): Promise<void> {
+  const e = await escrow.getEscrow(contractId);
+  const wrong: string[] = [];
+  if (e.engagementId !== c.slug) wrong.push("engagementId");
+  if ((e.roles.releaseSigner ?? e.roles.funder) !== (c.releaseSignerPubkey ?? c.funderPubkey)) wrong.push("releaseSigner");
+  if (e.roles.disputeResolver !== c.disputeResolverPubkey) wrong.push("disputeResolver");
+  const [close, ...rest] = e.milestones;
+  if (!close || rest.length > 0) wrong.push("milestones");
+  if (close && (close.receiver !== c.funderPubkey || toStroops(close.amount) !== toStroops(CLOSE_MILESTONE_AMOUNT))) wrong.push("close milestone");
+  if (wrong.length > 0) {
+    throw new AppError("ESCROW", `the deployed escrow does not match this campaign (${wrong.join(", ")}); nothing was built`, { contractId, fields: wrong });
+  }
+  // The app funds an escrow once. Money already there came from a transaction it did not prepare.
+  if (toStroops(e.balance) !== 0n) {
+    throw AppError.conflict(`the escrow already holds ${fromStroops(toStroops(e.balance))} USDC from a transaction this app did not record; contact the operator`);
+  }
+}
+
 /** Record the deployed contract id; the op carries it from prepare or the submit body. */
 function deployConfirmed(campaignId: string, conn: Db): OnConfirmed {
   return async (op: EscrowOp) => {
@@ -395,6 +419,7 @@ export async function prepareFund(
       keyParts: ["fund", campaignId],
       build: async () => {
         assertBeforeDeadline(c);
+        await assertEscrowMatches(escrow, contractId, c);
         await assertReady(actor.pubkey, c.budget, "fund", account);
         return escrow.buildFund(contractId, c.funderPubkey, c.budget);
       },

@@ -13,7 +13,7 @@ import { LIMITS, openGate } from "./funder-wallet";
  * A wallet op is confirmed only under the hash of its own transaction, once
  * the network reports that transaction as successful (B4); a deploy whose
  * reply is lost is found from the transaction itself, or left unresolved
- * (B1).
+ * (B1); and the budget goes only into the escrow the campaign asked for (B9).
  */
 
 const FUNDER = "G_FUNDER";
@@ -114,7 +114,7 @@ describe("an effect on chain is not a landed transaction", () => {
     expect((await campaign()).escrowContractId).toBeNull();
   });
 
-  it("a budget put there by another transaction does not confirm the prepared fund", async () => {
+  it("a budget put there by another transaction does not confirm the prepared fund, and no second fund is built", async () => {
     const contractId = await deployed();
     const f = await prepareFund(CAMPAIGN, actor, escrow, openGate().account, conn);
     const state = escrow.escrows.get(contractId);
@@ -126,6 +126,13 @@ describe("an effect on chain is not a landed transaction", () => {
     });
     expect((await campaign()).fundedAt).toBeNull();
     expect((await opsOf("fund")).map((o) => [o.status, o.txHash])).toEqual([["failed", null]]);
+
+    const build = vi.spyOn(escrow, "buildFund");
+    await expect(prepareFund(CAMPAIGN, actor, escrow, openGate().account, conn)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringMatching(/already holds 100 USDC from a transaction this app did not record/),
+    });
+    expect(build).not.toHaveBeenCalled();
   });
 
   it("a stale fund whose own transaction landed is reconciled under its hash", async () => {
@@ -177,5 +184,34 @@ describe("an effect on chain is not a landed transaction", () => {
     });
     expect((await campaign()).closedAt).toBeNull();
     expect((await opsOf("dispute")).map((o) => o.status)).toEqual(["failed"]);
+  });
+});
+
+describe("the deployed escrow is checked before the budget goes in", () => {
+  it.each([
+    ["engagementId", (s: { engagementId: string }) => void (s.engagementId = "someone-else")],
+    ["disputeResolver", (s: { roles: { disputeResolver: string } }) => void (s.roles.disputeResolver = "G_OTHER")],
+    ["releaseSigner", (s: { roles: { releaseSigner?: string } }) => void (s.roles.releaseSigner = "G_OTHER")],
+    ["close milestone", (s: { milestones: Array<{ receiver: string }> }) => void ((s.milestones[0] ?? { receiver: "" }).receiver = "G_OTHER")],
+    ["close milestone", (s: { milestones: Array<{ amount: string }> }) => void ((s.milestones[0] ?? { amount: "" }).amount = "50")],
+    [
+      "milestones",
+      (s: { milestones: Array<Record<string, unknown>> }) =>
+        void s.milestones.push({ index: 1, description: "x", amount: "90", receiver: "G_OTHER", status: "pending", evidence: "", approved: false, released: false, disputed: false, resolved: false }),
+    ],
+  ] as const)("refuses an escrow with another %s and builds nothing", async (field, change) => {
+    const contractId = await deployed();
+    const state = escrow.escrows.get(contractId);
+    if (!state) throw new Error("escrow missing");
+    (change as (s: typeof state) => void)(state);
+    const build = vi.spyOn(escrow, "buildFund");
+    await expect(prepareFund(CAMPAIGN, actor, escrow, openGate().account, conn)).rejects.toMatchObject({ code: "ESCROW", details: { fields: [field] } });
+    expect(build).not.toHaveBeenCalled();
+    expect(await opsOf("fund")).toHaveLength(0);
+  });
+
+  it("builds the fund for the escrow the campaign asked for", async () => {
+    await deployed();
+    await expect(prepareFund(CAMPAIGN, actor, escrow, openGate().account, conn)).resolves.toMatchObject({ kind: "fund" });
   });
 });
