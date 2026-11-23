@@ -9,7 +9,8 @@ type Limiter = { limit: (key: string) => Promise<{ success: boolean }> };
 function makeLimiter(requests: number, windowSeconds: number): Limiter {
   if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
     const redis = new Redis({ url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN });
-    return new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(requests, `${windowSeconds} s`), prefix: "pw" });
+    // The testnet and mainnet deployments share one Redis; the network keeps their counters apart.
+    return new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(requests, `${windowSeconds} s`), prefix: `pw:${env.STELLAR_NETWORK}` });
   }
   if (env.NODE_ENV === "production") {
     throw new Error("Upstash rate limiting is required in production (UPSTASH_REDIS_REST_URL / _TOKEN)");
