@@ -16,7 +16,12 @@ export function jsonRoute<S extends z.ZodTypeAny>(schema: S, handler: Handler<z.
       let raw: unknown = {};
       if (req.method !== "GET") {
         const text = await req.text();
-        raw = text ? JSON.parse(text) : {};
+        try {
+          raw = text ? JSON.parse(text) : {};
+        } catch {
+          // Only the body parse maps to 400; a SyntaxError from the handler is a server fault.
+          return NextResponse.json({ error: "VALIDATION", message: "malformed JSON" }, { status: 400 });
+        }
       }
       const parsed = schema.safeParse(raw);
       if (!parsed.success) {
@@ -25,9 +30,6 @@ export function jsonRoute<S extends z.ZodTypeAny>(schema: S, handler: Handler<z.
       const out = await handler(parsed.data, req);
       return out instanceof Response ? out : NextResponse.json(out);
     } catch (e) {
-      if (e instanceof SyntaxError) {
-        return NextResponse.json({ error: "VALIDATION", message: "malformed JSON" }, { status: 400 });
-      }
       return errorResponse(e);
     }
   };
