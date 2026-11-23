@@ -30,8 +30,25 @@ import { txHashOf } from "@/lib/tx";
  */
 export type OpKind = EscrowOp["kind"];
 
-/** Reads chain state; true when the op's effect is visible on the escrow. */
-export type Verify = (res: Submitted) => Promise<boolean>;
+/**
+ * Reads chain state; true when the op's own transaction landed and its effect
+ * is visible on the escrow. `op` is the row as it was before this check, with
+ * what prepare recorded in its payload.
+ */
+export type Verify = (res: Submitted, op: EscrowOp) => Promise<boolean>;
+
+/**
+ * Thrown by a verifier when the op's transaction landed but what it did
+ * cannot be pinned down (a deploy whose contract id is unknown). The row is
+ * left as it is: neither confirmed from a guess nor failed and rebuilt into a
+ * second transaction. The operator resolves it.
+ */
+export class OpUnresolved extends AppError {
+  constructor(message: string, details?: Record<string, unknown>) {
+    super("CONFLICT", message, details);
+    this.name = "OpUnresolved";
+  }
+}
 
 /** Domain write for a confirmed op; idempotent (only moves rows not yet in the target state). */
 export type OnConfirmed = (op: EscrowOp) => Promise<void>;
@@ -73,7 +90,8 @@ interface PrepareArgs {
   kind: OpKind;
   /** parts that make this op unique, e.g. ["release", campaignId, milestoneIndex] */
   keyParts: Array<string | number>;
-  build: () => Promise<{ unsignedXdr: string; milestoneIndex?: number }>;
+  /** `contractId` (deploy) is kept in the payload so a lost reply can still be verified. */
+  build: () => Promise<{ unsignedXdr: string; milestoneIndex?: number; contractId?: string }>;
   verify: Verify;
   onConfirmed: OnConfirmed;
 }
@@ -83,6 +101,7 @@ async function safeVerify(verify: () => Promise<boolean>, ctx: { opId: string; k
   try {
     return await verify();
   } catch (e) {
+    if (e instanceof OpUnresolved) throw e;
     log.warn("escrow op verify failed", { ...ctx, err: e instanceof Error ? e.message : String(e) });
     return false;
   }
@@ -97,6 +116,7 @@ async function strictVerify(verify: () => Promise<boolean>, ctx: { opId: string;
   try {
     return await verify();
   } catch (e) {
+    if (e instanceof OpUnresolved) throw e;
     log.warn("escrow op verify failed before retry", { ...ctx, err: e instanceof Error ? e.message : String(e) });
     throw AppError.conflict("could not read chain state; retry");
   }
@@ -152,7 +172,7 @@ async function markFailed(conn: Db, op: EscrowOp, hash: string, message: string)
  */
 async function reconcile(conn: Db, op: EscrowOp, args: PrepareArgs): Promise<void> {
   const hash = preparedHash(op);
-  if (hash && (await strictVerify(() => args.verify({ txHash: hash }), { opId: op.id, kind: op.kind }))) {
+  if (hash && (await strictVerify(() => args.verify({ txHash: hash }, op), { opId: op.id, kind: op.kind }))) {
     const row = await markConfirmed(conn, op, hash, ["submitted", "failed"]);
     log.info("escrow op reconciled from chain", { opId: op.id, kind: op.kind, txHash: hash });
     await args.onConfirmed(row);
@@ -186,7 +206,7 @@ export async function prepareOp(args: PrepareArgs, conn: Db = db): Promise<Prepa
 
   const built = await args.build();
   const unsignedHash = txHashOf(built.unsignedXdr);
-  const payload = { unsignedHash, milestoneIndex: built.milestoneIndex ?? null };
+  const payload = { unsignedHash, milestoneIndex: built.milestoneIndex ?? null, ...(built.contractId ? { contractId: built.contractId } : {}) };
 
   if (existing) {
     const reused = await conn
@@ -256,7 +276,7 @@ export async function submitOp(
     res = await escrow.submit(input.signedXdr);
   } catch (e) {
     // A timeout can hide a tx that landed; only the chain can tell.
-    if (!(await safeVerify(() => input.verify({ txHash: actual }), ctx))) {
+    if (!(await safeVerify(() => input.verify({ txHash: actual }, op), ctx))) {
       const message = e instanceof Error ? e.message : String(e);
       await markFailed(conn, op, actual, message);
       log.error("escrow op failed", { ...ctx, err: message });
@@ -267,7 +287,7 @@ export async function submitOp(
   }
 
   const submitted = res;
-  if (!(await safeVerify(() => input.verify(submitted), ctx))) {
+  if (!(await safeVerify(() => input.verify(submitted, op), ctx))) {
     await markFailed(conn, op, actual, "effect not visible on chain");
     log.error("escrow op not visible on chain", { ...ctx, txHash: actual });
     throw new AppError("ESCROW", "effect not visible on chain", { txHash: actual });

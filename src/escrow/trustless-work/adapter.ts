@@ -82,7 +82,8 @@ export class TrustlessWorkAdapter implements EscrowPort {
       ],
       trustline: { address: this.usdcIssuer, symbol: "USDC" },
     });
-    return { unsignedXdr: res.unsignedTransaction };
+    const contractId = deployedContractId(res.unsignedTransaction, this.passphrase);
+    return contractId ? { unsignedXdr: res.unsignedTransaction, contractId } : { unsignedXdr: res.unsignedTransaction };
   }
 
   async buildFund(contractId: string, signer: string, amount: string): Promise<Unsigned> {
@@ -255,6 +256,37 @@ export function signableCall(unsignedXdr: string, passphrase: string, signer: st
   const target = Address.fromScAddress(op.func.invokeContract().contractAddress()).toString();
   if (target !== contractId) throw refuseSigning("transaction calls another contract");
   return tx;
+}
+
+/**
+ * The escrow contract a deploy transaction creates. The deployer call writes
+ * the new contract's instance, so it is the one contract-instance entry in
+ * the write footprint other than the deployer itself (checked against a
+ * testnet deploy: tx 95ac0232…, escrow CAKY7IVE…). Null when the envelope does
+ * not single one out; an unreadable envelope throws.
+ */
+export function deployedContractId(unsignedXdr: string, passphrase: string): string | null {
+  let tx: Transaction | FeeBumpTransaction;
+  try {
+    tx = TransactionBuilder.fromXDR(unsignedXdr, passphrase);
+  } catch (cause) {
+    throw new AppError("ESCROW", "deploy transaction from the provider is unreadable", undefined, { cause });
+  }
+  if (tx instanceof FeeBumpTransaction) return null;
+  const [op] = tx.operations;
+  if (tx.operations.length !== 1 || op?.type !== "invokeHostFunction" || op.func.switch().name !== "hostFunctionTypeInvokeContract") return null;
+  const deployer = Address.fromScAddress(op.func.invokeContract().contractAddress()).toString();
+  const ext = tx.toEnvelope().v1().tx().ext();
+  if (ext.switch() !== 1) return null;
+  const created = new Set<string>();
+  for (const key of ext.sorobanData().resources().footprint().readWrite()) {
+    if (key.switch().name !== "contractData") continue;
+    const data = key.contractData();
+    if (data.key().switch().name !== "scvLedgerKeyContractInstance") continue;
+    const id = Address.fromScAddress(data.contract()).toString();
+    if (id !== deployer) created.add(id);
+  }
+  return created.size === 1 ? ([...created][0] ?? null) : null;
 }
 
 function toTwRoles(r: EscrowState["roles"]): TwRoles {

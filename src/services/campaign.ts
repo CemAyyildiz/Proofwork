@@ -13,7 +13,7 @@ import { AppError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { readFunderAccount, type FunderAccount } from "@/wallet/onboarding";
-import { campaignOwnedBy, findOp, prepareOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
+import { campaignOwnedBy, findOp, OpUnresolved, prepareOp, submitOp, type OnConfirmed, type PreparedOp, type Verify } from "./escrow-ops";
 import { countSubmissionsByCampaign } from "./submission-counts";
 import { publicEnv } from "@/config/public-env";
 
@@ -181,11 +181,33 @@ export async function getCampaignById(id: string, conn: Db = db): Promise<Campai
   return (await conn.select().from(campaigns).where(eq(campaigns.id, id)).limit(1))[0] ?? null;
 }
 
-/** Deploy is visible once its own transaction landed and the provider's contract id reads back with this campaign's engagement id. */
+/** The contract id prepare read from the deploy transaction itself, if any. */
+function preparedContractId(op: EscrowOp): string | undefined {
+  return (op.payload as { contractId?: string }).contractId;
+}
+
+/**
+ * Deploy is visible once its own transaction landed and the contract it
+ * created reads back with this campaign's engagement id. The contract id is
+ * the one read from the transaction at prepare, else the provider's reply.
+ * A deploy that landed with neither is left unresolved, never failed: a
+ * failed deploy is prepared again, and that would be a second escrow.
+ */
 function deployVisible(escrow: EscrowPort, slug: string): Verify {
-  return async (res: Submitted) => {
-    if (!res.contractId) return false;
-    if ((await escrow.getEscrow(res.contractId)).engagementId !== slug) return false;
+  return async (res: Submitted, op: EscrowOp) => {
+    const predicted = preparedContractId(op);
+    if (predicted && res.contractId && predicted !== res.contractId) {
+      throw new AppError("ESCROW", "provider reported another contract than the deploy transaction creates", { predicted, reported: res.contractId });
+    }
+    const contractId = predicted ?? res.contractId;
+    if (!contractId) {
+      if (!(await escrow.txSucceeded(res.txHash))) return false;
+      throw new OpUnresolved(
+        `the deploy transaction ${res.txHash} landed but its escrow contract id is unknown; do not deploy again, the operator records the contract`,
+        { txHash: res.txHash },
+      );
+    }
+    if ((await escrow.getEscrow(contractId)).engagementId !== slug) return false;
     return escrow.txSucceeded(res.txHash);
   };
 }
@@ -199,7 +221,7 @@ function fundVisible(escrow: EscrowPort, contractId: string | null, budget: stri
   };
 }
 
-/** Record the deployed contract id; the op carries it from the submit body. */
+/** Record the deployed contract id; the op carries it from prepare or the submit body. */
 function deployConfirmed(campaignId: string, conn: Db): OnConfirmed {
   return async (op: EscrowOp) => {
     const contractId = (op.payload as { contractId?: string }).contractId;
@@ -327,9 +349,10 @@ export async function confirmDeploy(
     await assertWithinLimits(actor.pubkey, c.budget, limits, conn);
   }
   const res = await submitOp({ ...input, expectedKind: "deploy", verify: deployVisible(escrow, c.slug) }, escrow, conn);
-  if (!res.contractId) throw new AppError("ESCROW", "deploy confirmed but provider returned no contract id", { txHash: res.txHash });
+  const contractId = preparedContractId(res.op);
+  if (!contractId) throw new AppError("ESCROW", "deploy confirmed but no contract id was recorded", { txHash: res.txHash });
   await deployConfirmed(input.campaignId, conn)(res.op);
-  return { txHash: res.txHash, contractId: res.contractId };
+  return { txHash: res.txHash, contractId };
 }
 
 /**

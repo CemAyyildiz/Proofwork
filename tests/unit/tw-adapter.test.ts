@@ -1,7 +1,7 @@
 import { Account, Address, Keypair, Networks, Operation, SorobanDataBuilder, StrKey, TransactionBuilder, xdr } from "@stellar/stellar-sdk";
 import { describe, expect, it } from "vitest";
 import { horizonTxLanded } from "@/escrow/horizon";
-import { TrustlessWorkAdapter } from "@/escrow/trustless-work/adapter";
+import { deployedContractId, TrustlessWorkAdapter } from "@/escrow/trustless-work/adapter";
 import { TrustlessWorkClient } from "@/escrow/trustless-work/client";
 import { type FakeReply, fakeFetch } from "./fake-fetch";
 
@@ -107,7 +107,7 @@ describe("TrustlessWorkAdapter (v1)", () => {
       sent = body(init);
       return { status: 200, body: { unsignedTransaction: contractCall(funder, DEPLOYER, { readWrite: [CONTRACT] }) } };
     });
-    await a.buildDeploy({
+    const built = await a.buildDeploy({
       engagementId: "camp-1",
       title: "T",
       description: "D",
@@ -123,6 +123,8 @@ describe("TrustlessWorkAdapter (v1)", () => {
       disputeResolver: resolver,
     });
     expect(sent["milestones"]).toEqual([{ description: "close", amount: 0.0000001, receiver: funder }]);
+    // The contract the deploy creates is read from the transaction itself.
+    expect(built.contractId).toBe(CONTRACT);
   });
 
   it("appends milestones by echoing the current escrow unchanged", async () => {
@@ -183,6 +185,17 @@ describe("TrustlessWorkAdapter (v1)", () => {
       code: "ESCROW",
       message: "escrow read has no balance",
     });
+  });
+});
+
+describe("the contract a deploy creates", () => {
+  it("finds no contract id in a deploy that does not single one out, and refuses an unreadable one", () => {
+    expect(deployedContractId(contractCall(funder, DEPLOYER), Networks.TESTNET)).toBeNull();
+    expect(deployedContractId(contractCall(funder, DEPLOYER, { readWrite: [CONTRACT, OTHER_CONTRACT] }), Networks.TESTNET)).toBeNull();
+    // The deployer's own instance is not the new escrow.
+    expect(deployedContractId(contractCall(funder, DEPLOYER, { readWrite: [DEPLOYER, CONTRACT] }), Networks.TESTNET)).toBe(CONTRACT);
+    expect(deployedContractId(unsignedXdr(), Networks.TESTNET)).toBeNull();
+    expect(() => deployedContractId("AAAA", Networks.TESTNET)).toThrow(/unreadable/);
   });
 });
 

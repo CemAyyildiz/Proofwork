@@ -11,7 +11,9 @@ import { LIMITS, openGate } from "./funder-wallet";
 
 /**
  * A wallet op is confirmed only under the hash of its own transaction, once
- * the network reports that transaction as successful (B4).
+ * the network reports that transaction as successful (B4); a deploy whose
+ * reply is lost is found from the transaction itself, or left unresolved
+ * (B1).
  */
 
 const FUNDER = "G_FUNDER";
@@ -62,6 +64,44 @@ async function funded(): Promise<string> {
   await confirmFund({ campaignId: CAMPAIGN, opId: f.opId, signedXdr: f.unsignedXdr }, actor, escrow, conn);
   return contractId;
 }
+
+describe("a deploy whose reply is lost", () => {
+  it("is confirmed with the contract id read from its own transaction", async () => {
+    const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
+    escrow.failNextSubmit("landed-then-throw");
+    const res = await confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn);
+    expect(res.contractId).toMatch(/^C_/);
+    expect((await campaign()).escrowContractId).toBe(res.contractId);
+    expect((await opsOf("deploy")).map((o) => o.status)).toEqual(["confirmed"]);
+  });
+
+  it("without a readable contract id stays unresolved: never failed, never deployed twice", async () => {
+    escrow.predictDeploy = false;
+    const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
+    escrow.failNextSubmit("landed-then-throw");
+    await expect(confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringMatching(/landed but its escrow contract id is unknown; do not deploy again/),
+    });
+    expect((await opsOf("deploy")).map((o) => o.status)).toEqual(["submitted"]);
+    expect((await campaign()).escrowContractId).toBeNull();
+
+    // Once stale, a new prepare asks the chain again and still refuses instead of building a second deploy.
+    await ageOp(d.opId);
+    const build = vi.spyOn(escrow, "buildDeploy");
+    await expect(prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn)).rejects.toMatchObject({ message: expect.stringMatching(/do not deploy again/) });
+    expect(build).not.toHaveBeenCalled();
+    expect((await opsOf("deploy")).map((o) => o.status)).toEqual(["submitted"]);
+  });
+
+  it("without a readable contract id that never landed is failed as usual", async () => {
+    escrow.predictDeploy = false;
+    const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
+    escrow.failNextSubmit("throw");
+    await expect(confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn)).rejects.toThrow("send-transaction timed out");
+    expect((await opsOf("deploy")).map((o) => o.status)).toEqual(["failed"]);
+  });
+});
 
 describe("an effect on chain is not a landed transaction", () => {
   it("a deploy whose own transaction Horizon does not report is not confirmed", async () => {

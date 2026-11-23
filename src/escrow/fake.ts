@@ -62,9 +62,12 @@ export class FakeEscrow implements EscrowPort {
     return s;
   }
 
+  /** False makes `buildDeploy` withhold the contract id, as for a deploy transaction it cannot be read from. */
+  predictDeploy = true;
+
   async buildDeploy(input: DeployInput): Promise<Unsigned> {
     const contractId = this.next("C");
-    return this.defer(() => {
+    const unsigned = this.defer(() => {
       this.escrows.set(contractId, {
         contractId,
         engagementId: input.engagementId,
@@ -76,6 +79,7 @@ export class FakeEscrow implements EscrowPort {
       });
       return contractId;
     });
+    return this.predictDeploy ? { ...unsigned, contractId } : unsigned;
   }
 
   async buildFund(contractId: string, _signer: string, amount: string): Promise<Unsigned> {

@@ -67,6 +67,11 @@ export interface Unsigned {
   unsignedXdr: string;
   /** which milestone this XDR acts on, when applicable */
   milestoneIndex?: number;
+  /**
+   * Deploy only: the escrow contract this transaction creates, read from the
+   * transaction itself, so a deploy whose reply is lost can still be found.
+   */
+  contractId?: string;
 }
 
 export interface Submitted {
