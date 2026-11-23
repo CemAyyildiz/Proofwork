@@ -160,7 +160,12 @@ export const decisions = pgTable(
     txHash: text("tx_hash"),
     decidedAt: createdAt(),
   },
-  (t) => [index("decision_submission_idx").on(t.submissionId)],
+  (t) => [
+    index("decision_submission_idx").on(t.submissionId),
+    // One first-pass decision and one re-review per submission, whatever races the service guards miss.
+    uniqueIndex("decision_first_pass_idx").on(t.submissionId).where(sql`${t.appealOf} is null`),
+    uniqueIndex("decision_appeal_idx").on(t.submissionId).where(sql`${t.appealOf} is not null`),
+  ],
 );
 
 /**
@@ -181,6 +186,16 @@ export const decisionIntents = pgTable("decision_intent", {
   input: jsonb("input")
     .$type<{ note: string; appealOf: string | null; secondsTotal: number; secondsPerSignal: Record<string, number>; sharedFundingCount: number | null }>()
     .notNull(),
+  /**
+   * The signed transaction carrying this record, stored before it is sent so
+   * a lost answer is resolved by looking this hash up, never by signing a
+   * second, different transaction. Null until signed.
+   */
+  txHash: text("tx_hash"),
+  envelopeXdr: text("envelope_xdr"),
+  /** The envelope's maxTime: once past and the hash is not on chain, it never will be. */
+  envelopeExpiresAt: timestamp("envelope_expires_at", { withTimezone: true }),
+  /** Fencing token: the claim that holds this intent. Every write to it is conditioned on this value. */
   createdAt: createdAt(),
 });
 

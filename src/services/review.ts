@@ -6,8 +6,8 @@ import { campaigns, decisionIntents, decisions, payouts, reviewTimes, roleGrants
 import { publicFundingSources } from "@/config/env";
 import { publicEnv } from "@/config/public-env";
 import { evaluate, reasonCodeSchema, RUBRIC_VERSION, SIGNALS, signalsSchema, validateReason, type SignalId } from "@/domain/rubric";
-import type { DecisionLedger } from "@/ledger/decision-ledger";
-import { canonicalJson, rubricVersionOf, type DecisionRecord } from "@/ledger/canonical";
+import { DecisionPendingError, DecisionRejectedError, type DecisionLedger, type SignedDecision } from "@/ledger/decision-ledger";
+import { canonicalJson, decisionHash, ledgerKey, rubricVersionOf, type DecisionRecord } from "@/ledger/canonical";
 import { AppError, isUniqueViolation } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
@@ -132,22 +132,42 @@ export interface DecideAuthority {
   sealedReviewId?: string;
 }
 
-/** A decision in flight younger than this belongs to a request that is still running. */
+/**
+ * A decision in flight younger than this belongs to a request that is still
+ * running. Longer than a signed envelope stays valid (DECISION_TX_TIMEOUT_S),
+ * so whoever resumes a stale intent finds its transaction either on chain or
+ * expired, never still in flight.
+ */
 export const DECISION_IN_FLIGHT_MS = 2 * 60_000;
 
 /**
- * Records a decision and commits it on-chain in the same call. The record is
- * first written as an intent, which only one request per submission can
- * hold, then committed. If the chain write fails, the intent is removed,
- * nothing else is stored, the error is surfaced (502) and the reviewer can
- * record again. The decision row, its review time and the submission's new
- * status are written together, and only once the on-chain reference exists
- * (AD-9).
+ * Slack added to an envelope's maxTime before it is treated as expired. The
+ * network checks maxTime against ledger close time, not this server's clock.
+ */
+export const ENVELOPE_EXPIRY_MARGIN_MS = 60_000;
+
+/**
+ * Records a decision and commits it on-chain in the same call (AD-9). The
+ * record is first written as an intent, which only one request per
+ * submission can hold. Its transaction is then signed, and the envelope and
+ * its hash are stored on the intent before anything is sent. The decision
+ * row, its review time and the submission's new status are written together,
+ * and only once that hash is on chain.
  *
- * An intent older than DECISION_IN_FLIGHT_MS is a commit whose database write
- * never finished. Its transaction may be on chain, so the next call finishes
- * that same record (a second commit of it writes the same key, value and
- * memo) and returns it; the caller's own input is not recorded.
+ * When the network refuses the transaction for good, the intent is removed
+ * and the reviewer can record again. When the answer is lost (timeout,
+ * server error), the intent stays and `DecisionPendingError` is thrown: the
+ * transaction may still land, so nothing new is signed.
+ *
+ * An intent older than DECISION_IN_FLIGHT_MS is a commit that never finished.
+ * The next call takes it over (the caller's own input is not recorded) and
+ * looks its stored hash up: on chain, the decision is stored with that hash;
+ * not on chain and still valid, the same envelope is sent again; expired, a
+ * new envelope is signed for the same record. One submission therefore never
+ * gets two different records under its ledger key.
+ *
+ * Every write to the intent is fenced by the claim's `createdAt`: a request
+ * whose intent was taken over stops instead of writing over the new holder.
  *
  * The shared-funding count is the one the card rendered with, posted with the
  * decision and stored beside the review time as given: it is not recomputed
@@ -175,10 +195,6 @@ export async function decide(
       .limit(1)
   )[0];
   if (!row) throw AppError.notFound("submission");
-  if (row.c.closedAt) throw AppError.conflict("campaign is closed");
-  if (row.s.status !== "pending" && row.s.status !== "appealed") {
-    throw AppError.conflict(`submission is ${row.s.status}, not reviewable`);
-  }
 
   // Founder-sealed campaigns never enter the ordinary reviewer path. The only
   // accepted call is the configured release signer finalizing this submission's
@@ -187,13 +203,22 @@ export async function decide(
     if (!row.c.releaseSignerPubkey || actor.pubkey !== row.c.releaseSignerPubkey || !authority.sealedReviewId) {
       throw AppError.forbidden("founder-sealed submissions must be finalized through their verified sealed round");
     }
+  }
+
+  if (row.c.closedAt) throw AppError.conflict("campaign is closed");
+  if (row.s.status !== "pending" && row.s.status !== "appealed") {
+    throw AppError.conflict(`submission is ${row.s.status}, not reviewable`);
+  }
+
+  if (row.c.founderSealedReview) {
+    const sealedReviewId = authority.sealedReviewId ?? "";
     const sealed = (
       await conn
         .select({ id: sealedReviews.id })
         .from(sealedReviews)
         .where(
           and(
-            eq(sealedReviews.id, authority.sealedReviewId),
+            eq(sealedReviews.id, sealedReviewId),
             eq(sealedReviews.submissionId, row.s.id),
             eq(sealedReviews.status, "finalizing"),
             eq(sealedReviews.receiptVerified, true),
@@ -238,81 +263,158 @@ export async function decide(
   );
   // The intent's record, not `fresh`: for a resumed intent they differ, and the stored one is what may be on chain.
   const record = JSON.parse(intent.canonicalJson) as DecisionRecord;
-
-  let committed;
-  try {
-    committed = await ledger.commit(record);
-  } catch (e) {
-    // Nothing reached the chain as far as the ledger can tell: free the submission for another attempt.
-    await conn
-      .delete(decisionIntents)
-      .where(and(eq(decisionIntents.submissionId, row.s.id), eq(decisionIntents.canonicalJson, intent.canonicalJson)))
-      .catch((cause: unknown) => log.error("decision intent not removed after a failed commit", { submission: row.s.shortId, err: String(cause) }));
-    throw e;
-  }
+  const txHash = await commitIntent(intent, record, ledger, conn);
 
   const id = newId("dec");
-  const decision = await conn.transaction(async (tx) => {
-    const [stored] = await tx
-      .insert(decisions)
-      .values({
-        id,
-        submissionId: row.s.id,
-        reviewerPubkey: record.reviewer,
-        outcome: record.outcome,
-        reasonCode: record.reason,
-        signals: record.signals,
-        note: intent.input.note,
-        appealOf: intent.input.appealOf,
-        canonicalJson: committed.canonicalJson,
-        decisionHash: committed.decisionHash,
-        ledgerKey: committed.ledgerKey,
-        txHash: committed.txHash,
-        decidedAt: new Date(record.decidedAt),
-      })
-      .returning();
-    await tx.insert(reviewTimes).values({
-      decisionId: id,
-      secondsTotal: intent.input.secondsTotal,
-      secondsPerSignal: intent.input.secondsPerSignal,
-      blind: true,
-      sharedFundingCount: intent.input.sharedFundingCount,
+  let decision: Decision | undefined;
+  try {
+    decision = await conn.transaction(async (tx) => {
+      // Fenced: only the claim that still holds the intent stores the decision.
+      const released = await tx.delete(decisionIntents).where(heldBy(intent)).returning({ submissionId: decisionIntents.submissionId });
+      if (released.length !== 1) throw AppError.conflict("another request took this decision over; reload to see it");
+      const [stored] = await tx
+        .insert(decisions)
+        .values({
+          id,
+          submissionId: row.s.id,
+          reviewerPubkey: record.reviewer,
+          outcome: record.outcome,
+          reasonCode: record.reason,
+          signals: record.signals,
+          note: intent.input.note,
+          appealOf: intent.input.appealOf,
+          canonicalJson: canonicalJson(record),
+          decisionHash: decisionHash(record).toString("hex"),
+          ledgerKey: ledgerKey(record.submission, record.appealOf !== null),
+          txHash,
+          decidedAt: new Date(record.decidedAt),
+        })
+        .returning();
+      await tx.insert(reviewTimes).values({
+        decisionId: id,
+        secondsTotal: intent.input.secondsTotal,
+        secondsPerSignal: intent.input.secondsPerSignal,
+        blind: true,
+        sharedFundingCount: intent.input.sharedFundingCount,
+      });
+      await tx
+        .update(submissions)
+        .set({ status: record.outcome === "PASS" ? "decided" : "rejected" })
+        .where(eq(submissions.id, row.s.id));
+      return stored;
     });
-    await tx
-      .update(submissions)
-      .set({ status: record.outcome === "PASS" ? "decided" : "rejected" })
-      .where(eq(submissions.id, row.s.id));
-    await tx.delete(decisionIntents).where(eq(decisionIntents.submissionId, row.s.id));
-    return stored;
-  });
+  } catch (e) {
+    // The partial unique indexes on `decision` refused a second first-pass or re-review row.
+    if (isUniqueViolation(e)) throw AppError.conflict("submission already decided");
+    throw e;
+  }
+  if (!decision) throw new AppError("INTERNAL", "decision insert returned no row");
 
-  log.info("decision recorded", { decisionId: id, submission: row.s.shortId, outcome: record.outcome, txHash: committed.txHash, appeal: isAppeal });
-  return decision as Decision;
+  log.info("decision recorded", { decisionId: id, submission: row.s.shortId, outcome: record.outcome, txHash, appeal: isAppeal });
+  return decision;
 }
 
 type DecisionIntent = typeof decisionIntents.$inferSelect;
 
+/** The claim that holds an intent: its submission and the `createdAt` it was claimed with. */
+function heldBy(intent: Pick<DecisionIntent, "submissionId" | "createdAt">) {
+  return and(eq(decisionIntents.submissionId, intent.submissionId), eq(decisionIntents.createdAt, intent.createdAt));
+}
+
+/**
+ * Gets the intent's record on chain exactly once and returns the hash of the
+ * transaction that carries it. Throws `DecisionRejectedError` (intent freed)
+ * when it cannot land, `DecisionPendingError` (intent kept) when it may have.
+ */
+async function commitIntent(intent: DecisionIntent, record: DecisionRecord, ledger: DecisionLedger, conn: Db): Promise<string> {
+  const free = (why: string) =>
+    conn
+      .delete(decisionIntents)
+      .where(heldBy(intent))
+      .catch((cause: unknown) => log.error("decision intent not removed", { submissionId: intent.submissionId, why, err: String(cause) }));
+
+  let signed: SignedDecision | null =
+    intent.txHash && intent.envelopeXdr && intent.envelopeExpiresAt
+      ? { txHash: intent.txHash, envelopeXdr: intent.envelopeXdr, expiresAt: intent.envelopeExpiresAt }
+      : null;
+
+  if (signed) {
+    // A resumed intent whose envelope was sent before: the chain decides what happens next.
+    const landed = await ledger.status(signed.txHash);
+    if (landed === "success") return signed.txHash;
+    if (landed === "failed") {
+      await free("stored transaction failed on chain");
+      throw new DecisionRejectedError("the stored decision transaction failed on chain");
+    }
+    if (Date.now() > signed.expiresAt.getTime() + ENVELOPE_EXPIRY_MARGIN_MS) {
+      log.warn("stored decision envelope expired unseen; signing the same record again", { submissionId: intent.submissionId, txHash: signed.txHash });
+      signed = null;
+    }
+  }
+
+  if (!signed) {
+    try {
+      signed = await ledger.sign(record);
+    } catch (e) {
+      // Nothing was sent: free the submission for another attempt.
+      await free("signing failed");
+      throw e;
+    }
+    const stored = await conn
+      .update(decisionIntents)
+      .set({ txHash: signed.txHash, envelopeXdr: signed.envelopeXdr, envelopeExpiresAt: signed.expiresAt })
+      .where(heldBy(intent))
+      .returning({ submissionId: decisionIntents.submissionId });
+    if (stored.length !== 1) throw AppError.conflict("another request took this decision over; reload to see it");
+  }
+
+  try {
+    await ledger.submit(signed);
+    return signed.txHash;
+  } catch (e) {
+    if (!(e instanceof DecisionRejectedError)) {
+      // Lost answer: the envelope may still be applied. Keep the intent; a later call looks the hash up.
+      throw e instanceof DecisionPendingError ? e : new DecisionPendingError(e);
+    }
+    // A resent envelope that already landed is refused (tx_bad_seq): check the hash before freeing anything.
+    let landed;
+    try {
+      landed = await ledger.status(signed.txHash);
+    } catch (lookup) {
+      throw lookup instanceof DecisionPendingError ? lookup : new DecisionPendingError(lookup);
+    }
+    if (landed === "success") return signed.txHash;
+    await free("network rejected the transaction");
+    throw e;
+  }
+}
+
 /**
  * Takes the one in-flight slot of a submission. A slot held by a request that
  * is still running is refused; a slot left behind by one that never finished
- * is handed over as it was written, with a new timestamp so only one caller
- * resumes it.
+ * is handed over as it was written, with a new `createdAt` that fences out the
+ * previous holder, so only one caller resumes it.
  */
-async function claimDecision(values: Omit<DecisionIntent, "createdAt">, conn: Db): Promise<DecisionIntent> {
+async function claimDecision(
+  values: Pick<DecisionIntent, "submissionId" | "reviewerPubkey" | "canonicalJson" | "input">,
+  conn: Db,
+): Promise<DecisionIntent> {
+  // Set here, not by the column default: the fence compares this exact value, and JS dates carry milliseconds only.
+  const claimedAt = new Date();
   try {
-    const [row] = await conn.insert(decisionIntents).values(values).returning();
-    return row as DecisionIntent;
+    const [row] = await conn.insert(decisionIntents).values({ ...values, createdAt: claimedAt }).returning();
+    if (row) return row;
   } catch (e) {
     if (!isUniqueViolation(e)) throw e;
   }
-  const staleBefore = new Date(Date.now() - DECISION_IN_FLIGHT_MS);
+  const staleBefore = new Date(claimedAt.getTime() - DECISION_IN_FLIGHT_MS);
   const [resumed] = await conn
     .update(decisionIntents)
-    .set({ createdAt: new Date() })
+    .set({ createdAt: claimedAt })
     .where(and(eq(decisionIntents.submissionId, values.submissionId), lt(decisionIntents.createdAt, staleBefore)))
     .returning();
   if (!resumed) throw AppError.conflict("a decision for this submission is being recorded; try again in a moment");
-  log.warn("resuming a decision whose commit never finished", { submissionId: values.submissionId, reviewer: resumed.reviewerPubkey });
+  log.warn("resuming a decision whose commit never finished", { submissionId: values.submissionId, reviewer: resumed.reviewerPubkey, txHash: resumed.txHash });
   return resumed;
 }
 

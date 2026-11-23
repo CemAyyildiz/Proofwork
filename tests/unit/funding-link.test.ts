@@ -14,7 +14,7 @@ import { campaigns, decisions, reviewTimes, roleGrants, submissions } from "@/db
 import { parseReviewLog } from "@/domain/results";
 import { SIGNALS } from "@/domain/rubric";
 import { canonicalJson, decisionHash, ledgerKey } from "@/ledger/canonical";
-import type { DecisionLedger } from "@/ledger/decision-ledger";
+import { FakeDecisionLedger, type DecisionLedger } from "@/ledger/decision-ledger";
 import { parseCsv, toCsv } from "@/lib/csv";
 import { log } from "@/lib/logger";
 import { decide, decideSchema, getDecision, REVIEW_LOG_COLUMNS, reviewLog, reviewQueue, sharedFundingCounts, type FundingLinkRow } from "@/services/review";
@@ -84,17 +84,10 @@ describe("sharedFundingCounts", () => {
 let conn: Db;
 let close: () => Promise<void>;
 
-/** Commits nothing: returns what the real ledger would, derived from the record alone. */
-class FakeLedger implements DecisionLedger {
-  readonly records: unknown[] = [];
-  async commit(record: Parameters<DecisionLedger["commit"]>[0]) {
-    this.records.push(record);
-    return {
-      txHash: `tx_${this.records.length}`,
-      ledgerKey: ledgerKey(record.submission, record.appealOf !== null),
-      decisionHash: decisionHash(record).toString("hex"),
-      canonicalJson: canonicalJson(record),
-    };
+/** Commits nothing: lands every envelope it signs. `records` are the records that landed. */
+class FakeLedger extends FakeDecisionLedger {
+  get records(): unknown[] {
+    return this.commits.map((c) => c.record);
   }
 }
 

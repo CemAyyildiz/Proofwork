@@ -43,6 +43,8 @@ async function fail(n: number): Promise<void> {
     reasonCode: "R02_ORIGINAL",
     signals: {},
     note: "",
+    // A second decision is the re-review of the first: the table holds one of each per submission.
+    appealOf: n > 1 ? "dec_1" : null,
     canonicalJson: "{}",
     decisionHash: "h",
     ledgerKey: `pw:s1:${n}`,
