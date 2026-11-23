@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { signTransaction } from "@/wallet/kit";
+import { isSignatureRejection, walletErrorMessage } from "@/wallet/onboarding";
 
 type Stage = "draft" | "deployed" | "funded" | "closed";
 
@@ -53,13 +54,16 @@ export function EscrowActions({
   async function run(kind: "deploy" | "fund") {
     setBusy(kind);
     setError(null);
+    let step: "prepare" | "sign" | "submit" = "prepare";
     try {
       const prepared = await call<{ opId: string; unsignedXdr: string }>(campaignId, { action: "prepare", kind });
+      step = "sign";
       const signedXdr = await signTransaction(funderPubkey, prepared.unsignedXdr);
+      step = "submit";
       await call(campaignId, { action: "submit", kind, opId: prepared.opId, signedXdr });
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "failed");
+      setError(runError(step, e));
     } finally {
       setBusy(null);
     }
@@ -120,13 +124,27 @@ export function EscrowActions({
   );
 }
 
-async function call<T = unknown>(campaignId: string, body: unknown): Promise<T> {
+export async function call<T = unknown>(campaignId: string, body: unknown): Promise<T> {
   const res = await fetch(`/api/campaigns/${campaignId}/escrow`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  const json = (await res.json()) as T & { message?: string };
-  if (!res.ok) throw new Error(json.message ?? `request failed (${res.status})`);
+  // A proxy or platform error page is HTML, not JSON: the status still says what happened.
+  const json = (await res.json().catch(() => null)) as (T & { message?: string }) | null;
+  if (!res.ok || json === null) throw new Error(json?.message ?? `request failed (${res.status})`);
   return json;
+}
+
+/**
+ * What the funder reads when a step stops. A wallet rejection is theirs to
+ * retry. Once the signed transaction was handed to the server it may have
+ * reached the chain whatever the answer, so the page is refreshed before
+ * anything is signed again.
+ */
+export function runError(step: "prepare" | "sign" | "submit", e: unknown): string {
+  if (step === "sign" && isSignatureRejection(e)) return "Signature cancelled";
+  const message = step === "sign" ? walletErrorMessage(e) : e instanceof Error ? e.message : "failed";
+  if (step === "submit") return `${message.replace(/\.$/, "")}. The transaction may have reached the chain: refresh the page before trying again.`;
+  return message;
 }
