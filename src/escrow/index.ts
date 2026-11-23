@@ -3,6 +3,7 @@ import { Keypair } from "@stellar/stellar-sdk";
 import { env } from "@/config/env";
 import { NETWORKS } from "@/config/network";
 import { HorizonDecisionLedger } from "@/ledger/decision-ledger";
+import { horizonTxLanded } from "./horizon";
 import type { EscrowPort } from "./port";
 import { TrustlessWorkAdapter } from "./trustless-work/adapter";
 import { TrustlessWorkClient } from "./trustless-work/client";
@@ -32,6 +33,7 @@ function wire(): Wiring {
       platformAdmin,
       platformOps,
       networkPassphrase,
+      txLanded: horizonTxLanded(env.HORIZON_URL),
     }),
     ledger,
     platformKeys: { admin: platformAdmin.publicKey(), ops: platformOps.publicKey(), ledger: ledger.publicKey },

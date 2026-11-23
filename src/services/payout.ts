@@ -304,9 +304,9 @@ export async function approveForPayout(
   });
 }
 
-/** A release is visible once the milestone reads back as released. */
+/** A release is visible once the milestone reads back as released and the op's own transaction landed. */
 function releaseVisible(escrow: EscrowPort, contractId: string, idx: number): Verify {
-  return async () => (await escrow.getEscrow(contractId)).milestones[idx]?.released === true;
+  return async (res) => (await escrow.getEscrow(contractId)).milestones[idx]?.released === true && (await escrow.txSucceeded(res.txHash));
 }
 
 /** A close is visible once the close milestone (index 0) reads back as disputed. */
@@ -314,8 +314,9 @@ async function closeOnChain(escrow: EscrowPort, contractId: string): Promise<boo
   return (await escrow.getEscrow(contractId)).milestones[0]?.disputed === true;
 }
 
+/** A close is confirmed only under the hash of its own transaction, once that landed. */
 function closeVisible(escrow: EscrowPort, contractId: string): Verify {
-  return () => closeOnChain(escrow, contractId);
+  return async (res) => (await closeOnChain(escrow, contractId)) && (await escrow.txSucceeded(res.txHash));
 }
 
 /** Mark the released milestone's payout (still `approved`) released with the op's tx hash. */

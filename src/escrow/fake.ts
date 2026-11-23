@@ -200,6 +200,10 @@ export class FakeEscrow implements EscrowPort {
     return structuredClone(this.state(contractId));
   }
 
+  async txSucceeded(txHash: string): Promise<boolean> {
+    return this.landed.has(txHash);
+  }
+
   private milestone(s: EscrowState, i: number): EscrowMilestone {
     const m = s.milestones[i];
     if (!m) throw new Error(`milestone ${i} not found`);

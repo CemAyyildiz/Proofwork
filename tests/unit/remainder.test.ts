@@ -190,6 +190,22 @@ describe("returnRemainder", () => {
     expect((await row())?.remainderTxHash).toBeNull();
   });
 
+  it("an escrow emptied by another transaction is not recorded under this sweep's hash", async () => {
+    const contractId = await closed();
+    // The sweep empties the escrow, but Horizon has no successful record of it.
+    vi.spyOn(escrow, "txSucceeded").mockResolvedValue(false);
+    await expect(sweep(contractId)).rejects.toMatchObject({ kind: "refused", message: expect.stringMatching(/Horizon does not report [0-9a-f]{64} as successful/) });
+    expect((await row())?.remainderTxHash).toBeNull();
+  });
+
+  it("a sweep Horizon cannot be asked about is reported with its hash and not recorded", async () => {
+    const contractId = await closed();
+    vi.spyOn(escrow, "txSucceeded").mockRejectedValue(new Error("Horizon answered 503"));
+    const failure = await sweep(contractId).catch((e: unknown) => e);
+    expect(failure).toMatchObject({ kind: "swept_unrecorded", txHash: saidHash(), message: expect.stringMatching(/could not confirm/) });
+    expect((await row())?.remainderTxHash).toBeNull();
+  });
+
   it("without a database it sweeps and records nothing", async () => {
     const contractId = await closed();
     const result = await sweep(contractId, null);
@@ -246,11 +262,20 @@ describe("recordSweep", () => {
   it("refuses another hash once one is recorded, a malformed hash, and an escrow the database does not know", async () => {
     const contractId = await closed();
     await sweep(contractId);
+    // Another transaction that did land: still not the recorded one.
+    escrow.landed.add("b".repeat(64));
     await expect(record(contractId, "b".repeat(64))).rejects.toMatchObject({ kind: "refused", message: expect.stringMatching(/already recorded/) });
     await expect(record(contractId, "nope")).rejects.toMatchObject({ kind: "refused" });
     const other = await outsideTheApp(FUNDER);
     await escrow.submit(((await escrow.buildDispute(other, FUNDER, [0]))[0] ?? { unsignedXdr: "" }).unsignedXdr);
-    await escrow.submit((await escrow.buildWithdrawRemaining(other, resolver.publicKey(), [{ address: FUNDER, amount: "40" }])).unsignedXdr);
-    await expect(record(other)).rejects.toMatchObject({ kind: "refused", message: expect.stringMatching(/no campaign with this escrow/) });
+    const { txHash } = await escrow.submit((await escrow.buildWithdrawRemaining(other, resolver.publicKey(), [{ address: FUNDER, amount: "40" }])).unsignedXdr);
+    await expect(record(other, txHash)).rejects.toMatchObject({ kind: "refused", message: expect.stringMatching(/no campaign with this escrow/) });
+  });
+
+  it("refuses a hash Horizon does not report as a successful transaction, and records nothing", async () => {
+    const contractId = await closed();
+    await sweep(contractId, null);
+    await expect(record(contractId, HASH)).rejects.toMatchObject({ kind: "refused", message: expect.stringMatching(/does not report a{64} as a successful transaction/) });
+    expect((await row())?.remainderTxHash).toBeNull();
   });
 });

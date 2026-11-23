@@ -100,4 +100,10 @@ export interface EscrowPort {
 
   submit(signedXdr: string): Promise<Submitted>;
   getEscrow(contractId: string): Promise<EscrowState>;
+  /**
+   * True only when the network reports this transaction as successful. An
+   * escrow state that matches is not enough to record a hash: another
+   * transaction may have caused it.
+   */
+  txSucceeded(txHash: string): Promise<boolean>;
 }

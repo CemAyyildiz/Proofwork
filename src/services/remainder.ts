@@ -181,6 +181,15 @@ export async function returnRemainder(
   }
   say(`balance after: ${after} USDC`);
   if (!empty(after)) throw refuse(`the escrow still holds ${after} USDC after ${txHash}; nothing was recorded`);
+  // An empty escrow may have been emptied by another transaction: only this one's own success is recorded.
+  let landed: boolean;
+  try {
+    landed = await escrow.txSucceeded(txHash);
+  } catch (e) {
+    throw new RemainderError("swept_unrecorded", `the escrow is empty but Horizon could not confirm ${txHash} (${reason(e)}), so nothing was recorded`, txHash);
+  }
+  if (!landed) throw refuse(`the escrow is empty but Horizon does not report ${txHash} as successful; nothing was recorded`);
+  say("Horizon reports the sweep as successful");
 
   if (!campaign || !conn) return { outcome: "swept", txHash, recorded: false };
   try {
@@ -195,11 +204,14 @@ export async function returnRemainder(
 /**
  * Record a sweep that already happened, for a resolver that swept without the
  * app's database or a run that could not write. Signs nothing. Only while the
- * escrow reads empty: a hash is not recorded for money that is still there.
+ * escrow reads empty and Horizon reports the hash as a successful
+ * transaction: a hash is not recorded for money that is still there, nor one
+ * that never landed.
  */
 export async function recordSweep(input: { contractId: string; txHash: string; say: Say }, escrow: EscrowPort, conn: Db): Promise<Campaign> {
   const state = await escrow.getEscrow(input.contractId);
   if (!empty(state.balance)) throw refuse(`the escrow still holds ${state.balance} USDC: there is no sweep to record`);
+  if (!(await escrow.txSucceeded(input.txHash))) throw refuse(`Horizon does not report ${input.txHash} as a successful transaction; nothing was recorded`);
   const campaign = await campaignOfSweep(input.contractId, state.roles.funder, conn);
   input.say(`campaign: ${campaign.slug}`);
   try {

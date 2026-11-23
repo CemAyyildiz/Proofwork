@@ -1,5 +1,6 @@
 import { Account, Address, Keypair, Networks, Operation, SorobanDataBuilder, StrKey, TransactionBuilder, xdr } from "@stellar/stellar-sdk";
 import { describe, expect, it } from "vitest";
+import { horizonTxLanded } from "@/escrow/horizon";
 import { TrustlessWorkAdapter } from "@/escrow/trustless-work/adapter";
 import { TrustlessWorkClient } from "@/escrow/trustless-work/client";
 import { type FakeReply, fakeFetch } from "./fake-fetch";
@@ -50,16 +51,21 @@ function contractCall(
   return b.build().toXDR();
 }
 
-function adapter(handler: Handler): TrustlessWorkAdapter {
+function adapter(handler: Handler, txLanded?: (hash: string) => Promise<boolean>): TrustlessWorkAdapter {
   return new TrustlessWorkAdapter({
     client: new TrustlessWorkClient("https://tw.test", "k".repeat(20), fakeFetch(handler)),
     usdcIssuer: issuer,
     platformAdmin: admin,
     platformOps: ops,
     networkPassphrase: Networks.TESTNET,
+    ...(txLanded ? { txLanded } : {}),
   });
 }
 
+/** A fetch that fails the test on any call: the refusal must come before the provider is asked. */
+const noCalls: Handler = (url) => {
+  throw new Error(`unexpected call to ${url}`);
+};
 
 function body(init: RequestInit): Record<string, unknown> {
   return JSON.parse(String(init.body)) as Record<string, unknown>;
@@ -235,5 +241,51 @@ describe("server keys never sign a provider transaction blindly", () => {
     });
     await expect(a.approveMilestones(CONTRACT, [1])).resolves.toHaveLength(1);
     expect(sent).toBe(1);
+  });
+});
+
+describe("transaction landed", () => {
+  it("asks the injected reader", async () => {
+    const asked: string[] = [];
+    const a = adapter(noCalls, async (h) => {
+      asked.push(h);
+      return h === "f".repeat(64);
+    });
+    await expect(a.txSucceeded("f".repeat(64))).resolves.toBe(true);
+    await expect(a.txSucceeded("e".repeat(64))).resolves.toBe(false);
+    expect(asked).toEqual(["f".repeat(64), "e".repeat(64)]);
+  });
+
+  it("refuses to answer without a reader", async () => {
+    await expect(adapter(noCalls).txSucceeded("f".repeat(64))).rejects.toMatchObject({ code: "ESCROW" });
+  });
+});
+
+describe("Horizon's record of a transaction", () => {
+  const HASH = "c".repeat(64);
+  const reader = (handler: Handler) => horizonTxLanded("https://horizon.test", { fetchImpl: fakeFetch(handler), retryMs: 0 });
+
+  it("is true only for a transaction Horizon reports as successful", async () => {
+    await expect(reader(() => ({ status: 200, body: { successful: true } }))(HASH)).resolves.toBe(true);
+    await expect(reader(() => ({ status: 200, body: { successful: false } }))(HASH)).resolves.toBe(false);
+  });
+
+  it("asks again after a 404 before it answers false", async () => {
+    let asked = 0;
+    const r = reader((url) => {
+      expect(url).toBe(`https://horizon.test/transactions/${HASH}`);
+      asked += 1;
+      return asked < 3 ? { status: 404, body: {} } : { status: 200, body: { successful: true } };
+    });
+    await expect(r(HASH)).resolves.toBe(true);
+    asked = 0;
+    await expect(reader(() => ((asked += 1), { status: 404, body: {} }))(HASH)).resolves.toBe(false);
+    expect(asked).toBe(3);
+  });
+
+  it("throws on an answer it cannot read, and asks nothing for a malformed hash", async () => {
+    await expect(reader(() => ({ status: 503, body: {} }))(HASH)).rejects.toMatchObject({ code: "ESCROW" });
+    await expect(reader(() => ({ status: 200, body: { nope: 1 } }))(HASH)).rejects.toMatchObject({ code: "ESCROW" });
+    await expect(reader(noCalls)("not-a-hash")).resolves.toBe(false);
   });
 });

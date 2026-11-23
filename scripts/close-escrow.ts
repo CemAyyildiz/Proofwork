@@ -6,6 +6,7 @@ import { NETWORKS } from "../src/config/network";
 import { publicEnv } from "../src/config/public-env";
 import * as schema from "../src/db/schema";
 import { databaseTarget } from "../src/domain/role-grant-args";
+import { horizonTxLanded } from "../src/escrow/horizon";
 import { TrustlessWorkAdapter } from "../src/escrow/trustless-work/adapter";
 import { TrustlessWorkClient } from "../src/escrow/trustless-work/client";
 import { recordSweep, RemainderError, returnRemainder } from "../src/services/remainder";
@@ -37,6 +38,7 @@ const seed = z.string().refine((v) => StrKey.isValidEd25519SecretSeed(v), "must 
 const optional = <T extends z.ZodTypeAny>(inner: T) => z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), inner.optional());
 const envSchema = z.object({
   TW_BASE_URL: z.string().url().default(NETWORKS[publicEnv.network].twBaseUrl),
+  HORIZON_URL: z.string().url().default(NETWORKS[publicEnv.network].horizonUrl),
   TW_API_KEY: z.string().min(16),
   USDC_ISSUER: z.string().default(publicEnv.usdcIssuer),
   DISPUTE_RESOLVER_SECRET: optional(seed),
@@ -80,6 +82,8 @@ async function main(): Promise<void> {
     platformAdmin: Keypair.random(),
     platformOps: Keypair.random(),
     networkPassphrase: publicEnv.networkPassphrase,
+    // Nothing is recorded until Horizon reports the sweep's own transaction as successful.
+    txLanded: horizonTxLanded(env.HORIZON_URL),
   });
 
   // Only --no-record runs without a database; an unset DATABASE_URL never means that by itself.

@@ -9,6 +9,7 @@ import type {
   Unsigned,
 } from "../port";
 import { fromApiAmount, toApiAmount } from "../amount";
+import type { TxLandedReader } from "../horizon";
 import {
   TrustlessWorkClient,
   type TwEscrowRead,
@@ -25,6 +26,8 @@ export interface TrustlessWorkAdapterOptions {
   /** escrow role `serviceProvider` — marks milestones delivered */
   platformOps: Keypair;
   networkPassphrase: string;
+  /** Horizon's word on a transaction (`horizonTxLanded`). Without it `txSucceeded` refuses to answer. */
+  txLanded?: TxLandedReader;
 }
 
 /**
@@ -45,6 +48,7 @@ export class TrustlessWorkAdapter implements EscrowPort {
   private readonly admin: Keypair;
   private readonly ops: Keypair;
   private readonly passphrase: string;
+  private readonly txLanded: TxLandedReader | undefined;
 
   constructor(o: TrustlessWorkAdapterOptions) {
     this.client = o.client;
@@ -52,6 +56,7 @@ export class TrustlessWorkAdapter implements EscrowPort {
     this.admin = o.platformAdmin;
     this.ops = o.platformOps;
     this.passphrase = o.networkPassphrase;
+    this.txLanded = o.txLanded;
   }
 
   async buildDeploy(input: DeployInput): Promise<Unsigned> {
@@ -213,6 +218,11 @@ export class TrustlessWorkAdapter implements EscrowPort {
 
   async getEscrow(contractId: string): Promise<EscrowState> {
     return toState(await this.client.getEscrow(contractId));
+  }
+
+  async txSucceeded(txHash: string): Promise<boolean> {
+    if (!this.txLanded) throw new AppError("ESCROW", "no transaction reader configured; cannot confirm a transaction landed");
+    return this.txLanded(txHash);
   }
 
   /**

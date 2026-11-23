@@ -181,19 +181,21 @@ export async function getCampaignById(id: string, conn: Db = db): Promise<Campai
   return (await conn.select().from(campaigns).where(eq(campaigns.id, id)).limit(1))[0] ?? null;
 }
 
-/** Deploy is visible once the provider's contract id reads back with this campaign's engagement id. */
+/** Deploy is visible once its own transaction landed and the provider's contract id reads back with this campaign's engagement id. */
 function deployVisible(escrow: EscrowPort, slug: string): Verify {
   return async (res: Submitted) => {
     if (!res.contractId) return false;
-    return (await escrow.getEscrow(res.contractId)).engagementId === slug;
+    if ((await escrow.getEscrow(res.contractId)).engagementId !== slug) return false;
+    return escrow.txSucceeded(res.txHash);
   };
 }
 
-/** Funding is visible once the escrow balance covers the budget. */
+/** Funding is visible once its own transaction landed and the escrow balance covers the budget. */
 function fundVisible(escrow: EscrowPort, contractId: string | null, budget: string): Verify {
-  return async () => {
+  return async (res: Submitted) => {
     if (!contractId) return false;
-    return toStroops((await escrow.getEscrow(contractId)).balance) >= toStroops(budget);
+    if (toStroops((await escrow.getEscrow(contractId)).balance) < toStroops(budget)) return false;
+    return escrow.txSucceeded(res.txHash);
   };
 }
 

@@ -16,10 +16,10 @@
  */
 import "server-only";
 import { eq } from "drizzle-orm";
-import { z } from "zod";
 import { env } from "@/config/env";
 import { db, type Db } from "@/db/client";
 import { campaigns, type Campaign } from "@/db/schema";
+import { horizonTxLanded, type TxLandedReader } from "@/escrow/horizon";
 import type { EscrowPort } from "@/escrow/port";
 import { AppError } from "@/lib/errors";
 import { findOp, prepareOp, submitOp, type OnConfirmed, type Verify } from "./escrow-ops";
@@ -73,31 +73,10 @@ async function sweepTarget(c: Campaign & { escrowContractId: string }, actor: { 
   return { funder: check.funder, amount: check.state.balance };
 }
 
-/** Whether a transaction is on chain and successful. Injected so unit tests need no network. */
-export type TxLandedReader = (txHash: string) => Promise<boolean>;
+export type { TxLandedReader };
 
-const TX_HASH = /^[0-9a-f]{64}$/;
-const horizonTx = z.object({ successful: z.boolean() });
-/** Horizon can lag the network by a ledger or two after a submit: a 404 is asked again before it counts. */
-const NOT_FOUND_RETRIES = 3;
-const RETRY_MS = 1_500;
-
-/** Default reader: Horizon's record of the transaction. 404 → false; anything else unreadable throws. */
-export const horizonTxLandedReader: TxLandedReader = async (txHash) => {
-  if (!TX_HASH.test(txHash)) return false;
-  for (let attempt = 0; ; attempt++) {
-    const res = await fetch(`${env.HORIZON_URL}/transactions/${txHash}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
-    if (res.status === 404) {
-      if (attempt + 1 >= NOT_FOUND_RETRIES) return false;
-      await new Promise((r) => setTimeout(r, RETRY_MS));
-      continue;
-    }
-    if (!res.ok) throw new AppError("ESCROW", `Horizon answered ${res.status} for the return transaction`);
-    const parsed = horizonTx.safeParse(await res.json().catch(() => null));
-    if (!parsed.success) throw new AppError("ESCROW", "unexpected transaction response from Horizon");
-    return parsed.data.successful;
-  }
-};
+/** Default reader: Horizon's record of the transaction on the configured network. */
+export const horizonTxLandedReader: TxLandedReader = (txHash) => horizonTxLanded(env.HORIZON_URL)(txHash);
 
 /**
  * The return is visible once this op's own transaction is successful on
