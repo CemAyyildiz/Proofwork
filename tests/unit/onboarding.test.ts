@@ -185,6 +185,8 @@ describe("readFunderAccount", () => {
       }) as typeof fetch,
     };
     await expect(readFunderAccount(ADDR, timedOut)).rejects.toMatchObject({ kind: "unreachable" });
+    // Named for the network the app was built for, not always testnet.
+    await expect(readFunderAccount(ADDR, timedOut)).rejects.toThrow("Stellar testnet did not answer");
   });
 
   it("gives up after the timeout it is given", async () => {

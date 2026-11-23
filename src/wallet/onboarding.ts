@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { publicEnv } from "@/config/public-env";
 import { fromStroops, toStroops } from "@/escrow/amount";
 
 /**
- * Wallet onboarding against Horizon testnet: read the account, fund it with
- * Friendbot, open the USDC trustline. Isomorphic on purpose: the browser
+ * Wallet onboarding against Horizon on the configured network: read the
+ * account, fund it with Friendbot (testnet only), open the USDC trustline. Isomorphic on purpose: the browser
  * drives the flow, and the server reuses `readAccount` to refuse a submission
  * from a wallet that cannot be paid, `readFundingSource` to record which
  * account created it, and `readFunderAccount` to refuse an escrow transaction
@@ -117,7 +118,7 @@ async function call(f: typeof fetch, url: string, init: RequestInit = {}, timeou
   try {
     return await f(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   } catch (cause) {
-    throw new OnboardingError("unreachable", "Stellar testnet did not answer", { cause });
+    throw new OnboardingError("unreachable", `${publicEnv.networkName} did not answer`, { cause });
   }
 }
 
