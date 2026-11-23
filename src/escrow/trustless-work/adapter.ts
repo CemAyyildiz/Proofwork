@@ -1,4 +1,4 @@
-import { Keypair, TransactionBuilder } from "@stellar/stellar-sdk";
+import { Address, FeeBumpTransaction, type Keypair, type Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
 import { AppError } from "@/lib/errors";
 import type {
   DeployInput,
@@ -26,6 +26,13 @@ export interface TrustlessWorkAdapterOptions {
   platformOps: Keypair;
   networkPassphrase: string;
 }
+
+/**
+ * Ceiling on the fee a server key pays for one provider-built transaction.
+ * A Soroban milestone call costs well under 1 XLM; the cap only stops an
+ * envelope built to drain the platform account through its fee.
+ */
+const MAX_SERVER_FEE_STROOPS = 100_000_000n; // 10 XLM
 
 /**
  * Trustless Work v1 multi-release implementation of EscrowPort (AD-1, AD-2).
@@ -163,7 +170,7 @@ export class TrustlessWorkAdapter implements EscrowPort {
         ...(current.receiverMemo !== undefined ? { receiverMemo: current.receiverMemo } : {}),
       },
     });
-    return this.signAndSubmit(res.unsignedTransaction, this.admin);
+    return this.signAndSubmit(res.unsignedTransaction, this.admin, contractId);
   }
 
   async markDelivered(contractId: string, updates: Array<{ index: number; evidence: string }>): Promise<Submitted[]> {
@@ -177,7 +184,7 @@ export class TrustlessWorkAdapter implements EscrowPort {
         newStatus: "completed",
         newEvidence: u.evidence.slice(0, 500),
       });
-      out.push(await this.signAndSubmit(res.unsignedTransaction, this.ops));
+      out.push(await this.signAndSubmit(res.unsignedTransaction, this.ops, contractId));
     }
     return out;
   }
@@ -187,7 +194,7 @@ export class TrustlessWorkAdapter implements EscrowPort {
     const out: Submitted[] = [];
     for (const i of milestoneIndexes) {
       const res = await this.client.approveMilestone({ contractId, approver: this.ops.publicKey(), milestoneIndex: String(i) });
-      out.push(await this.signAndSubmit(res.unsignedTransaction, this.ops));
+      out.push(await this.signAndSubmit(res.unsignedTransaction, this.ops, contractId));
     }
     return out;
   }
@@ -208,11 +215,36 @@ export class TrustlessWorkAdapter implements EscrowPort {
     return toState(await this.client.getEscrow(contractId));
   }
 
-  private async signAndSubmit(unsignedXdr: string, signer: Keypair): Promise<Submitted> {
-    const tx = TransactionBuilder.fromXDR(unsignedXdr, this.passphrase);
+  /**
+   * A server key signs only what it was asked for: one contract call on this
+   * escrow, from its own account, at a bounded fee. The provider builds the
+   * XDR, so it is read before it is signed, never signed blindly.
+   */
+  private async signAndSubmit(unsignedXdr: string, signer: Keypair, contractId: string): Promise<Submitted> {
+    const tx = signableCall(unsignedXdr, this.passphrase, signer.publicKey(), contractId);
     tx.sign(signer);
     return this.submit(tx.toXDR());
   }
+}
+
+function refuseSigning(reason: string): AppError {
+  return new AppError("ESCROW", `refused to sign the provider transaction: ${reason}`);
+}
+
+/** The provider's envelope, parsed and checked as one invocation of `contractId` by `signer`. */
+export function signableCall(unsignedXdr: string, passphrase: string, signer: string, contractId: string): Transaction {
+  const tx = TransactionBuilder.fromXDR(unsignedXdr, passphrase);
+  if (tx instanceof FeeBumpTransaction) throw refuseSigning("fee-bump envelope");
+  if (tx.source !== signer) throw refuseSigning("source account is not the signing key");
+  if (BigInt(tx.fee) > MAX_SERVER_FEE_STROOPS) throw refuseSigning(`fee ${tx.fee} stroops is over the cap`);
+  const [op, ...rest] = tx.operations;
+  if (!op || rest.length > 0) throw refuseSigning("expected exactly one operation");
+  if (op.type !== "invokeHostFunction") throw refuseSigning(`operation is ${op.type}, not a contract call`);
+  if (op.source !== undefined && op.source !== signer) throw refuseSigning("operation source is not the signing key");
+  if (op.func.switch().name !== "hostFunctionTypeInvokeContract") throw refuseSigning("host function is not a contract call");
+  const target = Address.fromScAddress(op.func.invokeContract().contractAddress()).toString();
+  if (target !== contractId) throw refuseSigning("transaction calls another contract");
+  return tx;
 }
 
 function toTwRoles(r: EscrowState["roles"]): TwRoles {
