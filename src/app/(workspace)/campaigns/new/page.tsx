@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CampaignForm } from "@/components/campaign-form";
 import { PageHeader } from "@/components/workspace/page-header";
-import { env, funderLimits, sealedDualReviewEnabled } from "@/config/env";
+import { funderLimits, pinnedDisputeResolver, sealedDualReviewEnabled } from "@/config/env";
 import { requestNow } from "@/lib/clock";
 import { currentUser } from "@/lib/current-user";
 import { funderUsage } from "@/services/campaign";
@@ -36,7 +36,7 @@ export default async function NewCampaignPage() {
         </div>
       </div>
       <CampaignForm
-        defaultDisputeResolver={env.DEFAULT_DISPUTE_RESOLVER_PUBKEY ?? ""}
+        pinnedDisputeResolver={pinnedDisputeResolver()}
         now={now}
         limits={limits}
         sealedReviewAvailable={sealedDualReviewEnabled()}

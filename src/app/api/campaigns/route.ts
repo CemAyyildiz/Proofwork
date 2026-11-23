@@ -1,4 +1,4 @@
-import { funderLimits, sealedDualReviewEnabled, sealedReviewAdminPubkey } from "@/config/env";
+import { funderLimits, pinnedDisputeResolver, sealedDualReviewEnabled, sealedReviewAdminPubkey } from "@/config/env";
 import { getEscrow, getPlatformKeys } from "@/escrow";
 import { requireUserRole } from "@/lib/current-user";
 import { jsonRoute } from "@/lib/http";
@@ -22,6 +22,7 @@ export const POST = jsonRoute(createCampaignSchema, async (input) => {
       platformOps: keys.ops,
       sealedReviewAdmin: sealedEnabled ? sealedReviewAdminPubkey() : null,
       sealedReviewEnabled: sealedEnabled,
+      pinnedDisputeResolver: pinnedDisputeResolver(),
     },
     funderLimits(),
   );

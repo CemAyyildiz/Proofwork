@@ -197,6 +197,30 @@ describe("founder-sealed campaign creation", () => {
   });
 });
 
+describe("pinned dispute resolver", () => {
+  const PINNED = Keypair.random().publicKey();
+
+  it("refuses a resolver other than the pinned key and saves nothing", async () => {
+    const other = createCampaignSchema.parse({ ...base, budget: "10", disputeResolverPubkey: Keypair.random().publicKey() });
+    await expect(createCampaign(other, { ...actor, pinnedDisputeResolver: PINNED }, LIMITS, conn)).rejects.toMatchObject({
+      code: "VALIDATION",
+      message: expect.stringContaining("Proofwork's resolver key"),
+    });
+    expect(await campaignRows()).toHaveLength(0);
+  });
+
+  it("accepts the pinned key", async () => {
+    const ok = createCampaignSchema.parse({ ...base, budget: "10", disputeResolverPubkey: PINNED });
+    const c = await createCampaign(ok, { ...actor, pinnedDisputeResolver: PINNED }, LIMITS, conn);
+    expect(c.disputeResolverPubkey).toBe(PINNED);
+  });
+
+  it("unpinned (testnet without a default) still accepts any neutral key", async () => {
+    const c = await createCampaign(createCampaignSchema.parse({ ...base, budget: "10" }), { ...actor, pinnedDisputeResolver: null }, LIMITS, conn);
+    expect(c.disputeResolverPubkey).toBe(base.disputeResolverPubkey);
+  });
+});
+
 describe("per-funder caps", () => {
   it("under both caps: with one open campaign of 40, one of 50 is created", async () => {
     await deployed("40");
@@ -794,6 +818,25 @@ describe("caps and readiness through the routes and pages", () => {
     if (!m) throw new Error(`no "${label}" button on the page`);
     return /disabled=""/.test(m[1] ?? "");
   };
+
+  it("with a pinned resolver the page shows it read-only and the route refuses any other key", async () => {
+    const pinned = Keypair.random().publicKey();
+    vi.stubEnv("DEFAULT_DISPUTE_RESOLVER_PUBKEY", pinned);
+    // The session import in beforeEach parsed the environment already: start from fresh modules.
+    vi.resetModules();
+    const html = await newCampaignPage();
+    const inputs = html.match(/<input[^>]*name="disputeResolverPubkey"[^>]*>/g) ?? [];
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toContain('type="hidden"');
+    expect(inputs[0]).toContain(`value="${pinned}"`);
+
+    const refused = await createCall("40");
+    expect(refused.status).toBe(400);
+    expect(await campaignRows()).toHaveLength(0);
+    const { POST } = await import("@/app/api/campaigns/route");
+    const ok = await POST(post("/api/campaigns", { ...body("40"), disputeResolverPubkey: pinned }));
+    expect(ok.status).toBe(200);
+  });
 
   it("the new-campaign page shows both limits and the current usage, from the environment", async () => {
     const empty = await newCampaignPage();

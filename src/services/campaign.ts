@@ -112,10 +112,26 @@ async function assertWithinLimits(pubkey: string, budget: string, limits: Funder
 
 export async function createCampaign(
   input: CreateCampaignInput,
-  actor: { pubkey: string; platformAdmin: string; platformOps: string; sealedReviewAdmin?: string | null; sealedReviewEnabled?: boolean },
+  actor: {
+    pubkey: string;
+    platformAdmin: string;
+    platformOps: string;
+    sealedReviewAdmin?: string | null;
+    sealedReviewEnabled?: boolean;
+    /**
+     * The deployment's own resolver key (`pinnedDisputeResolver()`). When set,
+     * it is the only resolver a campaign may name: the custody promise holds
+     * only while the key that returns the remainder is Proofwork's.
+     */
+    pinnedDisputeResolver?: string | null;
+  },
   limits: FunderLimits,
   conn: Db = db,
 ): Promise<Campaign> {
+  const pinned = actor.pinnedDisputeResolver ?? null;
+  if (pinned && input.disputeResolverPubkey !== pinned) {
+    throw AppError.validation("dispute resolver must be Proofwork's resolver key on this deployment");
+  }
   const founder = actor.sealedReviewAdmin ?? null;
   if (input.founderSealedReview && (!actor.sealedReviewEnabled || !founder)) {
     throw AppError.validation("founder-sealed review is not enabled on this deployment");

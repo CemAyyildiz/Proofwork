@@ -32,12 +32,13 @@ interface Draft {
 const DAYS = [3, 7, 14, 30] as const;
 
 export function CampaignForm({
-  defaultDisputeResolver,
+  pinnedDisputeResolver,
   now,
   limits,
   sealedReviewAvailable = false,
 }: {
-  defaultDisputeResolver: string;
+  /** The deployment's resolver key; when set the funder cannot choose another one. */
+  pinnedDisputeResolver: string | null;
   now: number;
   limits: FunderLimitsView;
   sealedReviewAvailable?: boolean;
@@ -164,7 +165,14 @@ export function CampaignForm({
         ) : null}
         <label className="block">
           <span className={labelText}>Dispute resolver public key</span>
-          <input name="disputeResolverPubkey" required defaultValue={defaultDisputeResolver} pattern="G[A-Z2-7]{55}" className={cx(field, "font-mono text-[13px]")} />
+          {pinnedDisputeResolver ? (
+            <>
+              <input type="hidden" name="disputeResolverPubkey" value={pinnedDisputeResolver} />
+              <span className={cx(field, "block break-all font-mono text-[13px] text-white/75")}>{pinnedDisputeResolver}</span>
+            </>
+          ) : (
+            <input name="disputeResolverPubkey" required pattern="G[A-Z2-7]{55}" className={cx(field, "font-mono text-[13px]")} />
+          )}
           <span className="mt-2 block text-[13px] leading-relaxed text-white/60">
             Proofwork&apos;s resolver key, kept in a wallet and never on the server. After you close the campaign, it signs the return of what is left in
             the escrow, and that transaction can only pay your wallet.{" "}
