@@ -175,6 +175,18 @@ describe("score — edge cases", () => {
     expect(score(parseReviewLog(exportCsv([row])), planted).blind.planted).toEqual({ failed: 1, total: 1 });
   });
 
+  it("matches the planted list on the post ID, whatever handle either link carries", () => {
+    const row = decision(P(0), FARM_FAIL, { workUrl: "https://x.com/deniz/status/424242" });
+    const planted = parsePlanted(toCsv(["work_url", "planted"] as const, [{ work_url: "https://twitter.com/Someone_Else/status/424242/photo/1", planted: "TRUE" }]));
+    expect(score(parseReviewLog(exportCsv([row])), planted).blind.planted).toEqual({ failed: 1, total: 1 });
+  });
+
+  it("does not match a different post under the same handle", () => {
+    const row = decision(P(0), FARM_FAIL, { workUrl: "https://x.com/deniz/status/424242" });
+    const planted = parsePlanted(toCsv(["work_url", "planted"] as const, [{ work_url: "https://x.com/deniz/status/424243", planted: "TRUE" }]));
+    expect(score(parseReviewLog(exportCsv([row])), planted).blind.planted).toEqual({ failed: 0, total: 0 });
+  });
+
   it("refuses a planted row whose short id and work_url point to different submissions", () => {
     const a = decision(P(0), FARM_FAIL);
     const b = decision(G(0), ALL_PASS);

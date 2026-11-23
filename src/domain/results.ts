@@ -232,9 +232,15 @@ interface Submission {
 
 type Lookup = (id: { shortId: string | null; workUrl: string | null }, label: string) => Submission | null;
 
+/**
+ * Match key for a work URL: the post's numeric ID. The handle in a link is
+ * whatever the contributor typed and decides nothing (one post is one
+ * submission under any handle), so a planted list that names the post under
+ * another handle still finds it.
+ */
 function urlKey(url: string): string {
   try {
-    return canonicalizeSubmissionUrl(url).url;
+    return `status:${canonicalizeSubmissionUrl(url).statusId}`;
   } catch {
     // Not an X status URL: match on the trimmed string as given.
     return url.trim();
