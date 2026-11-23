@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Db } from "@/db/client";
 import { accessLog, campaigns, funderRequests, roleGrants, type AccessLogEntry, type Campaign, type FunderRequest } from "@/db/schema";
-import { campaignStage, NO_SUBMISSIONS, nextStep, type CampaignStage, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
+import { campaignStage, fullyPaidOut, NO_SUBMISSIONS, nextStep, type CampaignStage, type NextStep, type SubmissionCounts } from "@/domain/campaign-status";
 import { AppError, isUniqueViolation } from "@/lib/errors";
 import { newId } from "@/lib/ids";
 import type { Role } from "./auth";
@@ -297,12 +297,13 @@ export async function campaignsOverview(actor: { pubkey: string }, conn: Db, now
 
 /**
  * Funded campaigns closed in the app whose remainder has not been returned
- * and whose dispute resolver is this wallet, oldest close first. No role is
- * needed: being the campaign's resolver is the authorization, and the return
- * itself checks it again.
+ * and whose dispute resolver is this wallet, oldest close first. A campaign
+ * whose released payouts used the whole budget has nothing to return and is
+ * left out. No role is needed: being the campaign's resolver is the
+ * authorization, and the return itself checks it again.
  */
 export async function awaitingReturn(actor: { pubkey: string }, conn: Db): Promise<Campaign[]> {
-  return conn
+  const closed = await conn
     .select()
     .from(campaigns)
     .where(
@@ -314,6 +315,9 @@ export async function awaitingReturn(actor: { pubkey: string }, conn: Db): Promi
       ),
     )
     .orderBy(asc(campaigns.closedAt), asc(campaigns.id));
+  if (closed.length === 0) return closed;
+  const counts = await countSubmissionsByCampaign(closed.map((c) => c.id), conn);
+  return closed.filter((c) => !fullyPaidOut(c, counts.get(c.id) ?? NO_SUBMISSIONS));
 }
 
 /** Whether the nav shows Admin: the operator, or a wallet with a remainder waiting on it. */

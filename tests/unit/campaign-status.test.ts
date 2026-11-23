@@ -16,7 +16,7 @@ const FUTURE = new Date("2026-10-20T12:00:00Z");
 const PAST = new Date("2026-10-05T20:59:00Z");
 const TX = "a".repeat(64);
 
-const base: StageFields = { escrowContractId: null, fundedAt: null, closedAt: null, remainderTxHash: null, deadlineAt: FUTURE };
+const base: StageFields = { escrowContractId: null, fundedAt: null, closedAt: null, remainderTxHash: null, deadlineAt: FUTURE, budget: "100.0000000" };
 const funded: StageFields = { ...base, escrowContractId: "C1", fundedAt: PAST };
 const ended: StageFields = { ...funded, deadlineAt: PAST };
 
@@ -44,6 +44,16 @@ describe("campaignStage", () => {
     const closed = { ...ended, closedAt: NOW };
     expect(campaignStage(closed, counts(), NOW)).toBe("closed_awaiting_return");
     expect(campaignStage({ ...closed, remainderTxHash: TX }, counts(), NOW)).toBe("settled");
+  });
+
+  it("is settled when closed with the whole budget paid out: nothing is left to return", () => {
+    const closed = { ...ended, closedAt: NOW, budget: "10.5000000" };
+    expect(campaignStage(closed, counts({ paid: 2, total: 2, paidAmount: "10.5" }), NOW)).toBe("settled");
+    expect(nextStep("settled", closed, counts(), NOW)).toEqual({ kind: "done", owner: null });
+    // One stroop short still has a remainder.
+    expect(campaignStage(closed, counts({ paid: 2, total: 2, paidAmount: "10.4999999" }), NOW)).toBe("closed_awaiting_return");
+    // Paid in full but still open is not settled: settlement starts at close.
+    expect(campaignStage({ ...ended, budget: "10.5" }, counts({ paid: 2, total: 2, paidAmount: "10.5" }), NOW)).toBe("ready_to_close");
   });
 
   it("is abandoned when closed without ever being funded", () => {

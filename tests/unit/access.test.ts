@@ -1387,6 +1387,23 @@ describe("campaignsOverview and awaitingReturn", () => {
     expect(await awaitingReturn(ops(), conn)).toEqual([]);
   });
 
+  it("leaves out a closed campaign whose payouts used the whole budget: nothing to return", async () => {
+    const day = 86_400_000;
+    await seedCampaign("c_paid", { escrowContractId: "C_PAID", fundedAt: new Date(Date.now() - 3 * day), closedAt: new Date(Date.now() - day), budget: "20" });
+    await seedCampaign("c_part", { escrowContractId: "C_PART", fundedAt: new Date(Date.now() - 3 * day), closedAt: new Date(Date.now() - 2 * day), budget: "20" });
+    const release = async (campaignId: string, n: number) => {
+      await conn.insert(submissions).values({ id: `s_${campaignId}_${n}`, shortId: `sh${campaignId}${n}`, campaignId, contributorPubkey: `G_C${n}`, workUrl: `https://x.com/u/status/${campaignId.length}${n}`, status: "paid" });
+      await conn.insert(payouts).values({ id: `p_${campaignId}_${n}`, submissionId: `s_${campaignId}_${n}`, amount: "10", status: "released", releaseTxHash: "c".repeat(64), releasedAt: new Date() });
+    };
+    await release("c_paid", 1);
+    await release("c_paid", 2);
+    await release("c_part", 3);
+    expect((await awaitingReturn({ pubkey: OTHER }, conn)).map((c) => c.id)).toEqual(["c_part"]);
+    const stages = new Map((await campaignsOverview(ops(), conn)).map((r) => [r.campaign.id, r.stage]));
+    expect(stages.get("c_paid")).toBe("settled");
+    expect(stages.get("c_part")).toBe("closed_awaiting_return");
+  });
+
   it("shows Admin in the nav to the operator and to a wallet with a return waiting on it", async () => {
     await seedStages();
     const none = new Set<never>();

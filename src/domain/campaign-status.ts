@@ -1,5 +1,5 @@
 import type { Campaign, Payout, Submission } from "@/db/schema";
-import { addAmounts } from "@/escrow/amount";
+import { addAmounts, toStroops } from "@/escrow/amount";
 
 /**
  * Where a campaign stands. Derived from chain-confirmed columns only
@@ -12,6 +12,10 @@ import { addAmounts } from "@/escrow/amount";
  *
  * `abandoned` is a deployed campaign closed before any budget went in: it
  * has no remainder to return, so it is neither of the closed stages.
+ *
+ * A closed campaign whose released payouts add up to its whole budget has
+ * nothing left in escrow to return: it is `settled` without a remainder
+ * transaction.
  */
 export type CampaignStage =
   | "draft"
@@ -23,7 +27,7 @@ export type CampaignStage =
   | "settled"
   | "abandoned";
 
-export type StageFields = Pick<Campaign, "escrowContractId" | "fundedAt" | "closedAt" | "remainderTxHash" | "deadlineAt">;
+export type StageFields = Pick<Campaign, "escrowContractId" | "fundedAt" | "closedAt" | "remainderTxHash" | "deadlineAt" | "budget">;
 
 /** What the funder's table and the list count, per campaign. Amounts are USDC decimal strings. */
 export interface SubmissionCounts {
@@ -87,10 +91,15 @@ export function deadlinePassed(c: Pick<Campaign, "deadlineAt">, now: Date): bool
   return c.deadlineAt.getTime() <= now.getTime();
 }
 
+/** The released payouts used the whole budget: the escrow holds nothing to return. Compared in stroops. */
+export function fullyPaidOut(c: Pick<Campaign, "budget">, counts: Pick<SubmissionCounts, "paidAmount">): boolean {
+  return toStroops(counts.paidAmount) >= toStroops(c.budget);
+}
+
 export function campaignStage(c: StageFields, counts: SubmissionCounts, now: Date): CampaignStage {
   if (c.closedAt) {
     if (!c.fundedAt) return "abandoned";
-    return c.remainderTxHash ? "settled" : "closed_awaiting_return";
+    return c.remainderTxHash || fullyPaidOut(c, counts) ? "settled" : "closed_awaiting_return";
   }
   if (!c.fundedAt) return c.escrowContractId ? "awaiting_funding" : "draft";
   if (!deadlinePassed(c, now)) return "open";
