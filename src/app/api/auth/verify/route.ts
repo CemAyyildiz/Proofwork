@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { pubkeySchema } from "@/domain/wallet-auth";
-import { clientIp, jsonRoute } from "@/lib/http";
+import { clientIp, jsonRoute, requestHost } from "@/lib/http";
 import { enforce, limiters } from "@/lib/ratelimit";
 import { setSessionCookie } from "@/lib/session";
 import { consumeChallenge, rolesFor } from "@/services/auth";
@@ -16,7 +16,7 @@ const schema = z.object({
 export const POST = jsonRoute(schema, async (input, req) => {
   await enforce(limiters.auth, `verify:${clientIp(req)}:${input.pubkey}`);
   await enforce(limiters.authIp, `verify:ip:${clientIp(req)}`);
-  const { pubkey } = await consumeChallenge(input);
+  const { pubkey } = await consumeChallenge(input, requestHost(req));
   await setSessionCookie(pubkey);
   return { pubkey, roles: [...(await rolesFor(pubkey, null))] };
 });

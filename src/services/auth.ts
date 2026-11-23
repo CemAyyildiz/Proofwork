@@ -1,23 +1,44 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
+import { publicEnv } from "@/config/public-env";
 import { db, type Db } from "@/db/client";
 import { authNonces, roleGrants, sessionRevocations } from "@/db/schema";
 import { challengeMessage, pubkeySchema, verifySignedMessage } from "@/domain/wallet-auth";
 import { AppError } from "@/lib/errors";
 
-/** Wallet authentication (AD-7): single-use nonce challenge, see domain/wallet-auth.ts. */
+/**
+ * Wallet authentication (AD-7): single-use nonce challenge, see
+ * domain/wallet-auth.ts. The signed message names the host the request
+ * reached, the network and the nonce's validity window; verification rebuilds
+ * it from the stored nonce row and the verifying request's host, so nothing
+ * the caller sends at verify time shapes what is checked.
+ */
 const NONCE_TTL_MS = 5 * 60 * 1000;
 
-export async function issueChallenge(pubkey: string, conn: Db = db): Promise<{ nonce: string; message: string }> {
+/** The stored row holds the expiry only; issue time is always expiry minus the fixed TTL. */
+function messageFor(row: { nonce: string; pubkey: string; expiresAt: Date }, host: string): string {
+  return challengeMessage({
+    host,
+    pubkey: row.pubkey,
+    network: publicEnv.networkName,
+    nonce: row.nonce,
+    issuedAt: new Date(row.expiresAt.getTime() - NONCE_TTL_MS),
+    expiresAt: row.expiresAt,
+  });
+}
+
+export async function issueChallenge(pubkey: string, host: string, conn: Db = db): Promise<{ nonce: string; message: string }> {
   const pk = pubkeySchema.parse(pubkey);
   const nonce = randomBytes(24).toString("base64url");
-  await conn.insert(authNonces).values({ nonce, pubkey: pk, expiresAt: new Date(Date.now() + NONCE_TTL_MS) });
-  return { nonce, message: challengeMessage(nonce) };
+  const expiresAt = new Date(Date.now() + NONCE_TTL_MS);
+  await conn.insert(authNonces).values({ nonce, pubkey: pk, expiresAt });
+  return { nonce, message: messageFor({ nonce, pubkey: pk, expiresAt }, host) };
 }
 
 export async function consumeChallenge(
   input: { pubkey: string; nonce: string; signature: string },
+  host: string,
   conn: Db = db,
 ): Promise<{ pubkey: string }> {
   const pk = pubkeySchema.parse(input.pubkey);
@@ -29,7 +50,7 @@ export async function consumeChallenge(
   const row = rows[0];
   if (!row) throw AppError.unauthenticated("unknown or used challenge");
   if (row.expiresAt.getTime() < Date.now()) throw AppError.unauthenticated("challenge expired");
-  if (!verifySignedMessage(pk, challengeMessage(input.nonce), input.signature)) {
+  if (!verifySignedMessage(pk, messageFor(row, host), input.signature)) {
     throw AppError.unauthenticated("signature does not verify");
   }
   const updated = await conn

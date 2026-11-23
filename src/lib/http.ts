@@ -54,6 +54,14 @@ export function redirectTo(location: string): Response {
 }
 
 /**
+ * Host the request reached, for the login message. Read from the request URL,
+ * which the runtime builds from the Host header; never from the body.
+ */
+export function requestHost(req: Request): string {
+  return new URL(req.url).host;
+}
+
+/**
  * Client IP for rate-limit keys. Safe on Vercel only: the platform overwrites
  * x-forwarded-for with the connecting IP and sets x-real-ip to the same value,
  * so a client cannot spoof it. Behind another proxy or bare `next start`,

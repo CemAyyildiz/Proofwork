@@ -5,7 +5,25 @@ import { challengeMessage, verifySignedMessage } from "@/domain/wallet-auth";
 
 describe("wallet challenge verification", () => {
   const kp = Keypair.random();
-  const msg = challengeMessage("nonce123");
+  const msg = challengeMessage({
+    host: "proofwork.test",
+    pubkey: kp.publicKey(),
+    network: "Stellar testnet",
+    nonce: "nonce123",
+    issuedAt: new Date("2026-11-24T00:00:00Z"),
+    expiresAt: new Date("2026-11-24T00:05:00Z"),
+  });
+
+  it("names the site, account, network and validity window it was issued for", () => {
+    expect(msg.split("\n")).toEqual([
+      "proofwork.test asks you to sign in to Proofwork",
+      `account: ${kp.publicKey()}`,
+      "network: Stellar testnet",
+      "nonce: nonce123",
+      "issued at: 2026-11-24T00:00:00.000Z",
+      "expires at: 2026-11-24T00:05:00.000Z",
+    ]);
+  });
 
   it("accepts a SEP-53 signature", () => {
     const digest = createHash("sha256").update("Stellar Signed Message:\n" + msg).digest();
