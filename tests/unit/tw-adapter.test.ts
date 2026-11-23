@@ -380,7 +380,19 @@ describe("Horizon's record of a transaction", () => {
     await expect(r(HASH)).resolves.toBe(true);
     asked = 0;
     await expect(reader(() => ((asked += 1), { status: 404, body: {} }))(HASH)).resolves.toBe(false);
-    expect(asked).toBe(3);
+    // About 15 s of Horizon lag before a landed op could be taken for one that never landed.
+    expect(asked).toBe(10);
+  });
+
+  it("asks under one slash when Horizon is configured with a trailing one", async () => {
+    const r = horizonTxLanded("https://horizon.test/", {
+      fetchImpl: fakeFetch((url) => {
+        expect(url).toBe(`https://horizon.test/transactions/${HASH}`);
+        return { status: 200, body: { successful: true } };
+      }),
+      retryMs: 0,
+    });
+    await expect(r(HASH)).resolves.toBe(true);
   });
 
   it("throws on an answer it cannot read, and asks nothing for a malformed hash", async () => {

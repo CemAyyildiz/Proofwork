@@ -21,12 +21,15 @@ export interface HorizonTxOptions {
  */
 export function horizonTxLanded(horizonUrl: string, o: HorizonTxOptions = {}): TxLandedReader {
   const fetchImpl = o.fetchImpl ?? fetch;
-  const retries = o.notFoundRetries ?? 3;
+  // About 15 s: a 404 here turns a landed op into a failed one, and for a deploy a
+  // failed op is prepared again, so the window covers several ledgers of Horizon lag.
+  const retries = o.notFoundRetries ?? 10;
   const retryMs = o.retryMs ?? 1_500;
+  const base = horizonUrl.replace(/\/+$/, "");
   return async (txHash) => {
     if (!TX_HASH.test(txHash)) return false;
     for (let attempt = 0; ; attempt++) {
-      const res = await fetchImpl(`${horizonUrl}/transactions/${txHash}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+      const res = await fetchImpl(`${base}/transactions/${txHash}`,{ headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
       if (res.status === 404) {
         if (attempt + 1 >= retries) return false;
         await new Promise((r) => setTimeout(r, retryMs));
