@@ -94,6 +94,29 @@ describe("a deploy whose reply is lost", () => {
     expect((await opsOf("deploy")).map((o) => o.status)).toEqual(["submitted"]);
   });
 
+  it("with a predicted contract id that never landed is failed, and the next prepare builds a new deploy", async () => {
+    const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
+    escrow.failNextSubmit("throw");
+    await expect(confirmDeploy({ campaignId: CAMPAIGN, opId: d.opId, signedXdr: d.unsignedXdr }, actor, escrow, LIMITS, conn)).rejects.toThrow("send-transaction timed out");
+    expect((await opsOf("deploy")).map((o) => o.status)).toEqual(["failed"]);
+    // The predicted contract was never created: reading it must not block the retry.
+    const build = vi.spyOn(escrow, "buildDeploy");
+    const again = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
+    expect(build).toHaveBeenCalledTimes(1);
+    const res = await confirmDeploy({ campaignId: CAMPAIGN, opId: again.opId, signedXdr: again.unsignedXdr }, actor, escrow, LIMITS, conn);
+    expect((await campaign()).escrowContractId).toBe(res.contractId);
+  });
+
+  it("a stale submitted deploy that never landed is reconciled as failed, not wedged", async () => {
+    const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
+    // The tab closed after the wallet signed: the row says submitted, nothing reached the chain.
+    await conn.update(escrowOps).set({ status: "submitted", txHash: "a".repeat(64) }).where(eq(escrowOps.id, d.opId));
+    await ageOp(d.opId);
+    const build = vi.spyOn(escrow, "buildDeploy");
+    await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);
+    expect(build).toHaveBeenCalledTimes(1);
+  });
+
   it("without a readable contract id that never landed is failed as usual", async () => {
     escrow.predictDeploy = false;
     const d = await prepareDeploy(CAMPAIGN, actor, escrow, openGate(), conn);

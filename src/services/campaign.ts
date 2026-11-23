@@ -199,16 +199,17 @@ function deployVisible(escrow: EscrowPort, slug: string): Verify {
     if (predicted && res.contractId && predicted !== res.contractId) {
       throw new AppError("ESCROW", "provider reported another contract than the deploy transaction creates", { predicted, reported: res.contractId });
     }
+    // Its own transaction first: a deploy that never landed created no contract, and
+    // reading the predicted id would fail on every later prepare and wedge the campaign.
+    if (!(await escrow.txSucceeded(res.txHash))) return false;
     const contractId = predicted ?? res.contractId;
     if (!contractId) {
-      if (!(await escrow.txSucceeded(res.txHash))) return false;
       throw new OpUnresolved(
         `the deploy transaction ${res.txHash} landed but its escrow contract id is unknown; do not deploy again, the operator records the contract`,
         { txHash: res.txHash },
       );
     }
-    if ((await escrow.getEscrow(contractId)).engagementId !== slug) return false;
-    return escrow.txSucceeded(res.txHash);
+    return (await escrow.getEscrow(contractId)).engagementId === slug;
   };
 }
 
