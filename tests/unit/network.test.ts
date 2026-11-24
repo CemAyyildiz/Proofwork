@@ -1,6 +1,6 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { explorerFor, NETWORKS, parseNetwork } from "@/config/network";
+import { explorerFor, NETWORKS, parseNetwork, testnetFallback } from "@/config/network";
 import { describeMissing } from "@/domain/funding-readiness";
 
 vi.mock("server-only", () => ({}));
@@ -21,6 +21,23 @@ describe("explorerFor", () => {
     expect(explorerFor("mainnet").tx("ab")).toBe("https://stellar.expert/explorer/public/tx/ab");
     expect(explorerFor("testnet").contract("C1")).toBe("https://stellar.expert/explorer/testnet/contract/C1");
     expect(explorerFor("mainnet").account("G1")).toBe("https://stellar.expert/explorer/public/account/G1");
+  });
+});
+
+describe("testnetFallback", () => {
+  it("sends an unknown mainnet path to the testnet deployment", () => {
+    expect(testnetFallback("mainnet", "c", "try-proofwork-wto3qi")).toBe("https://testnet.proofwork.online/c/try-proofwork-wto3qi");
+    expect(testnetFallback("mainnet", "verify", "dec_1")).toBe("https://testnet.proofwork.online/verify/dec_1");
+  });
+
+  it("keeps the redirect on the testnet host whatever the key holds", () => {
+    const url = new URL(testnetFallback("mainnet", "c", "../x?y=//evil.example") ?? "");
+    expect(url.origin).toBe("https://testnet.proofwork.online");
+    expect(url.pathname).toBe("/c/..%2Fx%3Fy%3D%2F%2Fevil.example");
+  });
+
+  it("has nowhere to send a testnet miss", () => {
+    expect(testnetFallback("testnet", "c", "anything")).toBeNull();
   });
 });
 

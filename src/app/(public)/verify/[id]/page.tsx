@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { HashCheck } from "@/components/hash-check";
 import { Stamp } from "@/components/site/stamp";
 import { axes, FONT } from "@/components/site/type";
 import { cx } from "@/components/ui/cx";
 import { HashChip } from "@/components/ui/hash-chip";
+import { testnetFallback } from "@/config/network";
 import { publicEnv } from "@/config/public-env";
 import { SIGNALS } from "@/domain/rubric";
 import { formatDateShort } from "@/lib/format";
@@ -33,7 +34,11 @@ function Tear() {
 export default async function VerifyPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const row = await getDecision(id);
-  if (!row) notFound();
+  if (!row) {
+    const elsewhere = testnetFallback(publicEnv.network, "verify", id);
+    if (elsewhere) redirect(elsewhere);
+    notFound();
+  }
   const { d, s, c } = row;
   const signals = d.signals as Record<string, boolean>;
   const passed = SIGNALS.filter((sg) => signals[sg.id] === true).length;

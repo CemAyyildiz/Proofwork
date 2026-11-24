@@ -55,6 +55,19 @@ export function parseNetwork(value: string | undefined): StellarNetwork {
   throw new Error(`Invalid NEXT_PUBLIC_STELLAR_NETWORK "${v}": use "testnet" or "mainnet"`);
 }
 
+/** Where the testnet deployment is served since proofwork.online moved to mainnet. */
+export const TESTNET_ORIGIN = "https://testnet.proofwork.online";
+
+/**
+ * Links shared before the mainnet launch (campaign pages, decision receipts in
+ * the evidence package and on X) point at proofwork.online but name testnet
+ * records. On mainnet, a path whose record is not found here is sent to the
+ * testnet deployment; on testnet there is nowhere else to look.
+ */
+export function testnetFallback(network: StellarNetwork, kind: "c" | "verify", key: string): string | null {
+  return network === "mainnet" ? `${TESTNET_ORIGIN}/${kind}/${encodeURIComponent(key)}` : null;
+}
+
 export interface Explorer {
   tx: (hash: string) => string;
   account: (account: string) => string;

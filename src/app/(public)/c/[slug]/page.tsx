@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
 import { Suspense, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, ArrowUpRight } from "lucide-react";
@@ -13,6 +13,7 @@ import { cx } from "@/components/ui/cx";
 import { leftOf } from "@/components/workspace/campaign-list";
 import { campaignFor } from "./campaign";
 import { xConfig } from "@/config/env";
+import { testnetFallback } from "@/config/network";
 import { publicEnv } from "@/config/public-env";
 import { PASS_THRESHOLD } from "@/domain/rubric";
 import { xOutcomeSchema } from "@/domain/x-connect";
@@ -56,7 +57,11 @@ export default async function ContributorCampaignPage({
 }) {
   const { slug } = await params;
   const c = await campaignFor(slug);
-  if (!c) notFound();
+  if (!c) {
+    const elsewhere = testnetFallback(publicEnv.network, "c", slug);
+    if (elsewhere) redirect(elsewhere);
+    notFound();
+  }
 
   const user = await currentUser();
   const mine = user ? await mySubmission(c.id, user.pubkey) : null;
