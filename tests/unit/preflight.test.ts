@@ -13,6 +13,7 @@ function input(over: Partial<PreflightInput> = {}): PreflightInput {
     limits: { maxOpenCampaigns: 2, maxOpenBudget: "100" },
     publicFundingSources: ["GEXCHANGE00000000000"],
     spendableXlm: async () => "5",
+    hasUsdcTrustline: async () => true,
     trustlessWork: async () => undefined,
     migrations: async () => ({ applied: 11, expected: 11 }),
     campaignCount: async () => 0,
@@ -23,6 +24,17 @@ function input(over: Partial<PreflightInput> = {}): PreflightInput {
 const failed = async (over: Partial<PreflightInput>) => (await preflight(input(over))).filter((l) => !l.ok).map((l) => l.text);
 
 describe("preflight", () => {
+  it("fails when the platform admin cannot hold USDC, which Trustless Work requires to deploy", async () => {
+    const texts = await failed({ hasUsdcTrustline: async (pubkey) => pubkey !== KEYS.admin });
+    expect(texts).toEqual([expect.stringMatching(/platform admin GADM…0000 has no USDC trustline/)]);
+    const unread = await failed({
+      hasUsdcTrustline: async () => {
+        throw new Error("horizon 503");
+      },
+    });
+    expect(unread).toEqual([expect.stringMatching(/trustline could not be read: horizon 503/)]);
+  });
+
   it("passes when every account exists, the key is accepted and the database is current", async () => {
     const lines = await preflight(input());
     expect(lines.every((l) => l.ok && !l.warn)).toBe(true);

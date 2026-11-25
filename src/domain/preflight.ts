@@ -18,6 +18,8 @@ export interface PreflightInput {
   publicFundingSources: readonly string[];
   /** Spendable XLM of an account as a decimal string, or null when the account does not exist. */
   spendableXlm: (pubkey: string) => Promise<string | null>;
+  /** Whether an account holds a trustline to the configured USDC issuer. */
+  hasUsdcTrustline: (pubkey: string) => Promise<boolean>;
   /** Resolves when Trustless Work accepts the API key on the configured host. */
   trustlessWork: () => Promise<void>;
   /** Migrations recorded in the database against those in the repository. */
@@ -58,6 +60,16 @@ export async function preflight(input: PreflightInput): Promise<PreflightLine[]>
   lines.push(await account("platform admin", admin, MIN_SERVER_XLM, input.spendableXlm));
   lines.push(await account("platform ops", ops, MIN_SERVER_XLM, input.spendableXlm));
   lines.push(await account("decision ledger", ledger, MIN_SERVER_XLM, input.spendableXlm));
+  // Trustless Work refuses to deploy an escrow whose platformAddress cannot hold the asset.
+  try {
+    lines.push(
+      (await input.hasUsdcTrustline(admin))
+        ? { ok: true, text: `platform admin ${short(admin)} holds the USDC trustline` }
+        : { ok: false, text: `platform admin ${short(admin)} has no USDC trustline: Trustless Work refuses every escrow deploy until it does` },
+    );
+  } catch (e) {
+    lines.push({ ok: false, text: `platform admin ${short(admin)} trustline could not be read: ${reason(e)}` });
+  }
 
   if (!input.resolver) {
     lines.push({ ok: false, text: "dispute resolver: DEFAULT_DISPUTE_RESOLVER_PUBKEY is not set, so every funder has to type a resolver key" });

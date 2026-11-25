@@ -42,6 +42,10 @@ async function main(): Promise<number> {
       const a = await readFunderAccount(pubkey, { horizonUrl: env.HORIZON_URL, usdcIssuer: env.USDC_ISSUER });
       return a.kind === "account" ? a.xlm.spendable : null;
     },
+    hasUsdcTrustline: async (pubkey) => {
+      const a = await readFunderAccount(pubkey, { horizonUrl: env.HORIZON_URL, usdcIssuer: env.USDC_ISSUER });
+      return a.kind === "account" && a.usdc !== null;
+    },
     trustlessWork: () => new TrustlessWorkClient(env.TW_BASE_URL, env.TW_API_KEY).checkKey(keys.admin),
     migrations: async () => {
       const rows = await db.execute(sql`select count(*)::int as n from drizzle.__drizzle_migrations`);
