@@ -105,12 +105,19 @@ export async function signAuthEntry(address: string, authEntry: string): Promise
   return signedAuthEntry;
 }
 
+export interface LoginResult {
+  pubkey: string;
+  roles: string[];
+  /** The wallet has never been asked for a profile: the caller sends it to the prompt. */
+  needsProfile: boolean;
+}
+
 /** Full login: connect → challenge → sign → verify. Returns the session identity. */
-export async function login(): Promise<{ pubkey: string; roles: string[] }> {
+export async function login(): Promise<LoginResult> {
   const pubkey = await connectWallet();
   const challenge = await post<{ nonce: string; message: string }>("/api/auth/challenge", { pubkey });
   const signature = await signMessage(pubkey, challenge.message);
-  return post<{ pubkey: string; roles: string[] }>("/api/auth/verify", { pubkey, nonce: challenge.nonce, signature });
+  return post<LoginResult>("/api/auth/verify", { pubkey, nonce: challenge.nonce, signature });
 }
 
 export async function logout(): Promise<void> {

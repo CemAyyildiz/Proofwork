@@ -29,7 +29,7 @@ function makeLimiter(requests: number, windowSeconds: number): Limiter {
   };
 }
 
-const cache: Partial<Record<"auth" | "authIp" | "payout" | "submit" | "appeal" | "x" | "access" | "accessIp" | "admin" | "campaign" | "escrowPrepare" | "review", Limiter>> = {};
+const cache: Partial<Record<"auth" | "authIp" | "payout" | "submit" | "appeal" | "x" | "access" | "accessIp" | "admin" | "campaign" | "escrowPrepare" | "review" | "profile", Limiter>> = {};
 /** Limiters are created on first use so importing this module never touches the environment. */
 export const limiters = {
   get auth(): Limiter {
@@ -76,6 +76,10 @@ export const limiters = {
   /** Recording a review decision, per session wallet: each one writes a Stellar transaction. */
   get review(): Limiter {
     return (cache.review ??= makeLimiter(120, 600));
+  },
+  /** Saving a profile or skipping the prompt, per session wallet. */
+  get profile(): Limiter {
+    return (cache.profile ??= makeLimiter(20, 600));
   },
 };
 

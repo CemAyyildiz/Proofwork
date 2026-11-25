@@ -46,17 +46,34 @@ export interface RecentPayout {
   campaignSlug: string;
 }
 
-/** The latest released payouts, each with the transaction that paid it. */
-export async function recentPayouts(limit = 6, conn: Db = db): Promise<RecentPayout[]> {
+/** Released payouts that carry their transaction, newest first; `contributor` narrows them to one wallet's. */
+async function releasedPayouts(limit: number, contributor: string | null, conn: Db): Promise<RecentPayout[]> {
   const rows = await conn
     .select({ amount: payouts.amount, releaseTxHash: payouts.releaseTxHash, releasedAt: payouts.releasedAt, campaignTitle: campaigns.title, campaignSlug: campaigns.slug })
     .from(payouts)
     .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
     .innerJoin(campaigns, eq(campaigns.id, submissions.campaignId))
-    .where(and(eq(payouts.status, "released"), isNotNull(payouts.releaseTxHash), isNotNull(payouts.releasedAt)))
+    .where(
+      and(
+        eq(payouts.status, "released"),
+        isNotNull(payouts.releaseTxHash),
+        isNotNull(payouts.releasedAt),
+        contributor === null ? undefined : eq(submissions.contributorPubkey, contributor),
+      ),
+    )
     .orderBy(desc(payouts.releasedAt))
     .limit(limit);
   return rows.flatMap((r) => (r.releaseTxHash && r.releasedAt ? [{ ...r, releaseTxHash: r.releaseTxHash, releasedAt: r.releasedAt }] : []));
+}
+
+/** The latest released payouts, each with the transaction that paid it. */
+export async function recentPayouts(limit = 6, conn: Db = db): Promise<RecentPayout[]> {
+  return releasedPayouts(limit, null, conn);
+}
+
+/** One contributor's released payouts, for their public profile. */
+export async function contributorPayouts(pubkey: string, limit = 50, conn: Db = db): Promise<RecentPayout[]> {
+  return releasedPayouts(limit, pubkey, conn);
 }
 
 export interface PublicTotals {

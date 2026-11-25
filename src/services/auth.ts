@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { publicEnv } from "@/config/public-env";
 import { db, type Db } from "@/db/client";
-import { authNonces, roleGrants, sessionRevocations } from "@/db/schema";
+import { authNonces, profiles, roleGrants, sessionRevocations } from "@/db/schema";
 import { challengeMessage, pubkeySchema, verifySignedMessage } from "@/domain/wallet-auth";
 import { AppError } from "@/lib/errors";
 
@@ -60,6 +60,12 @@ export async function consumeChallenge(
     .returning({ nonce: authNonces.nonce });
   if (updated.length !== 1) throw AppError.unauthenticated("challenge already used");
   return { pubkey: pk };
+}
+
+/** True when the wallet has no profile row yet: it was never asked for a profile, so the client sends it to the prompt once. */
+export async function needsProfile(pubkey: string, conn: Db = db): Promise<boolean> {
+  const rows = await conn.select({ pubkey: profiles.pubkey }).from(profiles).where(eq(profiles.pubkey, pubkey)).limit(1);
+  return rows.length === 0;
 }
 
 export type Role = "funder" | "reviewer" | "ops";

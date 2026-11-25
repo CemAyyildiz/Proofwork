@@ -3,7 +3,7 @@ import { pubkeySchema } from "@/domain/wallet-auth";
 import { clientIp, jsonRoute, requestHost } from "@/lib/http";
 import { enforce, limiters } from "@/lib/ratelimit";
 import { setSessionCookie } from "@/lib/session";
-import { consumeChallenge, rolesFor } from "@/services/auth";
+import { consumeChallenge, needsProfile, rolesFor } from "@/services/auth";
 
 export const runtime = "nodejs";
 
@@ -18,5 +18,5 @@ export const POST = jsonRoute(schema, async (input, req) => {
   await enforce(limiters.authIp, `verify:ip:${clientIp(req)}`);
   const { pubkey } = await consumeChallenge(input, requestHost(req));
   await setSessionCookie(pubkey);
-  return { pubkey, roles: [...(await rolesFor(pubkey, null))] };
+  return { pubkey, roles: [...(await rolesFor(pubkey, null))], needsProfile: await needsProfile(pubkey) };
 });

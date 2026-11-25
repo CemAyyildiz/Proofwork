@@ -410,6 +410,25 @@ export const xAccounts = pgTable("x_account", {
   connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * What a wallet says about itself. Display name and bio are public, on
+ * `/u/<pubkey>`; Telegram and city/country are for the owner and ops only.
+ * A row with no display name is a wallet that was asked once and skipped:
+ * `promptedAt` is what stops the prompt coming back. No email, no avatar.
+ */
+export const profiles = pgTable("profile", {
+  pubkey: text("pubkey").primaryKey(),
+  displayName: text("display_name"),
+  bio: text("bio"),
+  /** Stored without the leading `@`. */
+  telegram: text("telegram"),
+  /** ISO 3166-1 alpha-2. */
+  country: text("country"),
+  city: text("city"),
+  promptedAt: timestamp("prompted_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type Campaign = typeof campaigns.$inferSelect;
 export type Submission = typeof submissions.$inferSelect;
 export type Decision = typeof decisions.$inferSelect;

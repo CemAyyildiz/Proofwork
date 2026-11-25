@@ -132,9 +132,11 @@ describe("what the database can hold from X", () => {
 
   it("has no column for a token, a handle, a name or a verifier in any table", async () => {
     const suspect = await columns(sql`column_name ~* '(^x_|oauth|token|handle|username|screen_name|display_name|verifier|access|refresh)'`);
-    // payout_lock_token is the Month 1 payout lease, not an X token.
+    // payout_lock_token is the Month 1 payout lease, not an X token. profile.display_name is what the wallet owner types on
+    // /profile; nothing from X is copied into it.
     expect(suspect).toEqual([
       { table_name: "campaign", column_name: "payout_lock_token" },
+      { table_name: "profile", column_name: "display_name" },
       { table_name: "x_account", column_name: "x_user_id" },
     ]);
   });

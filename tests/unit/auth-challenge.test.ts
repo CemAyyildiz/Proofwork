@@ -127,6 +127,8 @@ describe("login challenge", () => {
     const ok = await verifyRoute.POST(post(`https://${HOST}/api/auth/verify`, body));
     expect(ok.status).toBe(200);
     expect(decodeSession(world.jar.get(COOKIE))?.pk).toBe(kp.publicKey());
+    // A first sign-in: no profile row yet, so the client sends the wallet to the prompt.
+    expect(await ok.json()).toEqual({ pubkey: kp.publicKey(), roles: [], needsProfile: true });
   });
 });
 

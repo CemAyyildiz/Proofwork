@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { publicEnv } from "@/config/public-env";
+import { promptPath } from "@/domain/profile";
 import { shortKey } from "@/lib/format";
 import { login, logout, WalletCancelled } from "@/wallet/kit";
 import { Button } from "@/components/ui/button";
@@ -36,17 +38,26 @@ export function WalletButton({
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
 
-  async function run(action: () => Promise<unknown>) {
+  /** Runs a wallet action; when it names a path, goes there. The refresh re-reads the session on every layout, the shared ones included. */
+  async function run(action: () => Promise<string | null>) {
     setBusy(true);
     setError(null);
     try {
-      await action();
+      const to = await action();
+      if (to) router.push(to);
       router.refresh();
     } catch (e) {
       if (!(e instanceof WalletCancelled)) setError(e instanceof Error ? e.message : "wallet error");
     } finally {
       setBusy(false);
     }
+  }
+
+  /** A wallet that was never asked for a profile goes to the prompt once, which brings it back here. Signing in on the prompt itself just shows it. */
+  async function signIn(): Promise<string | null> {
+    const { needsProfile } = await login();
+    const here = window.location.pathname;
+    return needsProfile && here !== "/profile" ? promptPath(here + window.location.search) : null;
   }
 
   useEffect(() => {
@@ -140,6 +151,9 @@ export function WalletButton({
                   {copied === "copied" ? "Copied" : copied === "failed" ? "Copy failed" : ""}
                 </span>
               </button>
+              <Link role="menuitem" tabIndex={-1} href="/profile" className={itemClass} onClick={() => setOpen(false)}>
+                Profile
+              </Link>
               <a
                 role="menuitem"
                 tabIndex={-1}
@@ -161,7 +175,10 @@ export function WalletButton({
                 className={cx(itemClass, "text-fail hover:text-fail focus-visible:text-fail")}
                 onClick={() => {
                   close();
-                  void run(logout);
+                  void run(async () => {
+                    await logout();
+                    return null;
+                  });
                 }}
               >
                 Disconnect
@@ -170,7 +187,7 @@ export function WalletButton({
           ) : null}
         </>
       ) : (
-        <Button size="sm" variant={variant} busy={busy} busyLabel="Waiting for wallet…" onClick={() => run(login)}>
+        <Button size="sm" variant={variant} busy={busy} busyLabel="Waiting for wallet…" onClick={() => run(signIn)}>
           Connect wallet
         </Button>
       )}
