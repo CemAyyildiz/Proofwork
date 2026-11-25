@@ -12,7 +12,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => createElement("a", { href, ...rest }, children),
 }));
-vi.mock("@/wallet/kit", () => ({ login: async () => undefined, logout: async () => undefined }));
+vi.mock("@/wallet/kit", () => ({ login: async () => ({ pubkey: "G_TEST", roles: [], needsProfile: false }), logout: async () => undefined }));
 vi.mock("@/lib/current-user", () => ({ currentUser: async () => session.user }));
 // No database here: none of these wallets owns a funded campaign. The lookup itself is covered in access.test.ts.
 vi.mock("@/db/client", () => ({ db: {} }));

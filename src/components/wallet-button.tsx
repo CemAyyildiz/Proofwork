@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { publicEnv } from "@/config/public-env";
-import { promptPath } from "@/domain/profile";
+import { promptTarget } from "@/domain/profile";
 import { shortKey } from "@/lib/format";
 import { login, logout, WalletCancelled } from "@/wallet/kit";
 import { Button } from "@/components/ui/button";
@@ -56,8 +56,8 @@ export function WalletButton({
   /** A wallet that was never asked for a profile goes to the prompt once, which brings it back here. Signing in on the prompt itself just shows it. */
   async function signIn(): Promise<string | null> {
     const { needsProfile } = await login();
-    const here = window.location.pathname;
-    return needsProfile && here !== "/profile" ? promptPath(here + window.location.search) : null;
+    const { pathname, search, hash } = window.location;
+    return promptTarget(needsProfile, pathname, search, hash);
   }
 
   useEffect(() => {

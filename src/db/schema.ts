@@ -239,6 +239,11 @@ export const escrowOps = pgTable(
   (t) => [index("escrow_op_campaign_idx").on(t.campaignId), index("escrow_op_status_idx").on(t.status)],
 );
 
+/**
+ * Login challenges. Used rows (`used_at` set) are the sign-in history the ops
+ * user metrics read: do not prune them without moving those metrics to
+ * another source first.
+ */
 export const authNonces = pgTable("auth_nonce", {
   nonce: text("nonce").primaryKey(),
   pubkey: text("pubkey").notNull(),

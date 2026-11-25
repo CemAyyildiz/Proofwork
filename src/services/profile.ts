@@ -1,8 +1,8 @@
 import "server-only";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Db } from "@/db/client";
-import { campaigns, profiles, submissions, xAccounts } from "@/db/schema";
+import { campaigns, payouts, profiles, submissions, xAccounts } from "@/db/schema";
 import { isCountryCode, PROFILE_LIMITS, TELEGRAM_PATTERN } from "@/domain/profile";
 import { pubkeySchema } from "@/domain/wallet-auth";
 import { AppError } from "@/lib/errors";
@@ -14,8 +14,15 @@ import { contributorPayouts, type RecentPayout } from "./public-directory";
  * the session wallet. `publicProfile` selects the public columns by name, so
  * a contact field cannot reach a public page by accident.
  */
-const NO_CONTROL = /^[^\u0000-\u001f\u007f]*$/;
-const NO_CONTROL_BUT_NEWLINE = /^[^\u0000-\u0009\u000b-\u001f\u007f]*$/;
+/**
+ * No control characters and no format characters (`\p{Cf}`: bidi overrides
+ * and isolates, zero-width spaces and joiners, BOM), which can reorder a name
+ * or make it look blank in a headline or a page title.
+ */
+const PLAIN_TEXT = /^[^\p{Cc}\p{Cf}]*$/u;
+/** The same, except that a bio may break lines. */
+const PLAIN_LINES = /^[^\p{Cf}\u0000-\u0009\u000b-\u001f\u007f-\u009f]*$/u;
+const PLAIN = "no control or invisible formatting characters";
 
 /** An optional field: missing, null or blank all mean "not given". */
 function optional<T extends z.ZodType>(inner: T) {
@@ -24,17 +31,23 @@ function optional<T extends z.ZodType>(inner: T) {
 
 /** The body of a save. It has no pubkey: the row is always the session wallet's. Unknown keys are dropped. */
 export const profileSchema = z.object({
-  displayName: z.string().trim().min(1).max(PROFILE_LIMITS.displayName).regex(NO_CONTROL, "no control characters"),
-  bio: optional(z.string().trim().max(PROFILE_LIMITS.bio).regex(NO_CONTROL_BUT_NEWLINE, "no control characters")),
+  displayName: z.string().trim().min(1).max(PROFILE_LIMITS.displayName).regex(PLAIN_TEXT, PLAIN),
+  // Windows and old Mac line breaks become plain newlines before the checks.
+  bio: optional(
+    z.preprocess(
+      (v) => (typeof v === "string" ? v.replace(/\r\n?/g, "\n") : v),
+      z.string().trim().max(PROFILE_LIMITS.bio).regex(PLAIN_LINES, PLAIN),
+    ),
+  ),
   telegram: optional(
     z
       .string()
       .trim()
-      .regex(TELEGRAM_PATTERN, "a Telegram username: 5–32 letters, digits or underscores")
+      .regex(TELEGRAM_PATTERN, "a Telegram username: 5–32 letters, digits or underscores, starting with a letter")
       .transform((v) => v.replace(/^@/, "")),
   ),
   country: optional(z.string().refine(isCountryCode, "an ISO 3166-1 alpha-2 country code")),
-  city: optional(z.string().trim().max(PROFILE_LIMITS.city).regex(NO_CONTROL, "no control characters")),
+  city: optional(z.string().trim().max(PROFILE_LIMITS.city).regex(PLAIN_TEXT, PLAIN)),
 });
 
 /** What a caller hands `saveProfile`; the schema decides what is kept. */
@@ -106,8 +119,14 @@ export interface PublicProfile {
   bio: string | null;
   /** Built from the connected X account's numeric ID; X resolves it to the profile. */
   xUrl: string | null;
+  /** The newest approved posts and released payouts, at most `LIST_LIMIT` each. */
   submissions: ApprovedSubmission[];
   payouts: RecentPayout[];
+  /** Counted over every row, not just the listed ones. */
+  approvedCount: number;
+  payoutCount: number;
+  /** Sum of the released payouts as they left the escrow, a USDC decimal string. */
+  paidAmount: string;
 }
 
 const LIST_LIMIT = 50;
@@ -121,14 +140,22 @@ export async function publicProfile(pubkey: string, conn: Db = db): Promise<Publ
     .where(eq(profiles.pubkey, pubkey))
     .limit(1);
   if (!row?.displayName) return null;
+  // A PASS leaves a submission `decided`; its release makes it `paid`.
+  const isApproved = and(eq(submissions.contributorPubkey, pubkey), inArray(submissions.status, ["decided", "paid"]));
   const approved = await conn
     .select({ workUrl: submissions.workUrl, campaignTitle: campaigns.title, campaignSlug: campaigns.slug, submittedAt: submissions.submittedAt })
     .from(submissions)
     .innerJoin(campaigns, eq(campaigns.id, submissions.campaignId))
-    // A PASS leaves a submission `decided`; its release makes it `paid`.
-    .where(and(eq(submissions.contributorPubkey, pubkey), inArray(submissions.status, ["decided", "paid"])))
+    .where(isApproved)
     .orderBy(desc(submissions.submittedAt))
     .limit(LIST_LIMIT);
+  const [approvedTotal] = await conn.select({ n: sql<number>`count(*)::int` }).from(submissions).where(isApproved);
+  // The same rows `contributorPayouts` lists: released, with the transaction that paid them.
+  const [paid] = await conn
+    .select({ n: sql<number>`count(*)::int`, amount: sql<string>`coalesce(sum(${payouts.amount}), 0)::text` })
+    .from(payouts)
+    .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
+    .where(and(eq(submissions.contributorPubkey, pubkey), eq(payouts.status, "released"), isNotNull(payouts.releaseTxHash), isNotNull(payouts.releasedAt)));
   return {
     pubkey,
     displayName: row.displayName,
@@ -136,5 +163,8 @@ export async function publicProfile(pubkey: string, conn: Db = db): Promise<Publ
     xUrl: row.xUserId ? `https://x.com/i/user/${row.xUserId}` : null,
     submissions: approved,
     payouts: await contributorPayouts(pubkey, LIST_LIMIT, conn),
+    approvedCount: approvedTotal?.n ?? 0,
+    payoutCount: paid?.n ?? 0,
+    paidAmount: paid?.amount ?? "0",
   };
 }

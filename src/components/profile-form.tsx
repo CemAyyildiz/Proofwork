@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cx } from "@/components/ui/cx";
-import { PROFILE_LIMITS, profilePath } from "@/domain/profile";
+import { PROFILE_LIMITS, profilePath, TELEGRAM_PATTERN } from "@/domain/profile";
 
 const field =
   "mt-2 w-full rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3.5 text-[15px] text-text outline-none transition-colors duration-200 placeholder:text-white/25 hover:border-white/20 focus-visible:border-accent focus-visible:outline-none";
@@ -75,10 +75,16 @@ export function ProfileForm({
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
+    // Checked trimmed, as the server does: a pasted handle with spaces around it is still a handle.
+    const telegram = String(f.get("telegram") ?? "").trim();
+    if (telegram !== "" && !TELEGRAM_PATTERN.test(telegram)) {
+      setError("Telegram: 5–32 letters, digits or underscores, starting with a letter and not ending with an underscore.");
+      return;
+    }
     const body = {
       displayName: f.get("displayName"),
       bio: f.get("bio"),
-      telegram: f.get("telegram"),
+      telegram,
       country: f.get("country"),
       city: f.get("city"),
     };
@@ -138,14 +144,12 @@ export function ProfileForm({
         <legend className={legend} style={{ fontVariationSettings: '"wdth" 88, "wght" 800' }}>
           Private
         </legend>
-        <p className="-mt-3 text-[13.5px] text-white/55">Only you and the Proofwork operator see these. They never appear on your public page.</p>
+        <p className="-mt-3 text-[13.5px] text-white/55">Only you and the Proofwork operator see your Telegram, city and country. They never appear on your public page.</p>
         <label className="block">
           <span className={labelText}>Telegram</span>
           <input
             name="telegram"
             defaultValue={initial.telegram}
-            pattern="@?[A-Za-z0-9_]{5,32}"
-            title="A Telegram username: 5–32 letters, digits or underscores"
             autoComplete="off"
             autoCapitalize="none"
             spellCheck={false}

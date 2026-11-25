@@ -35,7 +35,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
         title={saved ? "Your profile" : "Who is behind this wallet?"}
         description={
           <>
-            Your name and bio go on a public page with your approved work and payouts. Telegram and city are only seen by you and the
+            Your name and bio go on a public page with your approved work and payouts. Telegram, city and country are only seen by you and the
             Proofwork operator, to reach you about your bounties. All of it is optional: nothing here is needed to submit, review or fund.
           </>
         }

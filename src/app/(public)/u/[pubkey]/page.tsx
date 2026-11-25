@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
-import { amount } from "@/components/site/amount";
+import { amount, netOfFee } from "@/components/site/amount";
 import { axes, FONT } from "@/components/site/type";
 import { HashChip } from "@/components/ui/hash-chip";
 import { publicEnv } from "@/config/public-env";
@@ -59,9 +59,10 @@ export default async function PublicProfilePage({ params }: Params) {
           </a>
         ) : null}
 
-        <dl className="mt-14 grid max-w-md grid-cols-2 gap-x-10">
-          <Stat label="Approved posts" value={String(p.submissions.length)} />
-          <Stat label="Payouts" value={String(p.payouts.length)} />
+        <dl className="mt-14 grid max-w-2xl grid-cols-2 gap-x-10 gap-y-8 sm:grid-cols-3">
+          <Stat label="Approved posts" value={String(p.approvedCount)} />
+          <Stat label="Payouts" value={String(p.payoutCount)} />
+          <Stat label="USDC received, net of fee" value={amount(netOfFee(p.paidAmount))} />
         </dl>
 
         <section aria-labelledby="work-title" className="mt-16">
@@ -107,20 +108,19 @@ export default async function PublicProfilePage({ params }: Params) {
               {p.payouts.map((x) => (
                 <li key={x.releaseTxHash} className="grid grid-cols-[auto_1fr] items-center gap-x-5 gap-y-2 border-b border-black/20 py-4 sm:grid-cols-[8rem_1fr_auto]">
                   <span className={`text-4xl leading-none ${FONT}`} style={{ fontVariationSettings: axes(70, 900) }}>
-                    +{amount(x.amount)}
+                    +{amount(netOfFee(x.amount))}
                   </span>
                   <span className="min-w-0">
                     <Link href={`/c/${x.campaignSlug}`} className="block truncate rounded-sm font-semibold hover:underline">
                       {x.campaignTitle}
                     </Link>
-                    <span className="block text-sm text-black/65">USDC released · {formatDateShort(x.releasedAt)}</span>
+                    <span className="block text-sm text-black/65">USDC received after the 0.3% fee · {formatDateShort(x.releasedAt)}</span>
                   </span>
                   <HashChip value={x.releaseTxHash} href={publicEnv.explorerTxUrl(x.releaseTxHash)} className="col-span-2 w-fit sm:col-span-1" />
                 </li>
               ))}
             </ul>
           )}
-          <p className="mt-6 max-w-lg text-sm text-black/70">Amounts are what left the escrow; each arrives less the 0.3% protocol fee.</p>
         </div>
       </section>
     </div>

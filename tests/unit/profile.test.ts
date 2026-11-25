@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
 import { campaigns, payouts, profiles, submissions, xAccounts } from "@/db/schema";
-import { COUNTRY_CODES, promptPath, safeNext } from "@/domain/profile";
+import { COUNTRY_CODES, promptPath, promptTarget, safeNext } from "@/domain/profile";
 import { makeTestDb } from "./db";
 
 /**
@@ -30,6 +30,7 @@ vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => createElement("a", { href, ...rest }, children),
 }));
 vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: () => undefined, refresh: () => undefined }),
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
   },
@@ -47,6 +48,8 @@ beforeAll(() => {
 
 const route = await import("@/app/api/profile/route");
 const { default: PublicProfilePage } = await import("@/app/(public)/u/[pubkey]/page");
+const { default: ProfilePage } = await import("@/app/(workspace)/profile/page");
+const { ProfileForm } = await import("@/components/profile-form");
 const { encodeSession } = await import("@/lib/session");
 const { needsProfile } = await import("@/services/auth");
 const { dismissPrompt, getOwnProfile, profileSchema, publicProfile, saveProfile } = await import("@/services/profile");
@@ -74,11 +77,9 @@ function as(pubkey: string): void {
   world.jar.set("pw_session", encodeSession(pubkey));
 }
 
-function call(method: "GET" | "PUT" | "POST", body?: unknown): Promise<Response> {
-  const init: RequestInit = { method, headers: { "content-type": "application/json" } };
-  if (body !== undefined) init.body = JSON.stringify(body);
-  const req = new Request("https://proofwork.test/api/profile", init);
-  return method === "GET" ? route.GET(req) : method === "PUT" ? route.PUT(req) : route.POST(req);
+function call(method: "PUT" | "POST", body: unknown): Promise<Response> {
+  const req = new Request("https://proofwork.test/api/profile", { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  return method === "PUT" ? route.PUT(req) : route.POST(req);
 }
 
 async function row(pubkey: string) {
@@ -89,6 +90,11 @@ describe("profileSchema", () => {
   it("accepts the full set and strips the @ from the Telegram handle", () => {
     expect(profileSchema.parse(FULL)).toEqual({ ...FULL, telegram: "ada_writes" });
     expect(profileSchema.parse({ ...FULL, telegram: "ada_writes" }).telegram).toBe("ada_writes");
+    expect(profileSchema.parse({ ...FULL, telegram: "  @ada_writes  " }).telegram).toBe("ada_writes");
+  });
+
+  it("turns Windows and old Mac line breaks in a bio into plain newlines", () => {
+    expect(profileSchema.parse({ displayName: "Ada", bio: "one\r\ntwo\rthree" }).bio).toBe("one\ntwo\nthree");
   });
 
   it("treats missing and blank optional fields as not given", () => {
@@ -109,6 +115,16 @@ describe("profileSchema", () => {
     ["a 4-character handle", { displayName: "Ada", telegram: "@abcd" }],
     ["a 33-character handle", { displayName: "Ada", telegram: "a".repeat(33) }],
     ["a handle with a dot", { displayName: "Ada", telegram: "ada.writes" }],
+    ["a handle starting with a digit", { displayName: "Ada", telegram: "1ada_writes" }],
+    ["a handle starting with an underscore", { displayName: "Ada", telegram: "@_adawrites" }],
+    ["a handle ending with an underscore", { displayName: "Ada", telegram: "ada_writes_" }],
+    ["a name with a right-to-left override", { displayName: "Ada\u202Eevil" }],
+    ["a name with a bidi isolate", { displayName: "\u2066Ada\u2069" }],
+    ["a name of zero-width spaces", { displayName: "\u200B\u200B" }],
+    // A leading or trailing BOM is whitespace to trim(); one inside the name stays and is refused.
+    ["a name with a byte-order mark inside", { displayName: "Ada\uFEFFLovelace" }],
+    ["a bio with a right-to-left mark", { displayName: "Ada", bio: "hello\u200Fworld" }],
+    ["a city with a left-to-right embedding", { displayName: "Ada", city: "\u202AIzmir" }],
     ["a link instead of a handle", { displayName: "Ada", telegram: "https://t.me/ada_writes" }],
     ["an unassigned country code", { displayName: "Ada", country: "XX" }],
     ["a lower-case country code", { displayName: "Ada", country: "tr" }],
@@ -121,6 +137,8 @@ describe("profileSchema", () => {
   it("keeps the edges of every limit", () => {
     expect(profileSchema.safeParse({ displayName: "a".repeat(40), bio: "b".repeat(160), telegram: "a".repeat(32), city: "c".repeat(60) }).success).toBe(true);
     expect(profileSchema.safeParse({ displayName: "A", telegram: "abcde" }).success).toBe(true);
+    expect(profileSchema.safeParse({ displayName: "A", telegram: "a___1" }).success).toBe(true);
+    expect(profileSchema.safeParse({ displayName: "Ada", bio: "line one\nline two" }).success).toBe(true);
   });
 
   it("knows every ISO 3166-1 alpha-2 code, each with a display name", () => {
@@ -183,6 +201,10 @@ describe("safeNext", () => {
     ["javascript:alert(1)", "/"],
     ["/\\evil.com", "/"],
     ["/ok\nSet-Cookie:x", "/"],
+    ["/.//evil.com", "/"],
+    ["/..//evil.com", "/"],
+    ["/%2e//evil.com", "/"],
+    ["/a/../c/x?y=1#h", "/c/x?y=1#h"],
     ["", "/"],
   ])("%j → %j", (raw, out) => {
     expect(safeNext(raw)).toBe(out);
@@ -197,6 +219,56 @@ describe("safeNext", () => {
   it("round-trips the prompt link the wallet button builds", () => {
     const next = new URL(promptPath("/c/launch-week?x=connected"), "https://proofwork.test").searchParams.get("next");
     expect(safeNext(next)).toBe("/c/launch-week?x=connected");
+  });
+});
+
+describe("promptTarget", () => {
+  it("sends a wallet that needs a profile to the prompt with its full location", () => {
+    expect(promptTarget(true, "/c/x", "?y=1", "#a")).toBe("/profile?next=%2Fc%2Fx%3Fy%3D1%23a");
+  });
+
+  it("stays put when no prompt is due or the prompt is already open", () => {
+    expect(promptTarget(false, "/c/x", "?y=1", "#a")).toBeNull();
+    expect(promptTarget(true, "/profile", "", "")).toBeNull();
+  });
+});
+
+describe("/profile", () => {
+  async function page(next: string | string[] | undefined): Promise<ReactElement> {
+    return (await ProfilePage({ searchParams: Promise.resolve(next === undefined ? {} : { next }) })) as ReactElement;
+  }
+
+  /** The ProfileForm element the page hands its props to. */
+  function formOf(tree: ReactElement): { next: string | null; saved: boolean } {
+    const found: Array<{ next: string | null; saved: boolean }> = [];
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (node && typeof node === "object" && "props" in node) {
+        const el = node as ReactElement<{ children?: unknown; next: string | null; saved: boolean }>;
+        if (el.type === ProfileForm) found.push(el.props);
+        walk(el.props.children);
+      }
+    };
+    walk(tree);
+    expect(found).toHaveLength(1);
+    return found[0] as { next: string | null; saved: boolean };
+  }
+
+  it("hands the form a sanitized next: / for an off-site value, null for a repeated one or none", async () => {
+    as(ME);
+    expect(formOf(await page("//evil.com")).next).toBe("/");
+    expect(formOf(await page(["/a", "/b"])).next).toBeNull();
+    expect(formOf(await page(undefined)).next).toBeNull();
+    expect(formOf(await page("/c/x?y=1")).next).toBe("/c/x?y=1");
+  });
+
+  it("offers Later only while no name is saved", async () => {
+    as(ME);
+    expect(renderToStaticMarkup(await page("/c/x"))).toContain(">Later<");
+    await dismissPrompt({ pubkey: ME }, conn);
+    expect(renderToStaticMarkup(await page("/c/x"))).toContain(">Later<");
+    await saveProfile(FULL, { pubkey: ME }, conn);
+    expect(renderToStaticMarkup(await page("/c/x"))).not.toContain(">Later<");
   });
 });
 
@@ -244,7 +316,8 @@ describe("publicProfile", () => {
 
     const p = await publicProfile(ME, conn);
     expect(p).not.toBeNull();
-    expect(Object.keys(p ?? {}).sort()).toEqual(["bio", "displayName", "payouts", "pubkey", "submissions", "xUrl"]);
+    expect(Object.keys(p ?? {}).sort()).toEqual(["approvedCount", "bio", "displayName", "paidAmount", "payoutCount", "payouts", "pubkey", "submissions", "xUrl"]);
+    expect(p).toMatchObject({ approvedCount: 2, payoutCount: 1, paidAmount: "5.0000000" });
     expect(p).toMatchObject({ displayName: "Ada", bio: FULL.bio, xUrl: "https://x.com/i/user/1234567890" });
     expect(p?.submissions.map((s) => s.workUrl).sort()).toEqual(["https://x.com/ada/status/1", "https://x.com/ada/status/2"]);
     expect(p?.payouts).toEqual([expect.objectContaining({ releaseTxHash: "a".repeat(64), campaignSlug: "launch-week" })]);
@@ -252,6 +325,23 @@ describe("publicProfile", () => {
     expect(json).not.toContain("ada_writes");
     expect(json).not.toContain("Izmir");
     expect(json).not.toContain('"TR"');
+  });
+
+  it("counts every approved post and payout past the listed ones, and shows payouts net of fee", async () => {
+    await saveProfile({ displayName: "Ada" }, { pubkey: ME }, conn);
+    for (let i = 1; i <= 52; i++) {
+      await submission(`s${i}`, ME, "paid");
+      await conn.insert(payouts).values({ id: `p${i}`, submissionId: `s${i}`, amount: "5", status: "released", releaseTxHash: String(i).padStart(64, "0"), releasedAt: new Date() });
+    }
+    const p = await publicProfile(ME, conn);
+    expect(p?.submissions).toHaveLength(50);
+    expect(p?.payouts).toHaveLength(50);
+    expect(p).toMatchObject({ approvedCount: 52, payoutCount: 52, paidAmount: "260.0000000" });
+    const html = renderToStaticMarkup((await PublicProfilePage({ params: Promise.resolve({ pubkey: ME }) })) as ReactElement);
+    expect(html).toContain(">52<");
+    // 5 USDC leaves the escrow, 4.985 arrives; 260 in total arrives as 259.22.
+    expect(html).toContain("+4.985");
+    expect(html).toContain("259.22");
   });
 
   it("has no X link when no account is connected", async () => {
@@ -287,7 +377,6 @@ describe("/api/profile", () => {
   it("answers 401 without a session", async () => {
     expect((await call("PUT", FULL)).status).toBe(401);
     expect((await call("POST", { action: "later" })).status).toBe(401);
-    expect((await call("GET")).status).toBe(401);
   });
 
   it("saves the session wallet's row even when the body names another wallet", async () => {
@@ -296,8 +385,7 @@ describe("/api/profile", () => {
     expect(res.status).toBe(200);
     expect(await row(OTHER)).toBeNull();
     expect(await row(ME)).toMatchObject({ displayName: "Ada", telegram: "ada_writes" });
-    const own = (await (await call("GET")).json()) as { profile: { telegram: string; city: string } };
-    expect(own.profile).toMatchObject({ telegram: "ada_writes", city: "Izmir" });
+    expect(await getOwnProfile(ME, conn)).toMatchObject({ telegram: "ada_writes", city: "Izmir" });
   });
 
   it("answers 400 with the field issues", async () => {

@@ -24,8 +24,9 @@ export function isCountryCode(v: string): boolean {
   return COUNTRY_SET.has(v);
 }
 
-/** A Telegram username as typed: an optional `@`, then 5–32 letters, digits or underscores. */
-export const TELEGRAM_PATTERN = /^@?[A-Za-z0-9_]{5,32}$/;
+/** A Telegram username, trimmed: an optional `@`, then 5–32 characters that start with a letter, end with a letter or digit, and hold letters, digits and underscores. */
+export const TELEGRAM_SOURCE = "@?[A-Za-z][A-Za-z0-9_]{3,30}[A-Za-z0-9]";
+export const TELEGRAM_PATTERN = new RegExp(`^${TELEGRAM_SOURCE}$`);
 
 export const PROFILE_LIMITS = { displayName: 40, bio: 160, city: 60 } as const;
 
@@ -38,7 +39,15 @@ export function safeNext(raw: unknown): string {
   if (typeof raw !== "string" || raw.length > 2048) return "/";
   if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
   if (/[\\\u0000-\u001f\u007f]/.test(raw)) return "/";
-  return raw;
+  // Dot segments can normalize into `//host` (`/.//evil.com`): judge the path the browser will actually use.
+  let url: URL;
+  try {
+    url = new URL(raw, "http://x");
+  } catch {
+    return "/";
+  }
+  if (url.origin !== "http://x" || url.pathname.startsWith("//")) return "/";
+  return url.pathname + url.search + url.hash;
 }
 
 /** The public profile page of a wallet. */
@@ -49,4 +58,10 @@ export function profilePath(pubkey: string): string {
 /** The prompt, sent from wherever the visitor signed in. */
 export function promptPath(current: string): string {
   return `/profile?next=${encodeURIComponent(current)}`;
+}
+
+/** Where a fresh sign-in goes: the prompt, carrying the full current location, or nowhere (null) when no prompt is due or it is already shown. */
+export function promptTarget(needsProfile: boolean, pathname: string, search: string, hash: string): string | null {
+  if (!needsProfile || pathname === "/profile") return null;
+  return promptPath(pathname + search + hash);
 }
