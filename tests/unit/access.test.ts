@@ -1441,6 +1441,8 @@ describe("admin page campaigns and returns", () => {
     expect(html).toContain("Access log");
     expect(html).not.toContain("Awaiting your return");
     expect(html).not.toContain("Return remainder</span>");
+    expect(await shell()).toContain('href="/admin/metrics"');
+    expect(await publicBar()).toContain('href="/admin/metrics"');
   });
 
   it("shows a resolver-only wallet just the campaigns awaiting its return, with Return remainder, and the nav links it there", async () => {
@@ -1456,6 +1458,9 @@ describe("admin page campaigns and returns", () => {
     }
     expect(await shell()).toContain('href="/admin"');
     expect(await publicBar()).toContain('href="/admin"');
+    // Metrics is ops only: it would be a 404 for this wallet.
+    expect(await shell()).not.toContain('href="/admin/metrics"');
+    expect(await publicBar()).not.toContain('href="/admin/metrics"');
   });
 
   it("is a not-found page for a resolver whose campaigns are all returned, and the nav drops the link", async () => {

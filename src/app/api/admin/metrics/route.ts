@@ -19,7 +19,7 @@ export async function GET(): Promise<Response> {
     const overview = await metricsOverview(user, db, now);
     const network = env.STELLAR_NETWORK;
     // BOM so Excel reads the file as UTF-8 (Turkish characters in campaign titles).
-    return new Response(`﻿${metricsCsv(overview, network, now)}`, {
+    return new Response(`\uFEFF${metricsCsv(overview, network, now)}`, {
       headers: {
         "Cache-Control": "no-store",
         "Content-Type": "text/csv; charset=utf-8",

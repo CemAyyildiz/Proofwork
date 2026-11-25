@@ -78,7 +78,7 @@ export default async function MetricsPage() {
       <Section
         id="profiles"
         title="Profiles"
-        description="Profile completion is the share of users with a display name. Countries count users by the country on their profile; a user without one is not given."
+        description="Profile completion is the share of users with a display name. Countries count users by the country on their profile; a user without one is counted as not given."
       >
         <dl className="grid grid-cols-2 gap-x-8 sm:max-w-md sm:gap-x-12">
           <Figure value={profileCompletion(o)} label="% with a display name" />

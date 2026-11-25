@@ -25,11 +25,12 @@ export function Section({ id, title, count, description, children }: { id: strin
 
 /**
  * An operator summary figure: `hero` huge on its own, otherwise a `dt`/`dd`
- * pair for a `dl`. A zero is set wide so it reads as zero. A string value is
- * shown as given (an amount such as "1,250.5").
+ * pair for a `dl`. A zero is set wide so it reads as zero. A number is grouped
+ * ("1,234"); a string is shown as given (an amount such as "1,250.5").
  */
 export function Figure({ value, label, hero = false }: { value: number | string; label: string; hero?: boolean }) {
-  const v = String(value);
+  // Grouped like CountUp's own frames ("1,234"), so the server markup and the last frame agree.
+  const v = typeof value === "number" ? value.toLocaleString("en-US") : value;
   const tone = isZero(v) ? "text-white/45" : "text-text";
   if (hero) {
     return (

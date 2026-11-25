@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
 import { campaigns, decisions, funderRequests, payouts, submissions } from "@/db/schema";
-import { campaignFacts, campaignPayouts, publicDirectory, publicTotals } from "@/services/public-directory";
+import { campaignFacts, campaignPayouts, publicDirectory, publicTotals, recentPayouts } from "@/services/public-directory";
 import { makeTestDb } from "./db";
 
 vi.mock("server-only", () => ({}));
@@ -121,6 +121,26 @@ describe("publicTotals", () => {
     await addPayout("p3", s3, "failed", null, "100");
 
     expect(await publicTotals(conn)).toEqual({ paidAmount: "7.5000000", payouts: 1, decisions: 2, campaigns: 1 });
+  });
+});
+
+describe("recentPayouts", () => {
+  it("lists every contributor's released payouts that carry a hash, newest first, up to the limit", async () => {
+    await addCampaign("c_a", FUNDER);
+    const older = await addSubmission("c_a", "paid");
+    const newer = await addSubmission("c_a", "paid");
+    const noHash = await addSubmission("c_a", "paid");
+    const at = (minutesAgo: number) => new Date(Date.now() - minutesAgo * 60_000);
+    await conn.insert(payouts).values([
+      { id: "p_older", submissionId: older, amount: "5", status: "released", releaseTxHash: "b".repeat(64), releasedAt: at(30) },
+      { id: "p_newer", submissionId: newer, amount: "7", status: "released", releaseTxHash: "c".repeat(64), releasedAt: at(10) },
+      { id: "p_nohash", submissionId: noHash, amount: "9", status: "released", releaseTxHash: null, releasedAt: at(1) },
+    ]);
+
+    const rows = await recentPayouts(6, conn);
+    expect(rows.map((r) => r.releaseTxHash)).toEqual(["c".repeat(64), "b".repeat(64)]);
+    expect(rows[0]).toMatchObject({ amount: "7.0000000", campaignSlug: "slug-c_a", campaignTitle: "Campaign c_a" });
+    expect((await recentPayouts(1, conn)).map((r) => r.releaseTxHash)).toEqual(["c".repeat(64)]);
   });
 });
 

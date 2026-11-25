@@ -318,7 +318,10 @@ describe("the CSV download", () => {
     expect(res.headers.get("content-type")).toBe("text/csv; charset=utf-8");
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("content-disposition")).toMatch(/^attachment; filename="proofwork-metrics-testnet-\d{4}-\d{2}-\d{2}\.csv"$/);
-    const text = await res.text();
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // UTF-8 byte-order mark, so Excel reads the file as UTF-8.
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+    const text = new TextDecoder().decode(bytes);
     expect(text).toContain("Summary\r\nmetric,value,definition");
     expect(text).not.toMatch(WALLET);
   });
