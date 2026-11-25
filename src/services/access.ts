@@ -39,7 +39,8 @@ async function holdsGlobalRole(pubkey: string, role: Role, conn: Db): Promise<bo
   return rows.length > 0;
 }
 
-async function requireOps(pubkey: string, conn: Db): Promise<void> {
+/** Refuses (FORBIDDEN) a wallet without the global `ops` role. Every operator-only read and write starts here. */
+export async function requireOps(pubkey: string, conn: Db): Promise<void> {
   if (!(await holdsGlobalRole(pubkey, "ops", conn))) throw AppError.forbidden("requires ops role");
 }
 

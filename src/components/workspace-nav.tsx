@@ -56,11 +56,23 @@ const REVIEW: NavItem = {
 const ADMIN: NavItem = {
   href: "/admin",
   label: "Admin",
-  match: under("/admin"),
+  // /admin/metrics has its own item.
+  match: (p) => under("/admin")(p) && !under("/admin/metrics")(p),
   icon: (
     <svg {...iconProps}>
       <path d="M12 3l8 3v6c0 4.6-3.2 7.9-8 9-4.8-1.1-8-4.4-8-9V6z" />
       <path d="M9 12l2 2 4-4" />
+    </svg>
+  ),
+};
+
+const METRICS: NavItem = {
+  href: "/admin/metrics",
+  label: "Metrics",
+  match: under("/admin/metrics"),
+  icon: (
+    <svg {...iconProps}>
+      <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
     </svg>
   ),
 };
@@ -100,18 +112,20 @@ export interface WorkspaceNavProps {
   reviewer: boolean;
   /** Admin: the `ops` wallet, or a wallet that is the dispute resolver of a campaign awaiting its return. */
   admin: boolean;
+  /** Metrics, listed after Admin: the `ops` wallet only (a dispute resolver also sees Admin, but metrics would be a 404 for it). */
+  metrics?: boolean;
   /** "side" is the ≥ lg workspace rail with group headings; "top" is the compact row of the public top bar. Below lg the workspace uses `WorkspaceMenu`. */
   variant: "side" | "top";
   /** Include Home in the Public group. Off in the public top bar, where the logo already links home. */
   showPublic?: boolean;
 }
 
-type ItemProps = Pick<WorkspaceNavProps, "campaigns" | "reviewer" | "admin" | "showPublic">;
+type ItemProps = Pick<WorkspaceNavProps, "campaigns" | "reviewer" | "admin" | "metrics" | "showPublic">;
 
 /** The items a wallet sees, in the sidebar's two groups. */
-function navGroups({ campaigns, reviewer, admin, showPublic = true }: ItemProps): { workspace: NavItem[]; pub: NavItem[] } {
+function navGroups({ campaigns, reviewer, admin, metrics = false, showPublic = true }: ItemProps): { workspace: NavItem[]; pub: NavItem[] } {
   const campaignsItem = campaigns === "manage" ? CAMPAIGNS : campaigns === "request" ? { ...CAMPAIGNS, label: "Run a campaign" } : null;
-  const workspace = [campaignsItem, reviewer ? REVIEW : null, admin ? ADMIN : null].filter((i): i is NavItem => i !== null);
+  const workspace = [campaignsItem, reviewer ? REVIEW : null, admin ? ADMIN : null, admin && metrics ? METRICS : null].filter((i): i is NavItem => i !== null);
   return { workspace, pub: showPublic ? [EXPLORE, HOME] : [EXPLORE] };
 }
 

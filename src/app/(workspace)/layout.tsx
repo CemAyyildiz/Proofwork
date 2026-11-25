@@ -18,6 +18,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
   const campaigns = user ? await campaignsNav(user, db) : null;
   const reviewer = user?.roles.has("reviewer") ?? false;
   const admin = user ? await adminNav(user, db) : false;
+  const metrics = user?.roles.has("ops") ?? false;
   const pubkey = user?.pubkey ?? null;
 
   return (
@@ -26,7 +27,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
         <Link href="/" className="mx-3 mb-7 inline-flex min-h-11 items-center self-start rounded-full" aria-label="Proofwork home">
           <Logo />
         </Link>
-        <WorkspaceNav campaigns={campaigns} reviewer={reviewer} admin={admin} variant="side" />
+        <WorkspaceNav campaigns={campaigns} reviewer={reviewer} admin={admin} metrics={metrics} variant="side" />
         <div className="mt-auto rounded-[22px] border border-white/[0.08] bg-white/[0.025] p-3.5">
           <NetworkBadge />
           <p className="mt-2.5 text-[12px] leading-snug text-white/60">
@@ -52,7 +53,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
                 <NetworkBadge />
               </span>
               <WalletButton pubkey={pubkey} />
-              <WorkspaceMenu campaigns={campaigns} reviewer={reviewer} admin={admin} />
+              <WorkspaceMenu campaigns={campaigns} reviewer={reviewer} admin={admin} metrics={metrics} />
             </div>
           </div>
         </header>

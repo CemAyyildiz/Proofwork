@@ -20,6 +20,7 @@ export default async function PublicLayout({ children }: { children: React.React
   const campaigns = user ? await campaignsNav(user, db) : null;
   const reviewer = user?.roles.has("reviewer") ?? false;
   const admin = user ? await adminNav(user, db) : false;
+  const metrics = user?.roles.has("ops") ?? false;
   const workspace = campaigns !== null || reviewer || admin;
   return (
     <>
@@ -34,7 +35,7 @@ export default async function PublicLayout({ children }: { children: React.React
             </span>
           </Link>
           <div className={cx("min-w-0 flex-1 justify-center text-white/60 [&_a]:rounded-full", workspace ? "hidden sm:flex" : "flex")}>
-            <WorkspaceNav campaigns={campaigns} reviewer={reviewer} admin={admin} variant="top" showPublic={false} />
+            <WorkspaceNav campaigns={campaigns} reviewer={reviewer} admin={admin} metrics={metrics} variant="top" showPublic={false} />
           </div>
           {/* Phones: the menu sits at the far right, after the wallet, as in the workspace header. */}
           {workspace ? <div className="flex-1 sm:hidden" /> : null}
@@ -45,7 +46,7 @@ export default async function PublicLayout({ children }: { children: React.React
             <HeaderAction pubkey={user?.pubkey ?? null} />
             {workspace ? (
               <div className="sm:hidden">
-                <WorkspaceMenu campaigns={campaigns} reviewer={reviewer} admin={admin} showPublic={false} />
+                <WorkspaceMenu campaigns={campaigns} reviewer={reviewer} admin={admin} metrics={metrics} showPublic={false} />
               </div>
             ) : null}
           </div>
