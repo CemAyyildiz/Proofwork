@@ -95,6 +95,17 @@ export async function publicTotals(conn: Db = db): Promise<PublicTotals> {
   return { paidAmount: paid?.amount ?? "0", payouts: paid?.n ?? 0, decisions: decided?.n ?? 0, campaigns: funded?.n ?? 0 };
 }
 
+/** The newest decision already written to Stellar, for the landing's "check it" link; null before the first one. */
+export async function latestDecisionId(conn: Db = db): Promise<string | null> {
+  const [row] = await conn
+    .select({ id: decisions.id })
+    .from(decisions)
+    .where(isNotNull(decisions.txHash))
+    .orderBy(desc(decisions.decidedAt))
+    .limit(1);
+  return row?.id ?? null;
+}
+
 /** Team name and submission counts of one campaign, for its public page. */
 export async function campaignFacts(campaignId: string, conn: Db = db): Promise<{ team: string | null; submissions: number; paid: number }> {
   const counts = (await countSubmissionsByCampaign([campaignId], conn)).get(campaignId);

@@ -27,6 +27,8 @@ export interface HomePayout {
 
 export interface HomeData {
   network: string;
+  /** The proof page of the newest decision on this network, or null before the first one. */
+  latestDecision: string | null;
   /** Null when the totals could not be read: the ledger is left out rather than showing zeros. */
   totals: { paid: string; payouts: number; decisions: number; campaigns: number } | null;
   payouts: HomePayout[];
@@ -273,6 +275,7 @@ function Story({ data }: { data: HomeData }) {
   const post = `Wrote up how a Soroban escrow actually releases funds, step by step, with the real transactions linked. For the “${bounty}” bounty.`;
   // The count-up target only: the figure shown at rest is the payout's own string. No payout, no receipt side at all.
   const reward = first ? Number(first.amount.replace(/,/g, "")) : 0;
+  const places = first ? (first.amount.split(".")[1]?.length ?? 0) : 0;
   const split = first ? feeSplit(first.amount) : null;
 
   useTrack(track, (p) => {
@@ -326,7 +329,8 @@ function Story({ data }: { data: HomeData }) {
     if (flip.current) flip.current.style.transform = `rotateY(${fl * 180}deg)`;
     if (figure.current && first) {
       const a = seg(p, 0.84, 0.95);
-      figure.current.textContent = a >= 1 ? first.amount : String(Math.round(a * reward));
+      // Count up in the payout's own precision: a 0.6 reward rounded to whole units would read "+0" all the way up.
+      figure.current.textContent = a >= 1 ? first.amount : (a * reward).toFixed(places);
     }
   });
 
@@ -734,7 +738,7 @@ function OpenRun({ data }: { data: HomeData }) {
 
 /* ───────────────────────────── 5. check it yourself: the rubric and a real hash ───────────────────────────── */
 
-function CheckIt() {
+function CheckIt({ network, latest }: { network: string; latest: string | null }) {
   return (
     <section id="verify" aria-labelledby="verify-title" className="scroll-mt-0 overflow-hidden bg-paper pb-16 pt-24 text-black">
       <div className="mx-auto max-w-6xl px-6">
@@ -743,8 +747,16 @@ function CheckIt() {
           Try the rubric. Then check the proof.
         </h2>
         <p className="mt-5 max-w-xl text-black/70">
-          Both run the real thing: the same pass rule the reviewer uses, and a live <span className="whitespace-nowrap">SHA-256</span> over a decision that is actually on Stellar testnet.
+          Both run the real thing: the same pass rule the reviewer uses, and a live <span className="whitespace-nowrap">SHA-256</span> over a decision record that is actually on Stellar.
         </p>
+        {latest ? (
+          <Link
+            href={latest}
+            className="mt-6 inline-flex items-center gap-2 rounded-full bg-black px-6 py-3.5 text-sm font-semibold text-white transition-transform hover:scale-[1.03]"
+          >
+            Check the latest {network} decision <ArrowRight className="size-4" />
+          </Link>
+        ) : null}
         <div className="mt-12 grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-[30px] bg-white p-6 shadow-[0_30px_80px_-50px_rgba(0,0,0,0.5)] md:p-8">
             <h3 className={`text-2xl ${FONT}`} style={{ fontVariationSettings: axes(90, 800) }}>
@@ -901,7 +913,7 @@ export function Home({ data }: { data: HomeData }) {
       <Story data={data} />
       {data.totals ? <Ledger data={data} totals={data.totals} /> : null}
       <OpenRun data={data} />
-      <CheckIt />
+      <CheckIt network={data.network} latest={data.latestDecision} />
       <Custody />
       <Close data={data} />
     </div>

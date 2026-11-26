@@ -1,7 +1,8 @@
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "@/db/client";
 import { campaigns, decisions, funderRequests, payouts, submissions } from "@/db/schema";
-import { campaignFacts, campaignPayouts, publicDirectory, publicTotals, recentPayouts } from "@/services/public-directory";
+import { campaignFacts, campaignPayouts, latestDecisionId, publicDirectory, publicTotals, recentPayouts } from "@/services/public-directory";
 import { makeTestDb } from "./db";
 
 vi.mock("server-only", () => ({}));
@@ -121,6 +122,24 @@ describe("publicTotals", () => {
     await addPayout("p3", s3, "failed", null, "100");
 
     expect(await publicTotals(conn)).toEqual({ paidAmount: "7.5000000", payouts: 1, decisions: 2, campaigns: 1 });
+  });
+});
+
+describe("latestDecisionId", () => {
+  it("is null before any decision is on chain, then the newest one with a tx hash", async () => {
+    expect(await latestDecisionId(conn)).toBeNull();
+    await addCampaign("c_a", FUNDER);
+    const s1 = await addSubmission("c_a", "decided");
+    const s2 = await addSubmission("c_a", "decided");
+    const s3 = await addSubmission("c_a", "decided");
+    await addDecision("d_old", s1, HASH);
+    await addDecision("d_new", s2, HASH);
+    await addDecision("d_unsent", s3, null);
+    const at = (id: string, ms: number) => conn.update(decisions).set({ decidedAt: new Date(ms) }).where(eq(decisions.id, id));
+    await at("d_old", 1_000);
+    await at("d_new", 2_000);
+    await at("d_unsent", 3_000);
+    expect(await latestDecisionId(conn)).toBe("d_new");
   });
 });
 

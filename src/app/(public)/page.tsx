@@ -5,7 +5,7 @@ import { publicEnv } from "@/config/public-env";
 import { currentUser } from "@/lib/current-user";
 import { formatDateShort, formatRelative, truncateMiddle } from "@/lib/format";
 import { log } from "@/lib/logger";
-import { publicDirectory, publicTotals, recentPayouts } from "@/services/public-directory";
+import { latestDecisionId, publicDirectory, publicTotals, recentPayouts } from "@/services/public-directory";
 
 export const dynamic = "force-dynamic";
 
@@ -14,17 +14,17 @@ const STATUS: Record<Stage, string> = { open: "Open", closed: "Closed", ended: "
 /** Reads the live figures; the landing page must still render when the database cannot be reached. */
 async function load(now: Date) {
   try {
-    const [list, totals, paid] = await Promise.all([publicDirectory(undefined, now), publicTotals(), recentPayouts(8)]);
-    return { list, totals, paid };
+    const [list, totals, paid, decision] = await Promise.all([publicDirectory(undefined, now), publicTotals(), recentPayouts(8), latestDecisionId()]);
+    return { list, totals, paid, decision };
   } catch (e) {
     log.warn("landing data not read", { err: e instanceof Error ? e.message : String(e) });
-    return { list: [], totals: null, paid: [] };
+    return { list: [], totals: null, paid: [], decision: null };
   }
 }
 
 export default async function HomePage() {
   const now = new Date();
-  const [user, { list, totals, paid }] = await Promise.all([currentUser(), load(now)]);
+  const [user, { list, totals, paid, decision }] = await Promise.all([currentUser(), load(now)]);
   const cta = user?.roles.has("funder")
     ? { href: "/campaigns", label: "Open your campaigns" }
     : user?.roles.has("reviewer")
@@ -33,6 +33,7 @@ export default async function HomePage() {
 
   const data: HomeData = {
     network: publicEnv.networkName,
+    latestDecision: decision ? `/verify/${encodeURIComponent(decision)}` : null,
     totals: totals ? { paid: amount(totals.paidAmount), payouts: totals.payouts, decisions: totals.decisions, campaigns: totals.campaigns } : null,
     payouts: paid.map((p) => ({
       amount: amount(p.amount),

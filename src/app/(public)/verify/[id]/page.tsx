@@ -226,7 +226,8 @@ function OnChainRow({ label, children }: { label: string; children: ReactNode })
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 border-b border-black/10 py-3 last:border-0">
       <dt className="text-[13px] text-black/60">{label}</dt>
-      <dd className="min-w-0 max-w-full overflow-x-auto">{children}</dd>
+      {/* Still scrolls on a narrow screen, but never draws scrollbars: with "always show scrollbars" each chip got a pair of them. */}
+      <dd className="min-w-0 max-w-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{children}</dd>
     </div>
   );
 }
