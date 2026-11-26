@@ -46,12 +46,16 @@ export class WalletCancelled extends Error {
 
 function kit(): Promise<typeof Kit> {
   loaded ??= (async () => {
-    const [{ StellarWalletsKit }, { VarialModule }] = await Promise.all([
+    const [{ StellarWalletsKit }, { VarialModule, VARIAL_ID }] = await Promise.all([
       import("@creit.tech/stellar-wallets-kit/sdk"),
       import("@creit.tech/stellar-wallets-kit/modules/varial"),
     ]);
     StellarWalletsKit.init({
       modules: [new VarialModule()],
+      // The kit restores its selected wallet from localStorage. A browser that signed in
+      // before the rename still holds "freighter", which matches no module, and every
+      // signature then fails with "Please set the wallet first". Varial is the only module.
+      selectedWalletId: VARIAL_ID,
       network: publicEnv.isMainnet ? Networks.PUBLIC : Networks.TESTNET,
       theme: THEME,
       authModal: { showInstallLabel: true, hideUnsupportedWallets: false },

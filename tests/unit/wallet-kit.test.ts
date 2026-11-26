@@ -11,7 +11,7 @@ vi.mock("@creit.tech/stellar-wallets-kit/sdk", () => {
   kit.loads += 1;
   return { StellarWalletsKit: { init: kit.init, signTransaction: kit.signTransaction } };
 });
-vi.mock("@creit.tech/stellar-wallets-kit/modules/varial", () => ({ VarialModule: class {} }));
+vi.mock("@creit.tech/stellar-wallets-kit/modules/varial", () => ({ VarialModule: class {}, VARIAL_ID: "varial" }));
 
 beforeEach(() => {
   // A fresh `@/wallet/kit` per test, so its cached load starts empty.
@@ -32,6 +32,8 @@ describe("the wallet kit loader", () => {
     const { signTransaction } = await import("@/wallet/kit");
     expect(await Promise.all([signTransaction("G_A", "X1"), signTransaction("G_A", "X2")])).toEqual(["SIGNED", "SIGNED"]);
     expect(kit.init).toHaveBeenCalledTimes(1);
+    // Always selects Varial: a stored "freighter" from before the rename matches no module.
+    expect(kit.init).toHaveBeenCalledWith(expect.objectContaining({ selectedWalletId: "varial" }));
     expect(kit.signTransaction).toHaveBeenCalledTimes(2);
     await signTransaction("G_A", "X3");
     expect(kit.init).toHaveBeenCalledTimes(1);
