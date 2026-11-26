@@ -1,7 +1,7 @@
 "use client";
 
 import type { StellarWalletsKit as Kit } from "@creit.tech/stellar-wallets-kit/sdk";
-import { Networks, type SwkAppTheme } from "@creit.tech/stellar-wallets-kit/types";
+import { Networks, type ModuleInterface, type SwkAppTheme } from "@creit.tech/stellar-wallets-kit/types";
 import { publicEnv } from "@/config/public-env";
 
 /**
@@ -50,16 +50,36 @@ function kit(): Promise<typeof Kit> {
       import("@creit.tech/stellar-wallets-kit/sdk"),
       import("@creit.tech/stellar-wallets-kit/modules/varial"),
     ]);
+    const modules: ModuleInterface[] = [new VarialModule()];
+    const projectId = publicEnv.walletConnectProjectId;
+    if (projectId) {
+      // The Varial mobile app connects only over WalletConnect, also from its own in-app browser.
+      // Loaded only when configured: it pulls in Reown AppKit.
+      const { WalletConnectModule, WalletConnectTargetChain } = await import("@creit.tech/stellar-wallets-kit/modules/wallet-connect");
+      const origin = window.location.origin;
+      modules.push(
+        new WalletConnectModule({
+          projectId,
+          metadata: { name: "Proofwork", description: "Human-verified bounties settled on Stellar", url: origin, icons: [`${origin}/icon.svg`] },
+          allowedChains: [publicEnv.isMainnet ? WalletConnectTargetChain.PUBLIC : WalletConnectTargetChain.TESTNET],
+        }),
+      );
+    }
     StellarWalletsKit.init({
-      modules: [new VarialModule()],
-      // The kit restores its selected wallet from localStorage. A browser that signed in
-      // before the rename still holds "freighter", which matches no module, and every
-      // signature then fails with "Please set the wallet first". Varial is the only module.
-      selectedWalletId: VARIAL_ID,
+      modules,
       network: publicEnv.isMainnet ? Networks.PUBLIC : Networks.TESTNET,
       theme: THEME,
       authModal: { showInstallLabel: true, hideUnsupportedWallets: false },
     });
+    // The kit restores its selected wallet from localStorage. A browser that signed in
+    // before the rename still holds "freighter", which matches no module, and every
+    // signature then failed with "Please set the wallet first". A stored id that matches
+    // one of the modules (a phone that connected over WalletConnect) is kept.
+    try {
+      void StellarWalletsKit.selectedModule;
+    } catch {
+      StellarWalletsKit.setWallet(VARIAL_ID);
+    }
     return StellarWalletsKit;
   })().catch((e: unknown) => {
     // A failed load (a chunk that did not arrive) is retried on the next action.

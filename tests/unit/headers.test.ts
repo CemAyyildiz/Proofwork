@@ -40,6 +40,13 @@ describe("security headers", () => {
     }
   });
 
+  it("let the WalletConnect relay and wallet list through, so the Varial mobile app can connect", async () => {
+    const all = (await headersFor("mainnet")).find((r) => r.source === "/(.*)");
+    const hosts = connectSrc(all?.headers.get("content-security-policy"));
+    expect(hosts).toEqual(expect.arrayContaining(["wss://*.walletconnect.org", "https://*.walletconnect.org", "https://*.web3modal.org"]));
+    expect(all?.headers.get("content-security-policy")).toContain("font-src 'self' https://fonts.reown.com");
+  });
+
   it("on a mainnet build, let the browser reach no testnet host", async () => {
     const all = (await headersFor("mainnet")).find((r) => r.source === "/(.*)");
     const hosts = connectSrc(all?.headers.get("content-security-policy"));

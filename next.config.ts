@@ -13,6 +13,17 @@ const STELLAR_HOSTS =
     ? [facts.horizonUrl, "https://mainnet.sorobanrpc.com"]
     : [facts.horizonUrl, "https://soroban-testnet.stellar.org", "https://friendbot.stellar.org"];
 
+const WALLETCONNECT_HOSTS = [
+  "wss://*.walletconnect.com",
+  "https://*.walletconnect.com",
+  "wss://*.walletconnect.org",
+  "https://*.walletconnect.org",
+  "https://*.reown.com",
+  "wss://*.reown.com",
+  "https://*.web3modal.org",
+  "https://*.web3modal.com",
+];
+
 const csp = [
   "default-src 'self'",
   // Next.js dev needs inline/eval; production build strips them via nonces later if needed.
@@ -21,9 +32,11 @@ const csp = [
     : "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
-  "font-src 'self'",
-  `connect-src 'self' ${STELLAR_HOSTS.join(" ")} wss://*.walletconnect.com https://*.walletconnect.com`,
-  "frame-src 'self' https://*.walletconnect.com",
+  // Reown AppKit (WalletConnect, for the Varial mobile app) loads its font from fonts.reown.com.
+  "font-src 'self' https://fonts.reown.com",
+  // WalletConnect: the relay (wss), the wallet list and Verify API (web3modal / reown), and both relay domains.
+  `connect-src 'self' ${STELLAR_HOSTS.join(" ")} ${WALLETCONNECT_HOSTS.join(" ")}`,
+  "frame-src 'self' https://*.walletconnect.com https://*.walletconnect.org https://*.reown.com",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

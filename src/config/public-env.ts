@@ -11,6 +11,12 @@ import { explorerFor, NETWORKS, parseNetwork } from "./network";
 const facts = NETWORKS[parseNetwork(process.env.NEXT_PUBLIC_STELLAR_NETWORK)];
 const explorer = explorerFor(facts.network);
 
+/** A Reown project ID is 32 hex characters; anything else is treated as unset rather than shipped broken. */
+export function walletConnectProjectId(raw: string | undefined): string | null {
+  const v = raw?.trim() ?? "";
+  return /^[0-9a-f]{32}$/i.test(v) ? v : null;
+}
+
 export const publicEnv = {
   network: facts.network,
   isMainnet: facts.network === "mainnet",
@@ -24,4 +30,6 @@ export const publicEnv = {
   explorerTxUrl: explorer.tx,
   explorerAccountUrl: explorer.account,
   explorerContractUrl: explorer.contract,
+  /** Reown (WalletConnect) project ID for phone wallets, or null: then only the browser extension connects. */
+  walletConnectProjectId: walletConnectProjectId(process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID),
 } as const;
