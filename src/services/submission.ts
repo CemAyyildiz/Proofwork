@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, isNotNull, like, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, like, or } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, payouts, submissions, type Campaign, type Decision, type Payout, type Submission } from "@/db/schema";
 import { env } from "@/config/env";
@@ -78,7 +78,11 @@ export async function publicCampaign(slug: string, conn: Db = db): Promise<Publi
  * reachable by link only.
  */
 export async function listPublicCampaigns(conn: Db = db, now = new Date()): Promise<PublicCampaign[]> {
-  const rows = await conn.select().from(campaigns).where(isNotNull(campaigns.fundedAt)).orderBy(desc(campaigns.createdAt));
+  const rows = await conn
+    .select()
+    .from(campaigns)
+    .where(and(isNotNull(campaigns.fundedAt), isNull(campaigns.unlistedAt)))
+    .orderBy(desc(campaigns.createdAt));
   const listed = rows.map((c) => toPublic(c, now));
   return [...listed.filter((c) => c.open), ...listed.filter((c) => !c.open)];
 }

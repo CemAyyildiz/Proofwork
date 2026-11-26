@@ -125,6 +125,26 @@ describe("publicTotals", () => {
   });
 });
 
+describe("an unlisted campaign", () => {
+  it("leaves the directory, the payouts, the totals and the latest decision, and nothing else", async () => {
+    await addCampaign("c_live", FUNDER);
+    await addCampaign("c_test", FUNDER, { unlistedAt: new Date() });
+    const live = await addSubmission("c_live", "paid");
+    const test = await addSubmission("c_test", "paid");
+    await addDecision("d_live", live, HASH);
+    await addDecision("d_test", test, HASH);
+    await addPayout("p_live", live, "released", HASH, "10");
+    await addPayout("p_test", test, "released", HASH, "0.6");
+    await conn.update(decisions).set({ decidedAt: new Date(1_000) }).where(eq(decisions.id, "d_live"));
+    await conn.update(decisions).set({ decidedAt: new Date(2_000) }).where(eq(decisions.id, "d_test"));
+
+    expect((await publicDirectory(conn)).map((r) => r.id)).toEqual(["c_live"]);
+    expect((await recentPayouts(10, conn)).map((p) => p.campaignSlug)).toEqual(["slug-c_live"]);
+    expect(await publicTotals(conn)).toEqual({ paidAmount: "10.0000000", payouts: 1, decisions: 1, campaigns: 1 });
+    expect(await latestDecisionId(conn)).toBe("d_live");
+  });
+});
+
 describe("latestDecisionId", () => {
   it("is null before any decision is on chain, then the newest one with a tx hash", async () => {
     expect(await latestDecisionId(conn)).toBeNull();

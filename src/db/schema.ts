@@ -101,6 +101,12 @@ export const campaigns = pgTable("campaign", {
   /** Payout pipeline lease: the holder's token and when it lapses. Null when free. */
   payoutLockToken: text("payout_lock_token"),
   payoutLockUntil: timestamp("payout_lock_until", { withTimezone: true }),
+  /**
+   * Set by the operator to take a campaign (a test run) off the public lists, the landing
+   * figures and the funder's list. Its own page, decisions and transactions stay reachable
+   * by link: the record is not deleted. Null = listed.
+   */
+  unlistedAt: timestamp("unlisted_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
 

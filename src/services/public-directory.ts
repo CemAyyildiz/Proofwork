@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, type Db } from "@/db/client";
 import { campaigns, decisions, funderRequests, payouts, submissions } from "@/db/schema";
 import { listPublicCampaigns, type PublicCampaign } from "./submission";
@@ -58,6 +58,7 @@ async function releasedPayouts(limit: number, contributor: string | null, conn: 
         eq(payouts.status, "released"),
         isNotNull(payouts.releaseTxHash),
         isNotNull(payouts.releasedAt),
+        isNull(campaigns.unlistedAt),
         contributor === null ? undefined : eq(submissions.contributorPubkey, contributor),
       ),
     )
@@ -85,13 +86,24 @@ export interface PublicTotals {
   campaigns: number;
 }
 
+/** Public figures leave out unlisted campaigns (test runs); the operator's metrics still count them. */
 export async function publicTotals(conn: Db = db): Promise<PublicTotals> {
   const [paid] = await conn
     .select({ amount: sql<string>`coalesce(sum(${payouts.amount}), 0)::text`, n: sql<number>`count(*)::int` })
     .from(payouts)
-    .where(eq(payouts.status, "released"));
-  const [decided] = await conn.select({ n: sql<number>`count(*)::int` }).from(decisions).where(isNotNull(decisions.txHash));
-  const [funded] = await conn.select({ n: sql<number>`count(*)::int` }).from(campaigns).where(isNotNull(campaigns.fundedAt));
+    .innerJoin(submissions, eq(submissions.id, payouts.submissionId))
+    .innerJoin(campaigns, eq(campaigns.id, submissions.campaignId))
+    .where(and(eq(payouts.status, "released"), isNull(campaigns.unlistedAt)));
+  const [decided] = await conn
+    .select({ n: sql<number>`count(*)::int` })
+    .from(decisions)
+    .innerJoin(submissions, eq(submissions.id, decisions.submissionId))
+    .innerJoin(campaigns, eq(campaigns.id, submissions.campaignId))
+    .where(and(isNotNull(decisions.txHash), isNull(campaigns.unlistedAt)));
+  const [funded] = await conn
+    .select({ n: sql<number>`count(*)::int` })
+    .from(campaigns)
+    .where(and(isNotNull(campaigns.fundedAt), isNull(campaigns.unlistedAt)));
   return { paidAmount: paid?.amount ?? "0", payouts: paid?.n ?? 0, decisions: decided?.n ?? 0, campaigns: funded?.n ?? 0 };
 }
 
@@ -100,7 +112,9 @@ export async function latestDecisionId(conn: Db = db): Promise<string | null> {
   const [row] = await conn
     .select({ id: decisions.id })
     .from(decisions)
-    .where(isNotNull(decisions.txHash))
+    .innerJoin(submissions, eq(submissions.id, decisions.submissionId))
+    .innerJoin(campaigns, eq(campaigns.id, submissions.campaignId))
+    .where(and(isNotNull(decisions.txHash), isNull(campaigns.unlistedAt)))
     .orderBy(desc(decisions.decidedAt))
     .limit(1);
   return row?.id ?? null;

@@ -25,6 +25,7 @@ const base: Campaign = {
   remainderTxHash: null,
   payoutLockToken: null,
   payoutLockUntil: null,
+  unlistedAt: null,
   createdAt: new Date(NOW.getTime() - 5 * DAY),
 };
 

@@ -22,7 +22,8 @@ export const dynamic = "force-dynamic";
 export default async function CampaignsPage() {
   const user = await currentUser();
   if (!user) return <SignedOut />;
-  const owned = await listCampaignsForFunder(user.pubkey);
+  // An unlisted campaign (a test run) leaves this list once it is closed; while open it stays, so its work can be finished.
+  const owned = (await listCampaignsForFunder(user.pubkey)).filter((c) => c.unlistedAt === null || c.closedAt === null);
   const now = new Date();
   const wallet = <WalletLine pubkey={user.pubkey} />;
 
