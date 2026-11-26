@@ -16,8 +16,8 @@ import { SIGNALS } from "@/domain/rubric";
 import { formatDateShort, formatUsdc, shortKey, truncateMiddle } from "@/lib/format";
 import type { MySubmission, PublicCampaign } from "@/services/submission";
 
-/** Freighter's own site; the Wallets Kit modal links it too when the extension is missing. */
-const FREIGHTER_URL = "https://www.freighter.app";
+/** Varial's own site (Freighter's new name); the Wallets Kit modal links it too when the extension is missing. */
+const VARIAL_URL = "https://varialwallet.com";
 
 /*
  * What the black ticket on a bounty page holds, by state: connect, the X and
@@ -100,12 +100,12 @@ export function SubmissionPanel({
               </summary>
               <ol className="list-decimal space-y-1.5 pb-4 pl-9 pr-4 text-[13px] leading-relaxed text-white/65 marker:font-mono marker:text-white/55">
                 <li>
-                  <a href={FREIGHTER_URL} target="_blank" rel="noreferrer" className="rounded-sm font-semibold text-accent hover:underline">
-                    Install Freighter ↗
+                  <a href={VARIAL_URL} target="_blank" rel="noreferrer" className="rounded-sm font-semibold text-accent hover:underline">
+                    Install Varial ↗
                   </a>{" "}
-                  and create a wallet.
+                  (formerly Freighter) and create a wallet.
                 </li>
-                <li>{publicEnv.isMainnet ? "Keep Freighter on Main Net, the network it starts on." : "In Freighter settings, switch the network to Testnet."}</li>
+                <li>{publicEnv.isMainnet ? "Keep Varial on Main Net, the network it starts on." : "In Varial settings, switch the network to Testnet."}</li>
                 <li>Come back to this tab and press Connect wallet.</li>
               </ol>
             </details>

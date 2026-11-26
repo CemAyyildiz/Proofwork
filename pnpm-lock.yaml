@@ -18,8 +18,8 @@ importers:
   .:
     dependencies:
       '@creit.tech/stellar-wallets-kit':
-        specifier: ^2.6.0
-        version: 2.6.0(@types/react@19.3.0)(@upstash/redis@1.39.0)(bufferutil@4.1.0)(near-api-js@5.1.1)(react@19.2.8)(tslib@2.8.1)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@4.6.7)
+        specifier: ^2.8.0
+        version: 2.8.0(@types/react@19.3.0)(@upstash/redis@1.39.0)(bufferutil@4.1.0)(near-api-js@5.1.1)(react@19.2.8)(tslib@2.8.1)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@4.6.7)
       '@openzeppelin/relayer-plugin-channels':
         specifier: ^0.20.0
         version: 0.20.0
@@ -233,8 +233,8 @@ packages:
   '@coinbase/wallet-sdk@4.3.6':
     resolution: {integrity: sha512-4q8BNG1ViL4mSAAvPAtpwlOs1gpC+67eQtgIwNvT3xyeyFFd+guwkc8bcX5rTmQhXpqnhzC4f0obACbP9CqMSA==}
 
-  '@creit.tech/stellar-wallets-kit@2.6.0':
-    resolution: {integrity: sha512-jrqCBhbYUOBLZu/UmaItv/i1CISDImjucY8RhtHzvpx6WXBKb9vW+wqeyjK578tPf+CV24ZTZq+vy7qGlyooKg==}
+  '@creit.tech/stellar-wallets-kit@2.8.0':
+    resolution: {integrity: sha512-+9Z3lU9JDHKWLlKVPulh84eYQGjd1oS72gjrA8c2tubcDozsoCFVfkOZr+ZjWddf1pZL6JsDpuVz/wlEzecyNA==}
 
   '@creit.tech/xbull-wallet-connect@0.4.0':
     resolution: {integrity: sha512-LrCUIqUz50SkZ4mv2hTqSmwews8CNRYVoZ9+VjLsK/1U8PByzXTxv1vZyenj6avRTG86ifpoeihz7D3D5YIDrQ==}
@@ -974,12 +974,14 @@ packages:
 
   '@ledgerhq/errors@6.37.0':
     resolution: {integrity: sha512-T5yiKI5UX7ugeocdTF3TUsCIN2BH41Bio4ZeN410YFjFOf3es08n/5JyMzzKwzRgP0blG3HfBf7s7vJKqCSAeg==}
+    deprecated: This package is no longer maintained and will not receive updates. Published versions remain available.
 
   '@ledgerhq/hw-app-str@7.2.8':
     resolution: {integrity: sha512-VHICY9jyZW5LM/8zc/mSbW7fS2bAC1OTVOtRwdQLEDn6Gv9UaNcCWjaHI1UKAnDUqYX7DUQuIPiTP1b4O+mtUQ==}
 
   '@ledgerhq/hw-transport-webusb@6.29.12':
     resolution: {integrity: sha512-mMGKPYAUz9MNcURe+hSTSHwqPwCli6D0lCl15Z4hDOpcqhZ26vwoeWVKeQp53NNCetHOl0lauPkN43Gt9pIggg==}
+    deprecated: This package is no longer maintained. Use @ledgerhq/device-transport-kit-web-hid instead.
 
   '@ledgerhq/hw-transport@6.31.12':
     resolution: {integrity: sha512-FO5LRIXYC8ELtaohlO8qK0b3TfHUNBZ3+CXKPHiHj2jJwrxPf4s5kcgBYrmzuf1C/1vfrMOjzyty6OgrMIbU6Q==}
@@ -1000,6 +1002,14 @@ packages:
 
   '@lobstrco/signer-extension-api@2.0.0':
     resolution: {integrity: sha512-jwlVyzMFF296iaNgMWn1lu+EU6BeUD4mgPurEsy8EygYNCrjA8igLpsDlXhfvXhst9tX5w4wRuTDX+FZtpfCug==}
+
+  '@metamask/connect-stellar@0.3.0':
+    resolution: {integrity: sha512-c5FloCdbfzxneQeSFrdk02/wZy6VwK6jAAPaCeDhhBMwL+A9uyFg0x1WU93chbBz+ENIHWqSwYmSkdS9rGu4Fw==}
+    engines: {node: ^18.20 || ^20.17 || >=22}
+
+  '@metamask/multichain-api-client@0.12.0':
+    resolution: {integrity: sha512-5YxIcK93n9DMhjTY5nuPj4aN5Nvabnnu4njf8kzXB0DKDKvvowe4YaQNvnjw/ZrHiDwE1ScPCyLgsdmPYCQhCQ==}
+    engines: {node: ^18.20 || ^20.17 || >=22}
 
   '@msgpack/msgpack@3.1.2':
     resolution: {integrity: sha512-JEW4DEtBzfe8HvUYecLU9e6+XJnKDlUAIve8FvPzF3Kzs6Xo/KuZkZJsDH0wJXl/qEZbeeE7edxDNY3kMs39hQ==}
@@ -2696,9 +2706,6 @@ packages:
   '@types/node@12.20.55':
     resolution: {integrity: sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ==}
 
-  '@types/node@20.19.43':
-    resolution: {integrity: sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==}
-
   '@types/node@22.20.4':
     resolution: {integrity: sha512-zJRE40jpHtKqE/C4fgHrAKQLJuSpzEnP9ff9Y7YtoR3Wd2pwqzlekDeEuUQXjRd+QCYnVnNwuJYmhdk9XV8gvA==}
 
@@ -3154,6 +3161,7 @@ packages:
 
   axios-retry@4.5.0:
     resolution: {integrity: sha512-aR99oXhpEDGo0UuAlYcn2iGRds30k366Zfa05XWScR9QaQD4JYiP3/1Qt1u7YlefUOK+cn0CcwoL1oefavQUlQ==}
+    deprecated: axios-retry is no longer maintained. See https://github.com/softonic/axios-retry for alternatives.
     peerDependencies:
       axios: 1.20.0
 
@@ -5837,7 +5845,7 @@ snapshots:
       - zod
     optional: true
 
-  '@creit.tech/stellar-wallets-kit@2.6.0(@types/react@19.3.0)(@upstash/redis@1.39.0)(bufferutil@4.1.0)(near-api-js@5.1.1)(react@19.2.8)(tslib@2.8.1)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@4.6.7)':
+  '@creit.tech/stellar-wallets-kit@2.8.0(@types/react@19.3.0)(@upstash/redis@1.39.0)(bufferutil@4.1.0)(near-api-js@5.1.1)(react@19.2.8)(tslib@2.8.1)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@4.6.7)':
     dependencies:
       '@albedo-link/intent': 0.12.0
       '@creit.tech/xbull-wallet-connect': 0.4.0
@@ -5846,6 +5854,7 @@ snapshots:
       '@ledgerhq/hw-transport': 6.31.12
       '@ledgerhq/hw-transport-webusb': 6.29.12
       '@lobstrco/signer-extension-api': 2.0.0
+      '@metamask/connect-stellar': 0.3.0
       '@preact/signals': 2.9.0(preact@10.29.8)
       '@reown/appkit': 1.8.21(@types/react@19.3.0)(@upstash/redis@1.39.0)(bufferutil@4.1.0)(react@19.2.8)(typescript@5.9.3)(utf-8-validate@6.0.6)(zod@4.6.7)
       '@stellar/freighter-api': 6.0.0
@@ -6440,6 +6449,12 @@ snapshots:
       '@lit-labs/ssr-dom-shim': 1.6.0
 
   '@lobstrco/signer-extension-api@2.0.0': {}
+
+  '@metamask/connect-stellar@0.3.0':
+    dependencies:
+      '@metamask/multichain-api-client': 0.12.0
+
+  '@metamask/multichain-api-client@0.12.0': {}
 
   '@msgpack/msgpack@3.1.2': {}
 
@@ -8633,7 +8648,7 @@ snapshots:
 
   '@types/connect@3.4.38':
     dependencies:
-      '@types/node': 20.19.43
+      '@types/node': 22.20.4
 
   '@types/deep-eql@4.0.2': {}
 
@@ -8644,10 +8659,6 @@ snapshots:
   '@types/json5@0.0.29': {}
 
   '@types/node@12.20.55': {}
-
-  '@types/node@20.19.43':
-    dependencies:
-      undici-types: 6.21.0
 
   '@types/node@22.20.4':
     dependencies:
@@ -8667,11 +8678,11 @@ snapshots:
 
   '@types/ws@7.4.7':
     dependencies:
-      '@types/node': 20.19.43
+      '@types/node': 22.20.4
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 20.19.43
+      '@types/node': 22.20.4
 
   '@typescript-eslint/eslint-plugin@8.70.1(@typescript-eslint/parser@8.70.1(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)':
     dependencies:
@@ -9380,6 +9391,17 @@ snapshots:
     optionalDependencies:
       typescript: 5.9.3
       zod: 4.6.7
+
+  abitype@1.3.0(typescript@5.9.3)(zod@3.22.4):
+    optionalDependencies:
+      typescript: 5.9.3
+      zod: 3.22.4
+
+  abitype@1.3.0(typescript@5.9.3)(zod@3.25.76):
+    optionalDependencies:
+      typescript: 5.9.3
+      zod: 3.25.76
+    optional: true
 
   abitype@1.3.0(typescript@5.9.3)(zod@4.6.7):
     optionalDependencies:
@@ -11133,7 +11155,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.9.3)(zod@3.22.4)
+      abitype: 1.3.0(typescript@5.9.3)(zod@3.22.4)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3
@@ -11148,7 +11170,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.9.3)(zod@3.25.76)
+      abitype: 1.3.0(typescript@5.9.3)(zod@3.25.76)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3
@@ -11164,7 +11186,7 @@ snapshots:
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
-      abitype: 1.2.3(typescript@5.9.3)(zod@4.6.7)
+      abitype: 1.3.0(typescript@5.9.3)(zod@4.6.7)
       eventemitter3: 5.0.1
     optionalDependencies:
       typescript: 5.9.3

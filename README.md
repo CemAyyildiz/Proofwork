@@ -114,7 +114,7 @@ With `SEALED_DUAL_REVIEW_ENABLED=true`, a campaign funder or operator can assign
 | `manage_data` value | `v2\|<PASS or FAIL>\|<reason code>\|<first 16 hex of the record hash>`; decisions scored under rubric v1 start with `v1` |
 | `memo_hash` | SHA-256 of the canonical decision JSON |
 
-**Stack:** Next.js (App Router, TypeScript strict) · Postgres + Drizzle · Trustless Work Core API v1 · Stellar Wallets Kit (Freighter) · `@stellar/stellar-sdk` · X API v2 · Upstash Redis (rate limits) · Vercel + Neon.
+**Stack:** Next.js (App Router, TypeScript strict) · Postgres + Drizzle · Trustless Work Core API v1 · Stellar Wallets Kit (Varial, formerly Freighter) · `@stellar/stellar-sdk` · X API v2 · Upstash Redis (rate limits) · Vercel + Neon.
 
 ---
 

@@ -54,7 +54,7 @@ export function WalletOnboarding({ campaignSlug, address, x }: { campaignSlug: s
 
   useEffect(() => {
     void recheck();
-    // A trustline added in Freighter directly shows up when the contributor comes back to the tab.
+    // A trustline added in the wallet directly shows up when the contributor comes back to the tab.
     function onFocus() {
       if (busyRef.current === null && document.visibilityState === "visible") void recheck();
     }

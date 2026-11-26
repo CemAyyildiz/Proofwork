@@ -11,7 +11,7 @@ vi.mock("@creit.tech/stellar-wallets-kit/sdk", () => {
   kit.loads += 1;
   return { StellarWalletsKit: { init: kit.init, signTransaction: kit.signTransaction } };
 });
-vi.mock("@creit.tech/stellar-wallets-kit/modules/freighter", () => ({ FreighterModule: class {} }));
+vi.mock("@creit.tech/stellar-wallets-kit/modules/varial", () => ({ VarialModule: class {} }));
 
 beforeEach(() => {
   // A fresh `@/wallet/kit` per test, so its cached load starts empty.
